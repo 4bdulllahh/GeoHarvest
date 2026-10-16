@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- MapScout: a folded map with a pitchfork driven through it.
+       Drawn in three layers so the fork reads as going *through*:
+       tine tips behind the map, the map, then the part of the fork above it. -->
+  <g transform="rotate(-18 128 128)" stroke-linecap="round" stroke-linejoin="round">
+    <!-- tine tips, behind the map: they come out below it -->
+    <g stroke="#f2a33a" stroke-width="11" fill="none">
+      <path d="M102 150 V232"/>
+      <path d="M128 150 V240"/>
+      <path d="M154 150 V232"/>
+    </g>
+  </g>
+
+  <!-- the folded map -->
+  <path d="M26 74 L90 54 L90 196 L26 216 Z" fill="#3b86dd"/>
+  <path d="M90 54 L166 74 L166 216 L90 196 Z" fill="#2b62a8"/>
+  <path d="M166 74 L230 54 L230 196 L166 216 Z" fill="#3b86dd"/>
+  <path d="M44 186 C70 160 92 182 116 160 S160 122 210 104" fill="none" stroke="#ffffff"
+        stroke-width="6" stroke-linecap="round" stroke-dasharray="2 12" opacity="0.9"/>
+
+  <g transform="rotate(-18 128 128)" stroke-linecap="round" stroke-linejoin="round">
+    <!-- where the tines go in -->
+    <g fill="#14365e">
+      <ellipse cx="102" cy="150" rx="9" ry="4"/>
+      <ellipse cx="128" cy="150" rx="9" ry="4"/>
+      <ellipse cx="154" cy="150" rx="9" ry="4"/>
+    </g>
+    <!-- handle, crossbar and the tines above the map -->
+    <g stroke="#f2a33a" stroke-width="11" fill="none">
+      <path d="M128 10 V84"/>
+      <path d="M102 150 V100 Q102 84 118 84 H138 Q154 84 154 100 V150"/>
+      <path d="M128 84 V150"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,21 @@
+# Exports
+*.xlsx
+*.csv
+!tests/fixtures/*
+
+# Build output
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local data
+*.db
+*.db-wal
+*.db-shm
