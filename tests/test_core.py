@@ -112,11 +112,14 @@ def test_regions_and_several_countries():
     assert len(geo.expand(["UK", "Germany", "EU"])) == 28  # Germany only once
     assert geo.resolve("holland") == "Netherlands" and geo.resolve("Atlantis") is None
 
-    options = {"niches": ["lawyer"], "countries": ["Gulf (GCC)"], "city_count": 1,
-               "cities": ["ignored with several countries"]}
+    options = {"niches": ["lawyer"], "countries": ["Gulf (GCC)"], "city_count": 1}
     queries = searches.build_queries(options)
     assert len(queries) == 6 and "lawyer in Dubai, United Arab Emirates" in queries
     assert searches.title(options) == "lawyer in Gulf (GCC), biggest city each"
+    ticked = {**options, "cities": ["Dubai, United Arab Emirates", "Doha, Qatar", "Al Barsha"]}
+    assert searches.build_queries(ticked) == ["lawyer in Dubai, United Arab Emirates",
+                                              "lawyer in Doha, Qatar", "lawyer in Al Barsha"]
+    assert searches.title(ticked) == "lawyer in 3 cities in 6 countries"
     full = searches.options_with_defaults(options)
     assert searches.passes({"country_code": "QA", "status": "Open"}, full)
     assert not searches.passes({"country_code": "US", "status": "Open"}, full)

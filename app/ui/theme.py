@@ -752,6 +752,18 @@ QListView {{
     outline: none;
 }}
 QListView::item {{ padding: {px(5)}px {px(8)}px; }}
+QListView::item:hover {{ background-color: {t['bg_hover']}; }}
+QListView::indicator {{
+    width: {box - 2}px; height: {box - 2}px;
+    border: 1px solid {t['border_strong']};
+    border-radius: 3px;
+    background-color: {t['bg_input']};
+}}
+QListView::indicator:checked {{
+    background-color: {t['accent']};
+    border-color: {t['accent']};
+    image: url("{check_mark()}");
+}}
 
 /* ---------- toasts ---------- */
 QFrame[role="toast"] {{

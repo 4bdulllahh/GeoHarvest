@@ -12,7 +12,7 @@ from app.core import db, geo
 DEFAULT_OPTIONS = {
     "niches": [],             # "dentist", "real estate agency"...
     "countries": [],          # countries and/or regions ("European Union"), as typed
-    "cities": [],             # only with one country; empty: its biggest `city_count` cities
+    "cities": [],             # "City, Country" as ticked; empty: each country's biggest
     "city_count": 10,
     "company_age": "any",     # any, startup, established (estimated, see enrich.py)
     "min_rating": 0.0,
@@ -35,12 +35,12 @@ def options_with_defaults(options: dict) -> dict:
 
 
 def places_for(options: dict) -> list[str]:
-    """The places to search: typed cities (one country only), else each country's biggest."""
+    """The places to search: the ticked cities, else each country's biggest `city_count`."""
     countries = geo.expand(options["countries"])
     chosen = [c.strip() for c in options["cities"] if c.strip()]
-    if chosen and len(countries) <= 1:
-        suffix = f", {countries[0]}" if countries else ""
-        return [city + suffix for city in chosen]
+    if chosen:
+        # Searches saved before the city checklist stored bare city names with one country
+        return [c if "," in c or len(countries) != 1 else f"{c}, {countries[0]}" for c in chosen]
     count = max(1, int(options["city_count"]))
     places = []
     for country in countries:
@@ -61,9 +61,13 @@ def title(options: dict) -> str:
     named = [geo.resolve(c) or c for c in options["countries"]]
     countries = geo.expand(options["countries"])
     cities = [c for c in options["cities"] if c.strip()]
-    if cities and len(countries) <= 1:
+    if cities:
         where = cities[0] if len(cities) == 1 else f"{len(cities)} cities"
-        where += f", {countries[0]}" if countries else ""
+        if len(cities) > 1 and countries:
+            where += " in " + (", ".join(countries) if len(countries) <= 3
+                               else f"{len(countries)} countries")
+        elif len(cities) == 1 and "," not in cities[0] and len(countries) == 1:
+            where += f", {countries[0]}"
     else:
         where = ", ".join(named) if len(named) <= 3 else f"{len(countries)} countries"
         biggest = "biggest city" if options["city_count"] == 1 else             f"{options['city_count']} biggest cities"

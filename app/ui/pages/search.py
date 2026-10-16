@@ -7,9 +7,10 @@ from PyQt6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QSpinBox, QWidge
 from app.core import db, geo
 from app.core import search as searches
 from app.ui.pages.base import Page
-from app.ui.widgets.common import (Card, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
+from app.ui.widgets.common import (Card, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
                                    confirm_button, danger_button, hint, muted, row,
                                    secondary_button)
+from app.ui.widgets.checklist import CheckList
 from app.ui.widgets.inputs import checkbox, line_edit
 
 NICHES = [
@@ -91,34 +92,35 @@ class SearchPage(Page):
         layout.addWidget(what)
 
         # --- where ----------------------------------------------------------
-        where = Section("Where?")
-        country_row = FormRow("Countries",
-                              "One or several, separated by commas. Regions work too: European "
-                              "Union (all 27 countries) and Gulf (GCC).")
-        self.country = list_input("For example: United States, Germany, or European Union",
-                                  geo.choices())
-        self.country.setText(", ".join(last["countries"]))
-        country_row.add(self.country)
-        where.add(country_row)
-
-        cities_row = FormRow("Cities (optional, with one country)",
-                             "Leave empty to search each country's biggest cities one by one. "
-                             "Google shows about 200 businesses per city, so more cities means "
-                             "more leads.")
-        self.cities = list_input("For example: Dubai, Abu Dhabi", [])
-        self.cities.setText(", ".join(last["cities"]))
-        cities_row.add(self.cities)
-        self.city_count = spin(1, 60, int(last["city_count"]), " cities")
-        cities_row.add(row(muted("If empty, search the biggest", wrap=False), self.city_count,
-                           None))
-        where.add(cities_row)
+        where = Section("Where?",
+                        "Tick the countries, then the cities in them. Google shows about 200 "
+                        "businesses per city, so more cities means more leads.")
+        self.countries = CheckList("Search countries")
+        self.countries.set_items([(r, f"{r} (all its countries)") for r in geo.REGIONS]
+                                 + [(c, c) for c in geo.countries()], set())
+        self.cities = CheckList("Search cities")
+        self.extra_places: list[str] = []
+        self.extra_place = line_edit("A town or area that is not listed")
+        self.extra_place.returnPressed.connect(self._add_place)
+        columns = QHBoxLayout()
+        columns.setSpacing(16)
+        left, right = FormRow("Countries"), FormRow("Cities")
+        left.add(self.countries)
+        right.add(self.cities)
+        right.add(row(self.extra_place, small_button("Add", self._add_place), stretch=0))
+        columns.addWidget(left, 1)
+        columns.addWidget(right, 1)
+        where.add_layout(columns)
+        self.city_count = spin(0, 60, int(last["city_count"]), " cities", "No cities")
+        where.add(row(muted("Ticking a country also ticks its biggest", wrap=False),
+                      self.city_count, None))
         self.plan = hint("")
         where.add(self.plan)
         layout.addWidget(where)
-        for edit in (self.country, self.cities, self.niches):
-            edit.textChanged.connect(self._country_changed)
-        self.city_count.valueChanged.connect(self._country_changed)
-        self._country_changed()
+        self.countries.toggled.connect(self._country_toggled)
+        self.countries.changed.connect(self._rebuild_cities)
+        self.cities.changed.connect(self._update_plan)
+        self.niches.textChanged.connect(self._update_plan)
 
         # --- which ----------------------------------------------------------
         which = Section("Which businesses?")
@@ -206,27 +208,61 @@ class SearchPage(Page):
         self.open_button.hide()
         bar.add(row(self.status, self.open_button, self.stop_button, self.start_button, stretch=0))
         self.root.addWidget(bar)
+        self.load_options(last)
 
     # --- form ---------------------------------------------------------------
-    def _country_changed(self, *_args) -> None:
-        countries = geo.expand(split_list(self.country.text()))
-        one = len(countries) == 1
-        self.cities.completer().model().setStringList(geo.cities(countries[0]) if one else [])
-        self.cities.setEnabled(one or not countries)
-        self.cities.setPlaceholderText("For example: Dubai, Abu Dhabi" if one or not countries
-                                       else "Each country's biggest cities are searched")
-        unknown = [c for c in split_list(self.country.text()) if geo.resolve(c) is None]
-        searches_count = len(searches.build_queries({
-            "niches": split_list(self.niches.text()), "countries": split_list(self.country.text()),
-            "cities": split_list(self.cities.text()), "city_count": self.city_count.value()}))
-        if unknown:
-            self.plan.setText(f"Not a country GeoHarvest knows: {', '.join(unknown)}. "
-                              "Pick from the list as you type.")
-        elif searches_count:
-            self.plan.setText(f"{len(countries)} {'country' if one else 'countries'}, "
-                              f"{searches_count:,} searches (one per city and business type).")
-        else:
-            self.plan.setText("")
+    def _country_toggled(self, key: str, on: bool) -> None:
+        if key in geo.REGIONS:  # a region ticks or unticks all of its countries
+            self.countries.set_checked(set(geo.expand([key])), on)
+
+    def _chosen_countries(self) -> list[str]:
+        return [c for c in self.countries.checked() if c not in geo.REGIONS]
+
+    def _rebuild_cities(self, tick: set[str] | None = None) -> None:
+        """List the cities of the ticked countries, keeping what was ticked.
+
+        A country that just appeared gets its biggest `city_count` cities ticked,
+        unless ``tick`` says exactly what to tick (loading a saved search).
+        """
+        # A region shows as ticked only while every one of its countries is
+        chosen = set(self._chosen_countries())
+        for region in geo.REGIONS:
+            self.countries.set_checked({region}, set(geo.expand([region])) <= chosen)
+        shown_before = set(self.cities.keys())
+        keep = set(self.cities.checked()) if tick is None else set(tick)
+        items = []
+        for country in self._chosen_countries():
+            names = geo.cities(country) or [country]
+            for index, city in enumerate(names):
+                key = f"{city}, {country}" if city != country else country
+                items.append((key, key))
+                if tick is None and key not in shown_before and index < self.city_count.value():
+                    keep.add(key)
+        items += [(place, place) for place in self.extra_places]
+        self.cities.set_items(items, keep)
+        self._update_plan()
+
+    def _add_place(self) -> None:
+        place = self.extra_place.text().strip().strip(",")
+        if not place:
+            return
+        countries = self._chosen_countries()
+        if "," not in place and len(countries) == 1:
+            place = f"{place}, {countries[0]}"
+        if place not in self.extra_places:
+            self.extra_places.append(place)
+        self.extra_place.clear()
+        self._rebuild_cities(tick=set(self.cities.checked()) | {place})
+
+    def _update_plan(self) -> None:
+        count = len(searches.build_queries({
+            "niches": split_list(self.niches.text()), "countries": self._chosen_countries(),
+            "cities": self.cities.checked(), "city_count": self.city_count.value()}))
+        countries, cities = len(self._chosen_countries()), len(self.cities.checked())
+        self.plan.setText(f"{countries} {'country' if countries == 1 else 'countries'}, "
+                          f"{cities:,} {'city' if cities == 1 else 'cities'} ticked: "
+                          f"{count:,} searches (one per city and business type)."
+                          if count else "")
 
     def on_show(self) -> None:
         ready = bool(db.get_setting("ai_provider", ""))
@@ -240,8 +276,8 @@ class SearchPage(Page):
     def options(self) -> dict:
         return {
             "niches": split_list(self.niches.text()),
-            "countries": split_list(self.country.text()),
-            "cities": split_list(self.cities.text()),
+            "countries": self._chosen_countries(),
+            "cities": self.cities.checked(),
             "city_count": self.city_count.value(),
             "company_age": self.company_age.get(),
             "min_rating": float(self.min_rating.get()),
@@ -259,9 +295,14 @@ class SearchPage(Page):
         """Fill the form from a saved search (Past searches: resume or run again)."""
         options = searches.options_with_defaults(options)
         self.niches.setText(", ".join(options["niches"]))
-        self.country.setText(", ".join(options["countries"]))
-        self.cities.setText(", ".join(options["cities"]))
         self.city_count.setValue(int(options["city_count"]))
+        countries = geo.expand(options["countries"])
+        cities = searches.places_for(options)  # old saves: bare names, or none (biggest N)
+        listed = {f"{c}, {country}" for country in countries for c in geo.cities(country)}
+        self.extra_places = [c for c in cities if c not in listed and c not in countries]
+        self.countries.set_checked(set(self.countries.keys()), False)
+        self.countries.set_checked(set(countries))
+        self._rebuild_cities(tick=set(cities))
         self.company_age.set(options["company_age"])
         self.min_rating.set(str(options["min_rating"]).removesuffix(".0"))
         self.min_reviews.setValue(int(options["min_reviews"]))
@@ -275,11 +316,8 @@ class SearchPage(Page):
     def _validate(self, options: dict) -> str | None:
         if not options["niches"]:
             return "Type what kind of business you are looking for."
-        if not options["countries"] and not options["cities"]:
-            return "Pick a country, or type at least one city."
-        unknown = [c for c in options["countries"] if geo.resolve(c) is None]
-        if unknown:
-            return f"Pick the country from the list, so GeoHarvest knows its cities: {unknown[0]}"
+        if not options["cities"]:
+            return "Tick at least one country and one city."
         return None
 
     # --- running ------------------------------------------------------------
