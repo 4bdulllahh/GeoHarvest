@@ -14,15 +14,19 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 from PyQt6.QtCore import pyqtSignal
 
-from app.core import db, scraper
+from app.core import db, enrich, scraper
 from app.core import search as searches
 from app.workers.base import Signals, Worker
 
 DEFAULT_PARALLEL = 4
+ENRICH_PARALLEL = 16  # website visits are slow to answer but cheap to wait on
 
 
 class ScrapeSignals(Signals):
-    leads = pyqtSignal(list)  # newly saved leads, for the live table
+    leads = pyqtSignal(list)            # newly saved leads, for the live table
+    updated = pyqtSignal(str, dict)     # place id, fields added by enrichment
+    removed = pyqtSignal(str)           # place id dropped by the company age filter
+    checked = pyqtSignal(int, int)      # websites checked, websites to check
 
 
 class ScrapeWorker(Worker):
@@ -52,6 +56,42 @@ class ScrapeWorker(Worker):
         def stopping() -> bool:
             return self._stop.is_set() or (limit and state["found"] >= limit)
 
+        # --- enrichment: runs alongside the search, fed as leads are saved ----
+        wants_age = options["company_age"] != "any"
+        enricher = enrich.Enricher(wayback=wants_age) if options["find_emails"] or wants_age             else None
+        enrich_pool = ThreadPoolExecutor(ENRICH_PARALLEL) if enricher else None
+        checks = {"done": 0, "total": 0}
+
+        def enrich_one(lead: dict) -> None:
+            if self._stop.is_set():
+                return
+            try:
+                fields = enricher.enrich(lead, options["find_emails"])
+            except Exception as error:  # noqa: BLE001 - one odd website must not end the search
+                self.log(f"Could not check {lead.get('website')}: {error}", "warn")
+                fields = {"enriched": True}
+            with lock:
+                if enrich.matches_age({**lead, **fields}, options["company_age"]):
+                    searches.update_lead(self.search_id, lead["place_id"], fields)
+                    self.signals.updated.emit(lead["place_id"], fields)
+                else:
+                    searches.remove_lead(self.search_id, lead["place_id"])
+                    self.signals.removed.emit(lead["place_id"])
+                checks["done"] += 1
+                self.signals.checked.emit(checks["done"], checks["total"])
+
+        def queue_enrichment(leads: list[dict]) -> None:
+            if enrich_pool is None:
+                return
+            with lock:
+                checks["total"] += len(leads)
+            for lead in leads:
+                enrich_pool.submit(enrich_one, lead)
+
+        # Resuming: leads saved last time but never checked
+        queue_enrichment([lead for lead in searches.leads(self.search_id)
+                          if not lead.get("enriched")])
+
         def run(query: str) -> None:
             if stopping():
                 return
@@ -66,6 +106,7 @@ class ScrapeWorker(Worker):
                             state["found"] += len(saved)
                         if saved:
                             self.signals.leads.emit(saved)
+                            queue_enrichment(saved)
                         if stopping():
                             return
                     break
@@ -90,10 +131,16 @@ class ScrapeWorker(Worker):
         try:
             with ThreadPoolExecutor(max(1, parallel)) as pool:
                 list(pool.map(run, queries))
+            if enrich_pool is not None:
+                # Stop drops the website visits still waiting; resume picks them up
+                enrich_pool.shutdown(wait=True, cancel_futures=self._stop.is_set())
         finally:
             client.close()
+            if enricher is not None:
+                enricher.close()
 
-        complete = state["finished"] == len(all_queries) or (limit and state["found"] >= limit)
+        searched = state["finished"] == len(all_queries) or (limit and state["found"] >= limit)
+        complete = searched and checks["done"] == checks["total"]
         status = "done" if complete and not self.blocked else "stopped"
         searches.set_status(self.search_id, status)
         return {"status": status, "found": state["found"], "blocked": self.blocked}

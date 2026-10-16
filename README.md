@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo-256.png" width="140" alt="MapScout logo: a pitchfork driven through a folded map">
+  <img src="assets/logo-256.png" width="140" alt="GeoHarvest logo: a pitchfork driven through a folded map">
 </p>
 
-<h1 align="center">MapScout</h1>
+<h1 align="center">GeoHarvest</h1>
 
 <p align="center"><b>Find business leads on Google Maps. Free, fast, no API keys needed.</b></p>
 

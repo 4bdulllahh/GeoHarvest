@@ -3,8 +3,8 @@ import os
 import sys
 from pathlib import Path
 
-APP_NAME = "MapScout"
-APP_TITLE = "MapScout"
+APP_NAME = "GeoHarvest"
+APP_TITLE = "GeoHarvest"
 APP_VERSION = "v0.1.0 beta"
 APP_TAGLINE = "Find business leads on Google Maps"
 REPO_URL = "https://github.com/4bdulllahh/GeoHarvest"
@@ -21,7 +21,7 @@ def _app_data_dir() -> Path:
 
 
 DATA_DIR = _app_data_dir()
-DB_PATH = DATA_DIR / "mapscout.db"
+DB_PATH = DATA_DIR / "geoharvest.db"
 EXPORTS_DIR = DATA_DIR / "exports"
 LOGS_DIR = DATA_DIR / "logs"
 BROWSER_PROFILE_DIR = DATA_DIR / "browser"

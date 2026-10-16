@@ -76,7 +76,7 @@ class SearchPage(Page):
         super().__init__(window)
         self.worker = None
         self.search_id: int | None = None
-        self.add_header("New search", "Pick a kind of business and a place. MapScout finds every "
+        self.add_header("New search", "Pick a kind of business and a place. GeoHarvest finds every "
                                       "match on Google Maps, with phone, website, address and more.")
         body = self.scroll_body()
         layout = body.body_layout
@@ -120,9 +120,10 @@ class SearchPage(Page):
         # --- which ----------------------------------------------------------
         which = Section("Which businesses?")
         age_row = FormRow("Company age",
-                          "Estimated from when the business's website was registered. Google "
-                          "Maps does not record when a company was founded, so businesses "
-                          "without a website only appear under Any age.")
+                          "Estimated from when the business's website was registered (or first "
+                          "appeared online, for countries whose registry keeps that private, "
+                          "which takes longer). Google Maps does not record when a company was "
+                          "founded, so businesses without a website only appear under Any age.")
         self.company_age = ChoiceButtons(
             [("any", "Any age"), ("startup", "Startups (under 3 years)"),
              ("established", "Established (3 years or more)")], last["company_age"])
@@ -143,7 +144,8 @@ class SearchPage(Page):
         limits_layout.setContentsMargins(0, 0, 0, 0)
         limits_layout.setSpacing(12)
         for label, box in (("At least", self.min_reviews), ("Stop after", self.max_results)):
-            field = FormRow(label)
+            field = FormRow(label, "Counted before the company age check" if box is
+                            self.max_results else "")
             field.add(box)
             limits_layout.addWidget(field)
         limits_layout.addStretch(1)
@@ -178,9 +180,11 @@ class SearchPage(Page):
         stats.setSpacing(10)
         self.tile_leads = StatTile("Leads found", "0")
         self.tile_places = StatTile("Searches done", "0")
-        self.tile_web = StatTile("With a website", "0")
+        self.tile_web = StatTile("Websites checked", "-")
+        self.tile_email = StatTile("With an email", "0")
         self.tile_phone = StatTile("With a phone", "0")
-        for tile in (self.tile_leads, self.tile_places, self.tile_web, self.tile_phone):
+        for tile in (self.tile_leads, self.tile_places, self.tile_web, self.tile_email,
+                     self.tile_phone):
             stats.addWidget(tile)
         self.stats = QWidget()
         self.stats.setLayout(stats)
@@ -237,7 +241,7 @@ class SearchPage(Page):
         if not options["country"] and not options["cities"]:
             return "Pick a country, or type at least one city."
         if options["country"] and options["country"] not in geo.countries():
-            return "Pick the country from the list, so MapScout knows its cities."
+            return "Pick the country from the list, so GeoHarvest knows its cities."
         return None
 
     # --- running ------------------------------------------------------------
@@ -259,13 +263,19 @@ class SearchPage(Page):
         self.search_id = search_id
         record = searches.get(search_id)
         self.total_queries = len(searches.build_queries(record["options"]))
-        self.counts = {"leads": 0, "web": 0, "phone": 0}
+        self.counts = {"leads": 0, "email": 0, "phone": 0}
+        self.known: dict[str, dict] = {}  # what each lead added to the tiles, to undo on removal
+        self.queries_done = len(record["progress"].get("done", []))
+        self.tile_web.update_value("-")
         for lead in searches.leads(search_id):
             self._count(lead)
-        self._show_counts(len(record["progress"].get("done", [])))
+        self._show_counts()
 
         self.worker = ScrapeWorker(search_id)
         self.worker.signals.leads.connect(self._on_leads)
+        self.worker.signals.updated.connect(self._on_updated)
+        self.worker.signals.removed.connect(self._on_removed)
+        self.worker.signals.checked.connect(self._on_checked)
         self.worker.signals.progress.connect(self._on_progress)
         self.worker.signals.message.connect(lambda text, level: self.notify(text, level))
         self.worker.signals.finished.connect(self._on_finished)
@@ -293,28 +303,52 @@ class SearchPage(Page):
         self.window_.set_status(left="Searching..." if running else "")
 
     def _count(self, lead: dict) -> None:
+        added = {"email": bool(lead.get("emails")), "phone": bool(lead.get("phone"))}
+        self.known[lead["place_id"]] = added
         self.counts["leads"] += 1
-        self.counts["web"] += bool(lead.get("website"))
-        self.counts["phone"] += bool(lead.get("phone"))
+        self.counts["email"] += added["email"]
+        self.counts["phone"] += added["phone"]
 
-    def _show_counts(self, done: int) -> None:
+    def _show_counts(self) -> None:
         self.tile_leads.update_value(f"{self.counts['leads']:,}")
-        self.tile_places.update_value(f"{done} of {self.total_queries}")
-        self.tile_web.update_value(f"{self.counts['web']:,}")
+        self.tile_places.update_value(f"{self.queries_done} of {self.total_queries}")
+        self.tile_email.update_value(f"{self.counts['email']:,}")
         self.tile_phone.update_value(f"{self.counts['phone']:,}")
 
     def _on_leads(self, leads: list) -> None:
         for lead in leads:
             self._count(lead)
-        self._show_counts(self.progress.bar.value() if self.progress.bar.maximum() else 0)
+        self._show_counts()
         self.window_.leads_added.emit(self.search_id, leads)
         self.window_.refresh_status()
 
     def _on_progress(self, done: int, total: int, detail: str) -> None:
         self.progress.set_progress(done, total)
-        self._show_counts(done)
+        self.queries_done = done
+        self._show_counts()
         if detail and detail != "Starting":
             self.status.setText(f"Finished: {detail}")
+
+    def _on_updated(self, place_id: str, fields: dict) -> None:
+        added = self.known.get(place_id)
+        if fields.get("emails") and added is not None and not added["email"]:
+            added["email"] = True
+            self.counts["email"] += 1
+            self._show_counts()
+        self.window_.lead_updated.emit(self.search_id, place_id, fields)
+
+    def _on_removed(self, place_id: str) -> None:
+        added = self.known.pop(place_id, {"email": False, "phone": False})
+        self.counts["leads"] -= 1
+        self.counts["email"] -= added["email"]
+        self.counts["phone"] -= added["phone"]
+        self._show_counts()
+        self.window_.lead_removed.emit(self.search_id, place_id)
+
+    def _on_checked(self, done: int, total: int) -> None:
+        self.tile_web.update_value(f"{done:,} of {total:,}")
+        if self.queries_done == self.total_queries and done < total:
+            self.status.setText(f"Searching done. Checking websites: {done:,} of {total:,}")
 
     def _on_finished(self, result: dict) -> None:
         self.worker = None
@@ -322,10 +356,11 @@ class SearchPage(Page):
         found = self.counts["leads"]
         if result["blocked"]:
             self.status.setText("Paused: Google is limiting requests from your connection.")
-            self.notify("Google asked MapScout to slow down. Everything found so far is saved. "
+            self.notify("Google asked GeoHarvest to slow down. Everything found so far is saved. "
                         "Wait about 15 minutes, then resume it from Past searches.", "warn", 10000)
         elif result["status"] == "done":
-            self._show_counts(self.total_queries)  # also true when "Stop after" ended it early
+            self.queries_done = self.total_queries  # also true when "Stop after" ended it early
+            self._show_counts()
             self.status.setText(f"Done. {found:,} leads found.")
             self.notify(f"Search finished: {found:,} leads.", "success")
         else:

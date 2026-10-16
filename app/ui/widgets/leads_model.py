@@ -93,6 +93,17 @@ class LeadsModel(QAbstractTableModel):
         self.haystacks[row] = self._haystack(self.leads[row])
         self.dataChanged.emit(self.index(row, 0), self.index(row, len(self.keys) - 1))
 
+    def remove(self, place_id: str) -> None:
+        row = self._row_of.pop(place_id, None)
+        if row is None:
+            return
+        self.beginRemoveRows(QModelIndex(), row, row)
+        del self.leads[row]
+        del self.haystacks[row]
+        self.endRemoveRows()
+        for later in self.leads[row:]:
+            self._row_of[later.get("place_id")] -= 1
+
     def empty_columns(self) -> list[int]:
         return [column for column, key in enumerate(self.keys)
                 if not any(lead.get(key) not in (None, "", []) for lead in self.leads)]

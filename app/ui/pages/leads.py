@@ -24,7 +24,7 @@ ALL = "All searches"
 class LeadsPage(Page):
     def __init__(self, window):
         super().__init__(window)
-        self.add_header("Leads", "Everything MapScout found. Type to filter, click a column "
+        self.add_header("Leads", "Everything GeoHarvest found. Type to filter, click a column "
                                  "heading to sort, then export to Excel.")
         self.search_ids: dict[str, int] = {}
         self.current_id = 0  # 0: all searches
@@ -69,6 +69,8 @@ class LeadsPage(Page):
 
         window.leads_added.connect(self._on_leads_added)
         window.lead_updated.connect(self._on_lead_updated)
+        window.lead_removed.connect(
+            lambda sid, pid: self.model.remove(pid) if self.current_id in (0, sid) else None)
         window.search_finished.connect(lambda _id: self._refresh_picker())
         self._refresh_picker()
         self._load()
@@ -170,7 +172,7 @@ class LeadsPage(Page):
             return
         title = self.picker.currentText().split("  (")[0] if self.current_id else "All leads"
         safe = "".join(c for c in title if c.isalnum() or c in " ,-_")[:80].strip()
-        default = Path.home() / "Documents" / f"MapScout - {safe} - {date.today()}.{kind}"
+        default = Path.home() / "Documents" / f"GeoHarvest - {safe} - {date.today()}.{kind}"
         wanted = "Excel workbook (*.xlsx)" if kind == "xlsx" else "CSV file (*.csv)"
         path, _ = QFileDialog.getSaveFileName(self, "Export leads", str(default), wanted)
         if not path:
@@ -197,7 +199,7 @@ class LeadsPage(Page):
             self.notify("That search is still running. Stop it first.", "warn")
             return
         if not ConfirmDialog.ask(self, "Delete this search?",
-                                 "Its leads are removed from MapScout. Files you already "
+                                 "Its leads are removed from GeoHarvest. Files you already "
                                  "exported are not touched.",
                                  confirm_text="Delete", danger=True):
             return

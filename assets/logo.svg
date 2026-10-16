@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- MapScout: a folded map with a pitchfork driven through it.
+  <!-- GeoHarvest: a folded map with a pitchfork driven through it.
        Drawn in three layers so the fork reads as going *through*:
        tine tips behind the map, the map, then the part of the fork above it. -->
   <g transform="rotate(-18 128 128)" stroke-linecap="round" stroke-linejoin="round">

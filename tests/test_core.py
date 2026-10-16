@@ -162,3 +162,87 @@ def test_export_xlsx_and_csv(tmp_path):
     text = (tmp_path / "out.csv").read_text("utf-8-sig")
     assert "'=HYPERLINK" in text and ",+92 300 1234567," in text
     assert exporter.safe_csv("-cmd|' /C calc'!A0").startswith("'")
+
+
+# --- enrichment -------------------------------------------------------------
+def test_find_emails_handles_obfuscation_and_junk():
+    from app.core import enrich
+
+    # Cloudflare encodes "info@acme.pk" with key 0x42
+    hidden = "42" + "".join(f"{ord(c) ^ 0x42:02x}" for c in "info@acme.pk")
+    page = ('<a href="mailto:Sales@Acme.pk">x</a> logo@2x.png you@example.com '
+            f'hello&#64;acme.pk mailto:%20sales@acme.pk hello@acme.pkClifton <span data-cfemail="{hidden}"></span> sales@acme.pk')
+    assert enrich.find_emails(page) == ["sales@acme.pk", "hello@acme.pk", "info@acme.pk"]
+
+
+def test_find_socials_skips_share_buttons():
+    from app.core import enrich
+
+    page = ('<a href="https://www.facebook.com/sharer/sharer.php?u=x"></a>'
+            '<a href="https://www.facebook.com/AcmeDental/">fb</a>'
+            '<a href="//instagram.com/acme.dental">ig</a>'
+            '<a href="https://twitter.com/intent/tweet">t</a><a href="https://x.com/acme">x</a>'
+            '<a href="https://www.linkedin.com/company/acme-dental">li</a>')
+    assert enrich.find_socials(page) == {
+        "facebook": "https://www.facebook.com/AcmeDental",
+        "instagram": "https://instagram.com/acme.dental",
+        "linkedin": "https://www.linkedin.com/company/acme-dental",
+        "twitter": "https://x.com/acme",
+    }
+
+
+def test_company_age():
+    from datetime import date
+
+    from app.core import enrich
+
+    rdap = {"events": [{"eventAction": "expiration", "eventDate": "2030-01-01T00:00:00Z"},
+                       {"eventAction": "registration", "eventDate": "2024-05-01T10:00:00Z"}]}
+    created = enrich.registration_date(rdap)
+    fields = enrich.age_fields(created, today=date(2026, 10, 16))
+    assert fields == {"domain_created": "2024-05-01", "company_age": "Startup (2 years)",
+                      "age_years": 2, "age_source": "Domain registration"}
+    young = enrich.age_fields(date(2026, 3, 1), today=date(2026, 10, 16))
+    assert young["company_age"] == "Startup (under 1 year)"
+    assert enrich.domain_candidates("clinic.netlify.app") == []
+    assert enrich.matches_age(fields, "startup") and not enrich.matches_age(fields, "established")
+    assert enrich.matches_age({}, "any") and not enrich.matches_age({}, "startup")
+    assert enrich.domain_candidates("www.shop.acme.co.uk") == ["shop.acme.co.uk", "acme.co.uk",
+                                                               "co.uk"]
+
+
+def test_enrich_crawls_contact_page_and_looks_up_age():
+    from datetime import date
+
+    import httpx
+
+    from app.core import enrich
+
+    pages = {
+        "https://acme.pk/": '<a href="/contact-us">Contact</a><a href="https://other.com/contact">',
+        "https://acme.pk/contact-us": "Write to info@acme.pk or acme@gmail.com",
+    }
+
+    def handler(request):
+        url = str(request.url)
+        if url.startswith("https://rdap.org/domain/old.pk"):
+            return httpx.Response(404)
+        if url.startswith("https://web.archive.org/cdx"):
+            return httpx.Response(200, json=[["timestamp"], ["20120304050607"]])
+        if url.startswith("https://rdap.org/domain/acme.pk"):
+            return httpx.Response(200, json={"events": [
+                {"eventAction": "registration", "eventDate": "2010-01-01T00:00:00Z"}]})
+        if url in pages:
+            return httpx.Response(200, text=pages[url], headers={"content-type": "text/html"})
+        return httpx.Response(404)
+
+    enricher = enrich.Enricher(transport=httpx.MockTransport(handler))
+    fields = enricher.enrich({"website": "https://acme.pk/", "domain": "acme.pk"})
+    assert fields["emails"] == "info@acme.pk, acme@gmail.com"
+    assert fields["company_age"].startswith("Established") and fields["enriched"]
+
+    assert enricher.domain_created("old.pk") == (
+        date(2012, 3, 4), "First seen online (Wayback Machine)")
+
+    social = enricher.enrich({"website": "https://www.facebook.com/acme"})
+    assert social == {"enriched": True, "facebook": "https://www.facebook.com/acme"}

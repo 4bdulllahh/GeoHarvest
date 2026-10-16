@@ -10,7 +10,7 @@ from app.ui.widgets.inputs import checkbox
 class SettingsPage(Page):
     def __init__(self, window):
         super().__init__(window)
-        self.add_header("Settings", "How MapScout looks and behaves.")
+        self.add_header("Settings", "How GeoHarvest looks and behaves.")
         body = self.scroll_body()
 
         look = Section("Appearance")

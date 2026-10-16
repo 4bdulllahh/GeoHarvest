@@ -172,3 +172,7 @@ def all_leads() -> list[dict]:
 def delete(search_id: int) -> None:
     db.execute("DELETE FROM leads WHERE search_id = ?", (search_id,))
     db.execute("DELETE FROM searches WHERE id = ?", (search_id,))
+
+
+def remove_lead(search_id: int, place_id: str) -> None:
+    db.execute("DELETE FROM leads WHERE search_id = ? AND place_id = ?", (search_id, place_id))

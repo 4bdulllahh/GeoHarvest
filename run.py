@@ -1,4 +1,4 @@
-"""MapScout launcher."""
+"""GeoHarvest launcher."""
 from __future__ import annotations
 
 import sys
@@ -16,7 +16,7 @@ def report(message: str) -> None:
         from PyQt6.QtWidgets import QApplication, QMessageBox
 
         app = QApplication.instance() or QApplication(sys.argv)
-        QMessageBox.critical(None, "MapScout", message)
+        QMessageBox.critical(None, "GeoHarvest", message)
         del app
     except Exception:
         pass
@@ -63,19 +63,19 @@ def main() -> int:
     from PyQt6.QtWidgets import QApplication
 
     if sys.platform == "win32":
-        # Own taskbar identity, so it shows the MapScout icon rather than Python's
+        # Own taskbar identity, so it shows the GeoHarvest icon rather than Python's
         try:
             import ctypes
 
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MapScout.App")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GeoHarvest.App")
         except (AttributeError, OSError):
             pass
 
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.RoundPreferFloor)
     app = QApplication(sys.argv)
-    app.setApplicationName("MapScout")
-    app.setOrganizationName("MapScout")
+    app.setApplicationName("GeoHarvest")
+    app.setOrganizationName("GeoHarvest")
     # Fusion is the only style QSS can fully restyle
     app.setStyle("Fusion")
 
@@ -116,5 +116,5 @@ if __name__ == "__main__":
             (config.LOGS_DIR / "crash.log").write_text(details, encoding="utf-8")
         except Exception:
             pass
-        report(f"MapScout could not start.\n\n{type(error).__name__}: {error}")
+        report(f"GeoHarvest could not start.\n\n{type(error).__name__}: {error}")
         sys.exit(1)

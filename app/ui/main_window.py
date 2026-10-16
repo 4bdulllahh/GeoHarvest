@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
     # Relayed from the job running on the Search page, so Leads can update live
     leads_added = pyqtSignal(int, list)          # search id, new leads
     lead_updated = pyqtSignal(int, str, dict)    # search id, place id, new fields
+    lead_removed = pyqtSignal(int, str)          # search id, place id
     search_finished = pyqtSignal(int)            # search id
 
     def __init__(self):
