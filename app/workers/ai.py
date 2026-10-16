@@ -29,20 +29,26 @@ class AIStage:
         self.on_scored = on_scored
         self.on_error = on_error
         self.failed: str | None = None
+        self.pending = 0  # leads put in and not yet scored, skipped or dropped
+        self._lock = threading.Lock()
         self._queue: queue.Queue = queue.Queue()
         self._stopped = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def put(self, lead: dict) -> None:
+        with self._lock:
+            self.pending += 1
         self._queue.put(lead)
 
     def close(self, cancel: bool = False) -> None:
-        """Score what is queued (or drop it, if ``cancel``), then end the thread."""
+        """Score what is queued, then end the thread; or, if ``cancel``, drop it all at once
+        (a request already sent is not waited for and its answer is thrown away)."""
         if cancel:
             self._stopped.set()
         self._queue.put(None)
-        self._thread.join()
+        if not cancel:
+            self._thread.join()
 
     def _run(self) -> None:
         batch: list[dict] = []
@@ -55,6 +61,8 @@ class AIStage:
                 batch.append(item)
             if batch and (item is None or item == "flush" or len(batch) >= ai.BATCH_SIZE):
                 self._score(batch)
+                with self._lock:
+                    self.pending -= len(batch)
                 batch = []
             if item is None:
                 return
@@ -73,7 +81,8 @@ class AIStage:
         except Exception as error:  # noqa: BLE001 - an AI hiccup must not end the search
             self.on_error(f"Smart mode skipped a batch: {error}")
             return
-        self.on_scored(batch, scored)
+        if not self._stopped.is_set():
+            self.on_scored(batch, scored)
 
 
 class ScoreSignals(Signals):

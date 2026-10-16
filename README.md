@@ -12,7 +12,7 @@ more. It then visits each business's website to find **email addresses and socia
 pages**, estimates **how old the company is**, and, if you connect an AI, **scores every lead**
 against your ideal customer. Export the result to Excel in one click.
 
-**Download:** [latest release](../../releases/latest) · **Version:** 0.1.0 (free beta) ·
+**Download:** [latest release](../../releases/latest) · **Version:** 0.1.1 (free beta) ·
 **Works on:** Windows 10 and 11 · **Countries:** all of them
 
 ![GeoHarvest's Leads page: dental clinics with AI score, verdict and reason, phone numbers and more](docs/screenshots/leads.png)
@@ -100,22 +100,24 @@ against your ideal customer. Export the result to Excel in one click.
 
 **Settings** has the theme and text size, **search speed** (Gentle, Normal or Fast: faster
 finishes big searches sooner but makes Google more likely to ask GeoHarvest to slow down),
-the update check, and your data folder.
+the update check, your data folder, and **Uninstall**.
 
 ## Install
 
-1. Download `GeoHarvest-v0.1.0-beta-windows.zip` from the
+1. Download `GeoHarvest-vX.Y.Z-windows.zip` from the
    [latest release](../../releases/latest).
-2. Right-click it, choose **Extract All**, and pick a folder (for example your Documents).
-3. Open the `GeoHarvest` folder and double-click **GeoHarvest.exe**. Make a desktop shortcut
-   with right-click > **Send to** > **Desktop**.
+2. Open the zip and double-click **GeoHarvest-Setup-vX.Y.Z.exe**.
+3. Follow the steps: choose whether you want a desktop shortcut and whether GeoHarvest should
+   open when Windows starts. No administrator rights needed.
 
 **"Windows protected your PC"?** GeoHarvest is new and not yet code-signed (a signing
 certificate costs money every year), so Windows SmartScreen does not recognise it. Press
 **More info**, then **Run anyway**. You only need to do this once.
 
-Your searches, leads and settings are kept in `%APPDATA%\GeoHarvest`, outside the app
-folder, so updating or deleting the app folder never loses them.
+No account, no sign-in. Your searches, leads and settings are kept on your computer in
+`%APPDATA%\GeoHarvest`, outside the app folder, so updating never loses them. To remove
+GeoHarvest, use **Settings > Uninstall GeoHarvest** or Windows Settings > Apps; it asks
+whether to keep your data.
 
 ## Good to know
 
@@ -145,7 +147,8 @@ cd GeoHarvest
 pip install -r requirements-dev.txt
 python run.py                      # run the app
 python -m pytest tests/ -q         # tests (no network needed)
-python tools/build.py              # dist/GeoHarvest-vX.Y.Z-windows.zip, then self-tests it
+python tools/build.py              # dist/GeoHarvest-vX.Y.Z-windows.zip (installer inside), self-tested
+                                   # needs Inno Setup once: winget install JRSoftware.InnoSetup
 python tools/screenshot.py         # these README screenshots, from made-up demo data
 ```
 

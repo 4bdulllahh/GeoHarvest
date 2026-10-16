@@ -5,6 +5,7 @@ import os
 
 from app import config
 from app.core import db, prefs
+from app.services import updater
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (ChoiceButtons, FormRow, Section, danger_button, hint, muted,
                                    open_url, row, secondary_button)
@@ -63,6 +64,11 @@ class SettingsPage(Page):
                      danger_button("Delete all searches and leads...", self.delete_all), None))
         layout.addWidget(data)
 
+        if updater.uninstaller():
+            remove = Section("Uninstall", "Remove GeoHarvest from this computer.")
+            remove.add(row(danger_button("Uninstall GeoHarvest...", self.uninstall), None))
+            layout.addWidget(remove)
+
         fair = Section("Use it fairly")
         fair.add(muted("GeoHarvest reads public Google Maps listings and business websites. "
                        "When you contact the businesses you find, follow the rules where you "
@@ -84,3 +90,15 @@ class SettingsPage(Page):
         db.execute("DELETE FROM searches")
         self.window_.refresh_status()
         self.notify("All searches and leads deleted.", "success")
+
+    def uninstall(self) -> None:
+        if self.window_.busy_page_reason():
+            self.notify("Wait until the search has finished, or stop it first.", "warn")
+            return
+        if not ConfirmDialog.ask(self, "Uninstall GeoHarvest?",
+                                 "GeoHarvest will close and be removed from this computer. You "
+                                 "will then be asked whether to keep your searches, leads and "
+                                 "settings.", confirm_text="Uninstall", danger=True):
+            return
+        updater.start_uninstall()
+        self.window_.quit_app()

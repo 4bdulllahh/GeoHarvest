@@ -32,7 +32,8 @@ theme module, sidebar, cards, status bar, worker pattern.
 | AI providers | All of them, user brings their own key: Gemini (plain HTTPS, JSON mode), Claude (official `anthropic` SDK: structured JSON output, effort `low`, server-side refusal fallbacks on Opus 5.5 / Opus 5 / Sonnet 5.5 / Fable 5.1; default model `claude-opus-5-5`, note suggests Haiku 5.5 as cheapest), and one OpenAI-compatible connector (plain HTTPS) with presets for Groq, OpenRouter, Mistral, OpenAI, DeepSeek, Ollama and LM Studio (local), plus a custom URL. Default model names for non-Claude providers may go stale: the "Load models" button lists the real ones. Keys are DPAPI-encrypted in `%APPDATA%/GeoHarvest/secrets.dat` (`app/core/credentials.py`, from HomingPigeon) |
 | Extras | Emails and social links from each business website; filters (min rating, min reviews, has website/phone, hide closed); history with resume; auto-updater from GitHub releases |
 | Cost | Nothing paid. No paid APIs, no proxies |
-| Release | GitHub Releases, `GeoHarvest-vX.Y.Z-windows.zip` with `GeoHarvest.exe` inside (PyInstaller one-folder: fast start, fewer antivirus false alarms). First release v0.1.0 beta after all milestones |
+| Release | GitHub Releases, `GeoHarvest-vX.Y.Z-windows.zip` with **`GeoHarvest-Setup-<tag>.exe`** inside (since 0.1.1; 0.1.0 zipped the bare folder). PyInstaller one-folder (fast start, fewer antivirus false alarms) wrapped by Inno Setup (`installer/GeoHarvest.iss`): per-user install to `%LOCALAPPDATA%\Programs\GeoHarvest`, no admin, Start menu, optional desktop shortcut, optional start with Windows (unticked by default), uninstaller asks whether to delete `%APPDATA%\GeoHarvest`. The updater runs the installer with `/SILENT /DIR=<app folder>` after the app exits. Settings > Uninstall runs `unins000.exe /SILENT` after the app exits (only shown in an installed copy). No accounts, everything local |
+| Stop after N | Means N leads **kept** after the age filter and Smart mode's minimum score. Removals give the count back; query threads wait (`room()` in `workers/scrape.py`) while saved leads are still being checked, then continue if any were dropped. "Leave out businesses I found in earlier searches" is on by default since 0.1.1 |
 | Languages | English only for v0.1. `app/i18n.py` is a pass-through `t()` so HomingPigeon's translation system can drop in later |
 
 ## Milestones
@@ -74,7 +75,8 @@ app/ui/widgets/            shared widgets (from HomingPigeon)
 assets/                    logo.svg, PNG sizes, icon.ico
 tools/make_icons.py        logo.svg -> PNGs + ico
 tools/screenshot.py        README screenshots from made-up demo data
-tools/build.py             build + zip + self-test the Windows release
+tools/build.py             build + installer + zip + self-test the Windows release
+installer/GeoHarvest.iss   Inno Setup script (shortcuts, start-up option, uninstall data prompt)
 .github/workflows/build.yml  CI build; attaches the zip to published releases
 ```
 
@@ -92,7 +94,7 @@ pip install -r requirements-dev.txt
 python run.py                 # run the app
 python -m pytest tests/ -q    # tests
 python tools/screenshot.py    # refresh README screenshots (demo data)
-python tools/build.py         # dist/GeoHarvest-vX.Y.Z-windows.zip + self-test
+python tools/build.py         # dist/GeoHarvest-vX.Y.Z-windows.zip (installer inside) + self-test; needs Inno Setup
 python tools/make_icons.py    # after editing assets/logo.svg
 ```
 
@@ -125,6 +127,12 @@ python tools/make_icons.py    # after editing assets/logo.svg
   request. Packaged exe verified: GUI starts, `--self-test` passes (imports, live search, Excel
   export), and the updater's install.bat tested against the real build (copied new files, kept a
   user file in the app folder, restarted the app).
+- 2026-10-16: v0.1.1 beta: Inno Setup installer in the release zip, Settings > Uninstall,
+  "Stop after N" counts kept leads only, skip-known on by default, Stop no longer waits for
+  website checks or AI requests in flight (closes the connection and drops their results;
+  resume re-checks them). Tested: installer silent install, self-test of the installed exe,
+  reinstall over it, uninstall (data kept). 0.1.0 copies cannot self-update to 0.1.1 (their
+  updater looks for GeoHarvest.exe in the zip): those users install 0.1.1 by hand once.
 
 ## Releasing a new version
 

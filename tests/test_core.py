@@ -160,6 +160,51 @@ def test_save_dedupes_and_resumes(fresh_db):
     assert searches.leads(first)[0] == {"place_id": "A", "name": "One", "emails": "hi@one.pk"}
 
 
+def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
+    """Leads the age filter drops do not count: the search keeps going until N stay."""
+    from app.core import enrich
+    from app.workers import scrape
+
+    def fake_search(client, query, cancelled):
+        for start in range(0, 100, 20):
+            yield [{"place_id": f"{query}-{n}", "status": "Open", "country_code": "PK",
+                    "website": "x.pk"} for n in range(start, start + 20)]
+
+    class FakeEnricher:
+        def __init__(self, wayback):
+            pass
+
+        def enrich(self, lead, find_contacts):
+            return {"enriched": True, "young": int(lead["place_id"].rsplit("-", 1)[1]) % 2 == 0}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(scrape.scraper, "search", fake_search)
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: FakeEnricher(False))
+    monkeypatch.setattr(enrich, "Enricher", FakeEnricher)
+    monkeypatch.setattr(enrich, "matches_age", lambda lead, wanted: lead["young"])
+    search_id = searches.create({"niches": ["cafe"], "countries": ["Pakistan"],
+                                 "cities": ["Lahore, Pakistan"], "company_age": "startup",
+                                 "find_emails": False, "max_results": 30})
+    result = scrape.ScrapeWorker(search_id).work()
+    assert result["status"] == "done" and searches.count(search_id) == 30
+    assert all(lead["young"] for lead in searches.leads(search_id))
+
+    # Stop does not wait for website checks already under way
+    import threading
+    import time
+
+    started = threading.Event()
+    FakeEnricher.enrich = lambda self, lead, contacts: (started.set(), time.sleep(3), {})[2]
+    worker = scrape.ScrapeWorker(searches.create({**searches.get(search_id)["options"],
+                                                  "max_results": 0}))
+    threading.Thread(target=lambda: (started.wait(), worker.stop()), daemon=True).start()
+    began = time.monotonic()
+    assert worker.work()["status"] == "stopped"
+    assert time.monotonic() - began < 2
+
+
 # --- export -----------------------------------------------------------------
 def test_export_xlsx_and_csv(tmp_path):
     from openpyxl import load_workbook
@@ -347,6 +392,8 @@ def test_update_version_and_release_parsing(tmp_path):
                    {"name": "GeoHarvest-v0.2.0-windows.zip", "size": 10,
                     "browser_download_url": "https://dl/zip", "digest": "sha256:ABC"}]})
     assert (release.zip_url, release.sha256, release.zip_size) == ("https://dl/zip", "abc", 10)
-    script = updater.install_script(Path("C:/tmp/new"), Path("C:/Apps/GeoHarvest"), 1234)
-    assert "/E " in script and "/MIR" not in script  # never deletes in the app folder
+    script = updater.install_script(Path("C:/tmp/GeoHarvest-Setup.exe"),
+                                    Path("C:/Apps/GeoHarvest"), 1234)
+    assert '/wait "C:\\tmp\\GeoHarvest-Setup.exe" /SILENT' in script
+    assert '/DIR="C:\\Apps\\GeoHarvest"' in script
     assert '"PID eq 1234"' in script and "GeoHarvest.exe" in script

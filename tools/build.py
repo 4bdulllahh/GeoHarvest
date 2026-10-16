@@ -1,12 +1,15 @@
-"""Build the Windows release: dist/GeoHarvest-vX.Y.Z-windows.zip with GeoHarvest.exe inside.
+"""Build the Windows release: dist/GeoHarvest-vX.Y.Z-windows.zip with the installer inside.
 
     pip install -r requirements-dev.txt
+    winget install JRSoftware.InnoSetup      (once; builds the installer)
     python tools/build.py
 
 PyInstaller one-folder build: the exe starts in about a second because nothing
 is unpacked at launch, and antivirus tools flag it far less than one-file builds.
-The zip holds a single GeoHarvest/ folder; the auto-updater expects that layout.
+Inno Setup (installer/GeoHarvest.iss) wraps that folder in GeoHarvest-Setup-<tag>.exe,
+the only file in the zip; the auto-updater looks for it there.
 """
+import os
 import re
 import shutil
 import subprocess
@@ -30,6 +33,18 @@ EXCLUDE = ["tkinter", "unittest", "pydoc", "test", "PyQt6.QtQml", "PyQt6.QtQuick
 # Qt files a widgets-only app never loads
 DROP = ["PyQt6/Qt6/bin/opengl32sw.dll", "PyQt6/Qt6/bin/Qt6Pdf.dll",
         "PyQt6/Qt6/plugins/imageformats/qpdf.dll", "PyQt6/Qt6/translations"]
+
+
+def iscc() -> str:
+    """Inno Setup's compiler: on PATH, or where its installer puts it."""
+    places = [shutil.which("ISCC"),
+              Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/Inno Setup 6/ISCC.exe",
+              Path(os.environ.get("ProgramFiles(x86)", "")) / "Inno Setup 6/ISCC.exe",
+              Path(os.environ.get("ProgramFiles", "")) / "Inno Setup 6/ISCC.exe"]
+    for place in places:
+        if place and Path(place).is_file():
+            return str(place)
+    sys.exit("Inno Setup is not installed: winget install JRSoftware.InnoSetup")
 
 
 def tag() -> str:
@@ -58,14 +73,20 @@ def main() -> Path:
         path = folder / "_internal" / name
         shutil.rmtree(path, ignore_errors=True) if path.is_dir() else path.unlink(missing_ok=True)
 
+    version = ".".join(re.findall(r"\d+", config.APP_VERSION)[:3])
+    subprocess.run([iscc(), "/Q", f"/DAppVersion={version}", f"/DTag={tag()}",
+                    f"/DSourceDir={folder}", f"/DOutputDir={ROOT / 'build'}",
+                    f"/DIconFile={ROOT / 'assets' / 'icon.ico'}",
+                    str(ROOT / "installer" / "GeoHarvest.iss")], check=True)
+    setup = ROOT / "build" / f"GeoHarvest-Setup-{tag()}.exe"
+
     archive = DIST / f"GeoHarvest-{tag()}-windows.zip"
     archive.unlink(missing_ok=True)
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
-        for path in sorted(folder.rglob("*")):
-            if path.is_file():
-                bundle.write(path, Path("GeoHarvest") / path.relative_to(folder))
+    # Stored, not deflated: the installer is already compressed
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as bundle:
+        bundle.write(setup, setup.name)
     size = archive.stat().st_size / 1_048_576
-    print(f"Built {archive.name} ({size:.0f} MB)")
+    print(f"Built {archive.name} ({size:.0f} MB) with {setup.name}")
 
     report = ROOT / "build" / "self-test.json"
     report.unlink(missing_ok=True)

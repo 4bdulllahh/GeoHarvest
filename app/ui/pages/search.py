@@ -149,8 +149,8 @@ class SearchPage(Page):
         limits_layout.setContentsMargins(0, 0, 0, 0)
         limits_layout.setSpacing(12)
         for label, box in (("At least", self.min_reviews), ("Stop after", self.max_results)):
-            field = FormRow(label, "Counted before the company age check" if box is
-                            self.max_results else "")
+            field = FormRow(label, "You get exactly this many, if Google has enough" if box
+                            is self.max_results else "")
             field.add(box)
             limits_layout.addWidget(field)
         limits_layout.addStretch(1)

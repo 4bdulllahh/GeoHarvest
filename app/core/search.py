@@ -20,7 +20,7 @@ DEFAULT_OPTIONS = {
     "require_website": False,
     "require_phone": False,
     "skip_closed": True,
-    "skip_known": False,      # leave out businesses found by an earlier search
+    "skip_known": True,       # leave out businesses found by an earlier search
     "max_results": 0,         # 0: no limit
     "find_emails": True,      # visit websites for emails and social links
     "smart": False,           # score every lead with the user's AI

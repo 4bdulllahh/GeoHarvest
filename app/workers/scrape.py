@@ -50,13 +50,25 @@ class ScrapeWorker(Worker):
         done = set(record["progress"].get("done", []))
         queries = [q for q in all_queries if q not in done]
         limit = int(options["max_results"] or 0)
-        lock = threading.Lock()
+        lock = threading.RLock()
+        # found: leads kept so far; the age filter and Smart mode can still take some away
         state = {"finished": len(all_queries) - len(queries), "found": searches.count(self.search_id)}
         searches.set_status(self.search_id, "running")
         self.report(state["finished"], len(all_queries), "Starting")
 
+        def room() -> int:
+            """How many more leads "Stop after" allows. While that is none but saved leads
+            are still being checked (and may be dropped), wait to see how many stay."""
+            while True:
+                with lock:
+                    free = limit - state["found"]
+                    busy = checks["total"] - checks["done"] + (stage.pending if stage else 0)
+                if free > 0 or not busy or self._stop.is_set():
+                    return free
+                time.sleep(0.5)
+
         def stopping() -> bool:
-            return self._stop.is_set() or (limit and state["found"] >= limit)
+            return self._stop.is_set() or bool(limit and room() <= 0)
 
         # --- enrichment: runs alongside the search, fed as leads are saved ----
         wants_age = options["company_age"] != "any"
@@ -70,20 +82,24 @@ class ScrapeWorker(Worker):
             try:
                 fields = enricher.enrich(lead, options["find_emails"])
             except Exception as error:  # noqa: BLE001 - one odd website must not end the search
+                if self._stop.is_set():
+                    return  # Stop cut the connection; resuming checks this site again
                 self.log(f"Could not check {lead.get('website')}: {error}", "warn")
                 fields = {"enriched": True}
             keep = enrich.matches_age({**lead, **fields}, options["company_age"])
             with lock:
+                if self._stop.is_set():
+                    return  # possibly half-checked when Stop cut the connection
                 if keep:
                     searches.update_lead(self.search_id, lead["place_id"], fields)
                     self.signals.updated.emit(lead["place_id"], fields)
+                    queue_scoring({**lead, **fields})
                 else:
                     searches.remove_lead(self.search_id, lead["place_id"])
                     self.signals.removed.emit(lead["place_id"])
+                    state["found"] -= 1
                 checks["done"] += 1
                 self.signals.checked.emit(checks["done"], checks["total"])
-            if keep:
-                queue_scoring({**lead, **fields})
 
         def queue_enrichment(leads: list[dict]) -> None:
             if enrich_pool is None:
@@ -109,6 +125,7 @@ class ScrapeWorker(Worker):
                     if min_score and fields["ai_score"] < min_score:
                         searches.remove_lead(self.search_id, lead["place_id"])
                         self.signals.removed.emit(lead["place_id"])
+                        state["found"] -= 1
                     else:
                         searches.update_lead(self.search_id, lead["place_id"], fields)
                         self.signals.updated.emit(lead["place_id"], fields)
@@ -139,18 +156,23 @@ class ScrapeWorker(Worker):
                 return
             for attempt in range(2):
                 try:
-                    for page in scraper.search(client, query, cancelled=stopping):
-                        keep = [lead for lead in page if searches.passes(lead, options)]
-                        with lock:
-                            if limit:
-                                keep = keep[: max(0, limit - state["found"])]
-                            saved = searches.save_leads(self.search_id, keep, options["skip_known"])
-                            state["found"] += len(saved)
-                        if saved:
-                            self.signals.leads.emit(saved)
-                            queue_enrichment(saved)
-                        if stopping():
-                            return
+                    for page in scraper.search(client, query, cancelled=self._stop.is_set):
+                        waiting = [lead for lead in page if searches.passes(lead, options)]
+                        while True:
+                            with lock:
+                                keep = waiting[: max(0, limit - state["found"])] if limit \
+                                    else waiting
+                                waiting = waiting[len(keep):]
+                                saved = searches.save_leads(self.search_id, keep,
+                                                            options["skip_known"])
+                                state["found"] += len(saved)
+                                if saved:  # queued under the lock so room() never misses them
+                                    self.signals.leads.emit(saved)
+                                    queue_enrichment(saved)
+                            if stopping():
+                                return
+                            if not waiting:  # else checks freed room: save the rest of the page
+                                break
                     break
                 except scraper.Blocked:
                     self.blocked = True
@@ -174,8 +196,10 @@ class ScrapeWorker(Worker):
             with ThreadPoolExecutor(max(1, parallel)) as pool:
                 list(pool.map(run, queries))
             if enrich_pool is not None:
-                # Stop drops the website visits still waiting; resume picks them up
-                enrich_pool.shutdown(wait=True, cancel_futures=self._stop.is_set())
+                # Stop drops the website visits still waiting or under way (closing the
+                # connection below cuts those short); resume picks them up
+                enrich_pool.shutdown(wait=not self._stop.is_set(),
+                                     cancel_futures=self._stop.is_set())
             if stage is not None:
                 stage.close(cancel=self._stop.is_set())
         finally:

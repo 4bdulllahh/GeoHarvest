@@ -135,13 +135,13 @@ class UpdateDialog(QDialog):
         if total:
             self._say(t("Downloading the update: {mb} of {mb2}", mb=_mb(received), mb2=_mb(total)))
 
-    def _on_downloaded(self, staged: Path) -> None:
+    def _on_downloaded(self, setup: Path) -> None:
         if self.worker is None:
             return  # cancelled
         self.worker = None
         self._say("Installing. GeoHarvest will close now and open again in a moment.")
         try:
-            updater.start_install(staged)
+            updater.start_install(setup)
         except OSError as error:
             self._on_failed(str(error))
             return

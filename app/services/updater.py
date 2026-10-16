@@ -5,14 +5,12 @@ one, the user is offered "Update now" or "Update later". Updating now:
 
   1. downloads that release's GeoHarvest-vX.Y.Z-windows.zip (the same file people
      download by hand) and checks it against the SHA-256 GitHub publishes,
-  2. unpacks it to a temporary folder, then
+  2. unpacks the installer inside it to a temporary folder, then
   3. starts a small script and closes the app. The script waits for the app to
-     go, copies the new files over the old ones and opens the app again.
+     go, runs the installer silently over the current install and opens the app again.
 
-The script copies and overwrites but never deletes: the app folder could be a
-user's Downloads folder, and nothing else in it may be touched. The user's
-searches, leads and settings live in %APPDATA%/GeoHarvest and are never part of
-an update.
+The user's searches, leads and settings live in %APPDATA%/GeoHarvest and are
+never part of an update.
 
 Nothing here touches Qt, so it can run on a worker thread and be tested alone.
 """
@@ -37,6 +35,7 @@ from app import config
 API_URL = config.REPO_URL.replace("https://github.com/", "https://api.github.com/repos/")
 ASSET_PATTERN = re.compile(r"^GeoHarvest-v[\w.\-]+-windows\.zip$")
 EXE_NAME = "GeoHarvest.exe"
+SETUP_PATTERN = "GeoHarvest-Setup*.exe"
 WORK_DIR = Path(tempfile.gettempdir()) / f"{config.APP_NAME}-update"
 CHUNK = 256 * 1024
 
@@ -123,7 +122,7 @@ def can_update_itself(release: Release | None = None) -> bool:
 # --- downloading ------------------------------------------------------------
 def download(release: Release, progress: Callable[[int, int], None] | None = None,
              cancelled: Callable[[], bool] | None = None) -> Path:
-    """Fetch the release zip, check it, unpack it. Returns the folder holding the new exe."""
+    """Fetch the release zip, check it, unpack it. Returns the installer inside."""
     shutil.rmtree(WORK_DIR, ignore_errors=True)
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     archive = WORK_DIR / "update.zip"
@@ -158,30 +157,54 @@ def download(release: Release, progress: Callable[[int, int], None] | None = Non
                 shutil.copyfileobj(source, out)
     archive.unlink(missing_ok=True)
 
-    found = next(staged.rglob(EXE_NAME), None)
+    found = next(staged.rglob(SETUP_PATTERN), None)
     if found is None:
-        raise OSError("the download didn't contain GeoHarvest.exe")
-    return found.parent
+        raise OSError("the download didn't contain the GeoHarvest installer")
+    return found
 
 
 # --- installing -------------------------------------------------------------
-def install_script(new_files: Path, target: Path, pid: int) -> str:
-    """The batch file that swaps the files in once this process (pid) has exited."""
+def after_exit_script(pid: int, then: str) -> str:
+    """A batch file that waits for this process (pid) to exit, then runs ``then``."""
     return (
         "@echo off\r\n"
         ":wait\r\n"
         f'tasklist /FI "PID eq {pid}" | find "{pid}" >nul && '
-        "(timeout /t 1 /nobreak >nul & goto wait)\r\n"
-        # /E copies everything, overwriting; deliberately not /MIR, which deletes
-        f'robocopy "{new_files}" "{target}" /E /R:5 /W:1 /NFL /NDL /NJH /NJS /NP >nul\r\n'
-        f'start "" "{target / EXE_NAME}"\r\n'
+        "(timeout /t 1 /nobreak >nul & goto wait)\r\n" + then
     )
 
 
-def start_install(new_files: Path) -> None:
+def install_script(setup: Path, target: Path, pid: int) -> str:
+    """Runs the installer once this process (pid) has exited, then reopens the app."""
+    return after_exit_script(pid, (
+        # /SILENT shows only a progress bar; /DIR keeps the app where it is now
+        f'start "" /wait "{setup}" /SILENT /SUPPRESSMSGBOXES /NORESTART /DIR="{target}"\r\n'
+        f'start "" "{target / EXE_NAME}"\r\n'))
+
+
+def uninstaller() -> Path | None:
+    """The installed app's uninstaller; None when running from source or a loose folder."""
+    path = app_folder() / "unins000.exe"
+    return path if getattr(sys, "frozen", False) and path.is_file() else None
+
+
+def start_uninstall() -> None:
+    """Run the uninstaller once the app has closed (it can't remove a running exe).
+    /SILENT skips its "are you sure" (the app asked) but still asks about the user's data."""
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    _run_script("uninstall.bat",
+                after_exit_script(os.getpid(), f'start "" "{uninstaller()}" /SILENT\r\n'))
+
+
+def start_install(setup: Path) -> None:
     """Hand over to the install script. The caller then closes the app."""
-    script = WORK_DIR / "install.bat"
-    script.write_text(install_script(new_files, app_folder(), os.getpid()), encoding="utf-8")
+    _run_script("install.bat", install_script(setup, app_folder(), os.getpid()))
+
+
+def _run_script(name: str, text: str) -> None:
+    """Start a batch file in the background, detached so it outlives the app."""
+    script = WORK_DIR / name
+    script.write_text(text, encoding="utf-8")
     flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS \
         | subprocess.CREATE_NEW_PROCESS_GROUP
     subprocess.Popen(["cmd", "/c", str(script)], cwd=str(WORK_DIR), close_fds=True,
