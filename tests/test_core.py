@@ -383,7 +383,8 @@ def test_update_version_and_release_parsing(tmp_path):
     from app.services import updater
 
     assert updater.is_newer("v0.2.0", "v0.1.0 beta")
-    assert updater.is_newer("v0.1.0", "v0.1.0 beta")       # final after its beta
+    # the tag is written with or without "beta": the same numbers are never an update
+    assert not updater.is_newer("v0.1.1", "v0.1.1 beta")
     assert not updater.is_newer("v0.1.0-beta", "v0.1.0 beta")
     assert not updater.is_newer("v0.0.9", "v0.1.0 beta")
     release = updater.parse_release({
@@ -392,8 +393,5 @@ def test_update_version_and_release_parsing(tmp_path):
                    {"name": "GeoHarvest-v0.2.0-windows.zip", "size": 10,
                     "browser_download_url": "https://dl/zip", "digest": "sha256:ABC"}]})
     assert (release.zip_url, release.sha256, release.zip_size) == ("https://dl/zip", "abc", 10)
-    script = updater.install_script(Path("C:/tmp/GeoHarvest-Setup.exe"),
-                                    Path("C:/Apps/GeoHarvest"), 1234)
-    assert '/wait "C:\\tmp\\GeoHarvest-Setup.exe" /SILENT' in script
-    assert '/DIR="C:\\Apps\\GeoHarvest"' in script
-    assert '"PID eq 1234"' in script and "GeoHarvest.exe" in script
+    assert updater.update_command(Path("C:/tmp/GeoHarvest-Setup.exe"), Path("C:/Apps/GeoHarvest")) == [
+        str(Path("C:/tmp/GeoHarvest-Setup.exe")), "--update", "--target", str(Path("C:/Apps/GeoHarvest"))]

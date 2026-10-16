@@ -5,9 +5,10 @@ one, the user is offered "Update now" or "Update later". Updating now:
 
   1. downloads that release's GeoHarvest-vX.Y.Z-windows.zip (the same file people
      download by hand) and checks it against the SHA-256 GitHub publishes,
-  2. unpacks the installer inside it to a temporary folder, then
-  3. starts a small script and closes the app. The script waits for the app to
-     go, runs the installer silently over the current install and opens the app again.
+  2. unpacks it (GeoHarvest-Setup.exe and its runtime folder) to a temporary folder, then
+  3. starts Setup in update mode and closes the app. Setup waits for the app to
+     go, shows its progress window while it updates, and opens the app again.
+     No script and no console window: users don't expect a black box to appear.
 
 The user's searches, leads and settings live in %APPDATA%/GeoHarvest and are
 never part of an update.
@@ -35,7 +36,8 @@ from app import config
 API_URL = config.REPO_URL.replace("https://github.com/", "https://api.github.com/repos/")
 ASSET_PATTERN = re.compile(r"^GeoHarvest-v[\w.\-]+-windows\.zip$")
 EXE_NAME = "GeoHarvest.exe"
-SETUP_PATTERN = "GeoHarvest-Setup*.exe"
+SETUP_EXE = "GeoHarvest-Setup.exe"
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 WORK_DIR = Path(tempfile.gettempdir()) / f"{config.APP_NAME}-update"
 CHUNK = 256 * 1024
 
@@ -55,10 +57,10 @@ class UpdateCancelled(Exception):
 
 
 def version_tuple(text: str) -> tuple[int, ...]:
-    """'v0.1.0 beta' -> (0, 1, 0, 0); a final release sorts after its betas: (0, 1, 0, 1)."""
-    numbers = [int(n) for n in re.findall(r"\d+", text.split("beta")[0])[:3]]
-    numbers += [0] * (3 - len(numbers))
-    return (*numbers, 0 if "beta" in text.lower() else 1)
+    """'v0.1.0 beta' -> (0, 1, 0). Only the numbers count: release tags are written both
+    with and without "beta" ("v0.1.1" for the app's "v0.1.1 beta"), so the label can't."""
+    numbers = [int(n) for n in re.findall(r"\d+", text)[:3]]
+    return (*numbers, *[0] * (3 - len(numbers)))
 
 
 def is_newer(candidate: str, current: str) -> bool:
@@ -157,56 +159,47 @@ def download(release: Release, progress: Callable[[int, int], None] | None = Non
                 shutil.copyfileobj(source, out)
     archive.unlink(missing_ok=True)
 
-    found = next(staged.rglob(SETUP_PATTERN), None)
+    found = next(staged.rglob(SETUP_EXE), None)
     if found is None:
         raise OSError("the download didn't contain the GeoHarvest installer")
     return found
 
 
 # --- installing -------------------------------------------------------------
-def after_exit_script(pid: int, then: str) -> str:
-    """A batch file that waits for this process (pid) to exit, then runs ``then``."""
-    return (
-        "@echo off\r\n"
-        ":wait\r\n"
-        f'tasklist /FI "PID eq {pid}" | find "{pid}" >nul && '
-        "(timeout /t 1 /nobreak >nul & goto wait)\r\n" + then
-    )
-
-
-def install_script(setup: Path, target: Path, pid: int) -> str:
-    """Runs the installer once this process (pid) has exited, then reopens the app."""
-    return after_exit_script(pid, (
-        # /SILENT shows only a progress bar; /DIR keeps the app where it is now
-        f'start "" /wait "{setup}" /SILENT /SUPPRESSMSGBOXES /NORESTART /DIR="{target}"\r\n'
-        f'start "" "{target / EXE_NAME}"\r\n'))
-
-
-def uninstaller() -> Path | None:
-    """The installed app's uninstaller; None when running from source or a loose folder."""
-    path = app_folder() / "unins000.exe"
-    return path if getattr(sys, "frozen", False) and path.is_file() else None
-
-
-def start_uninstall() -> None:
-    """Run the uninstaller once the app has closed (it can't remove a running exe).
-    /SILENT skips its "are you sure" (the app asked) but still asks about the user's data."""
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
-    _run_script("uninstall.bat",
-                after_exit_script(os.getpid(), f'start "" "{uninstaller()}" /SILENT\r\n'))
+def update_command(setup: Path, target: Path) -> list[str]:
+    """Setup waits for the app to close, updates it in place, then reopens it."""
+    return [str(setup), "--update", "--target", str(target)]
 
 
 def start_install(setup: Path) -> None:
-    """Hand over to the install script. The caller then closes the app."""
-    _run_script("install.bat", install_script(setup, app_folder(), os.getpid()))
+    """Hand over to Setup. The caller then closes the app."""
+    _launch(update_command(setup, app_folder()))
 
 
-def _run_script(name: str, text: str) -> None:
-    """Start a batch file in the background, detached so it outlives the app."""
-    script = WORK_DIR / name
-    script.write_text(text, encoding="utf-8")
-    flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS \
-        | subprocess.CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen(["cmd", "/c", str(script)], cwd=str(WORK_DIR), close_fds=True,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, creationflags=flags)
+def uninstaller() -> Path | None:
+    """The installed app's uninstaller (Setup keeps a copy of itself in the app folder);
+    None when running from source or a loose folder."""
+    path = app_folder() / "uninstall" / SETUP_EXE
+    return path if getattr(sys, "frozen", False) and path.is_file() else None
+
+
+def start_uninstall(delete_data: bool) -> None:
+    """Run the uninstaller (the app already asked); it waits for the app to close."""
+    _launch([str(uninstaller()), "--uninstall", "--confirmed"]
+            + (["--delete-data"] if delete_data else []))
+
+
+def _launch(command: list[str]) -> None:
+    """Start Setup (a windowed program, so no console appears) so that it outlives the app."""
+    env = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}  # Setup is a PyInstaller app too
+    base = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    last: OSError | None = None
+    for flags in (base | CREATE_BREAKAWAY_FROM_JOB, base):
+        try:
+            subprocess.Popen(command, cwd=str(Path(command[0]).parent), env=env, close_fds=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, creationflags=flags)
+            return
+        except OSError as error:
+            last = error  # breakaway is not allowed in this job; try without it
+    raise last or OSError("Setup could not be started")

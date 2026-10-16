@@ -1,8 +1,8 @@
 name: Build Windows release
 
 # * every push / pull request: run the tests and check the app still builds
-# * publishing a release on GitHub: build GeoHarvest-vX.Y.Z-windows.zip (the installer
-#   inside a zip) and attach it to that release automatically (takes about 5 minutes)
+# * publishing a release on GitHub: build GeoHarvest-vX.Y.Z-windows.zip (GeoHarvest-Setup.exe
+#   and its runtime folder) and attach it to that release automatically (takes about 5 minutes)
 
 on:
   push:
@@ -29,9 +29,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
-
-      - name: Install Inno Setup (builds the installer)
-        run: choco install innosetup -y --no-progress
 
       - name: Run tests
         run: python -m pytest tests/ -q

@@ -5,7 +5,7 @@ from pathlib import Path
 
 APP_NAME = "GeoHarvest"
 APP_TITLE = "GeoHarvest"
-APP_VERSION = "v0.1.1 beta"
+APP_VERSION = "v0.1.2 beta"
 APP_TAGLINE = "Find business leads on Google Maps"
 REPO_URL = "https://github.com/4bdulllahh/GeoHarvest"
 

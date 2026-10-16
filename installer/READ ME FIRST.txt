@@ -1,0 +1,20 @@
+GeoHarvest: find business leads on Google Maps
+
+HOW TO INSTALL
+
+1. Extract this zip first: right-click it and choose "Extract All".
+   (Setup needs the "runtime" folder next to it, so it can't run from inside the zip.)
+2. Open the extracted folder and double-click GeoHarvest-Setup.exe.
+3. Click Install. At the end, choose your shortcuts and whether GeoHarvest
+   opens when Windows starts.
+
+"Windows protected your PC"? GeoHarvest is not code-signed yet. Click
+"More info", then "Run anyway".
+
+No administrator password needed. No account, no sign-in: your searches, leads
+and settings stay on this computer, in %APPDATA%\GeoHarvest.
+
+To remove GeoHarvest: Settings > Uninstall GeoHarvest inside the app, or
+Windows Settings > Apps.
+
+https://github.com/4bdulllahh/GeoHarvest

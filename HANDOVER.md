@@ -32,7 +32,7 @@ theme module, sidebar, cards, status bar, worker pattern.
 | AI providers | All of them, user brings their own key: Gemini (plain HTTPS, JSON mode), Claude (official `anthropic` SDK: structured JSON output, effort `low`, server-side refusal fallbacks on Opus 5.5 / Opus 5 / Sonnet 5.5 / Fable 5.1; default model `claude-opus-5-5`, note suggests Haiku 5.5 as cheapest), and one OpenAI-compatible connector (plain HTTPS) with presets for Groq, OpenRouter, Mistral, OpenAI, DeepSeek, Ollama and LM Studio (local), plus a custom URL. Default model names for non-Claude providers may go stale: the "Load models" button lists the real ones. Keys are DPAPI-encrypted in `%APPDATA%/GeoHarvest/secrets.dat` (`app/core/credentials.py`, from HomingPigeon) |
 | Extras | Emails and social links from each business website; filters (min rating, min reviews, has website/phone, hide closed); history with resume; auto-updater from GitHub releases |
 | Cost | Nothing paid. No paid APIs, no proxies |
-| Release | GitHub Releases, `GeoHarvest-vX.Y.Z-windows.zip` with **`GeoHarvest-Setup-<tag>.exe`** inside (since 0.1.1; 0.1.0 zipped the bare folder). PyInstaller one-folder (fast start, fewer antivirus false alarms) wrapped by Inno Setup (`installer/GeoHarvest.iss`): per-user install to `%LOCALAPPDATA%\Programs\GeoHarvest`, no admin, Start menu, optional desktop shortcut, optional start with Windows (unticked by default), uninstaller asks whether to delete `%APPDATA%\GeoHarvest`. The updater runs the installer with `/SILENT /DIR=<app folder>` after the app exits. Settings > Uninstall runs `unins000.exe /SILENT` after the app exits (only shown in an installed copy). No accounts, everything local |
+| Release | GitHub Releases, `GeoHarvest-vX.Y.Z-windows.zip` holding `GeoHarvest-Setup.exe`, its `runtime/` folder and `READ ME FIRST.txt` (since 0.1.2; must be extracted first). **Own installer** `installer/setup_app.py`: Tkinter, standard library only, copied from HomingPigeon's (`Email-Sender/installer/setup_app.py`) for the look (welcome card, step list with ticks, progress bar, activity log, finish page with Start menu / Desktop / open-at-Windows-start (unticked) / open-now). PyInstaller one-folder with `--contents-directory runtime`, never one-file (HomingPigeon's one-file Setup was flagged by Defender as Wacatac). Carries the app folder as `payload.zip` (LZMA). Installs per user to `%LOCALAPPDATA%\Programs\GeoHarvest` (no admin), writes `version.txt`, keeps a copy of itself minus the payload in `<app>\uninstall\` as the uninstaller, registers HKCU `...\Uninstall\GeoHarvest`. The app's Update now runs `GeoHarvest-Setup.exe --update --target <app folder>` directly (no batch file, no console; `PYINSTALLER_RESET_ENVIRONMENT=1`); Setup waits for the app to close, updates, reopens it. Settings > Uninstall asks keep/delete data in the app, then runs `uninstall\GeoHarvest-Setup.exe --uninstall --confirmed [--delete-data]`. Setup also accepts 0.1.1's Inno-style `/SILENT /DIR=` and removes 0.1.1's Inno registry entry and `unins000.*`. Version check compares numbers only (tags are written with and without "beta"). No accounts, everything local |
 | Stop after N | Means N leads **kept** after the age filter and Smart mode's minimum score. Removals give the count back; query threads wait (`room()` in `workers/scrape.py`) while saved leads are still being checked, then continue if any were dropped. "Leave out businesses I found in earlier searches" is on by default since 0.1.1 |
 | Languages | English only for v0.1. `app/i18n.py` is a pass-through `t()` so HomingPigeon's translation system can drop in later |
 
@@ -75,8 +75,9 @@ app/ui/widgets/            shared widgets (from HomingPigeon)
 assets/                    logo.svg, PNG sizes, icon.ico
 tools/make_icons.py        logo.svg -> PNGs + ico
 tools/screenshot.py        README screenshots from made-up demo data
-tools/build.py             build + installer + zip + self-test the Windows release
-installer/GeoHarvest.iss   Inno Setup script (shortcuts, start-up option, uninstall data prompt)
+tools/build.py             build app + installer + zip + self-test the Windows release
+installer/setup_app.py     GeoHarvest Setup: install, update, uninstall (Tkinter, HomingPigeon's look)
+installer/READ ME FIRST.txt  goes in the release zip
 .github/workflows/build.yml  CI build; attaches the zip to published releases
 ```
 
@@ -94,7 +95,7 @@ pip install -r requirements-dev.txt
 python run.py                 # run the app
 python -m pytest tests/ -q    # tests
 python tools/screenshot.py    # refresh README screenshots (demo data)
-python tools/build.py         # dist/GeoHarvest-vX.Y.Z-windows.zip (installer inside) + self-test; needs Inno Setup
+python tools/build.py         # dist/GeoHarvest-vX.Y.Z-windows.zip (installer inside) + self-test
 python tools/make_icons.py    # after editing assets/logo.svg
 ```
 
@@ -133,6 +134,13 @@ python tools/make_icons.py    # after editing assets/logo.svg
   resume re-checks them). Tested: installer silent install, self-test of the installed exe,
   reinstall over it, uninstall (data kept). 0.1.0 copies cannot self-update to 0.1.1 (their
   updater looks for GeoHarvest.exe in the zip): those users install 0.1.1 by hand once.
+- 2026-10-16: v0.1.2 beta: Inno Setup replaced by our own installer in HomingPigeon's style, at the
+  user's request. Fixes: the app offered "v0.1.1" to "v0.1.1 beta" forever (the release was tagged
+  without "beta"); Update now opened a visible cmd window (DETACHED_PROCESS made Windows ignore
+  CREATE_NO_WINDOW, so tasklist/find got their own console). Tested: Setup's update mode into a
+  test folder (installs, opens the app), the installed uninstaller (removes everything, keeps
+  data), screenshots of welcome/progress/remove pages. Not tested: a real default-folder install
+  over the user's 0.1.1, and 0.1.1's updater driving the new Setup (/SILENT path).
 
 ## Releasing a new version
 

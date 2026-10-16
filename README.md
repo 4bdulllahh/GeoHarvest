@@ -12,7 +12,7 @@ more. It then visits each business's website to find **email addresses and socia
 pages**, estimates **how old the company is**, and, if you connect an AI, **scores every lead**
 against your ideal customer. Export the result to Excel in one click.
 
-**Download:** [latest release](../../releases/latest) · **Version:** 0.1.1 (free beta) ·
+**Download:** [latest release](../../releases/latest) · **Version:** 0.1.2 (free beta) ·
 **Works on:** Windows 10 and 11 · **Countries:** all of them
 
 ![GeoHarvest's Leads page: dental clinics with AI score, verdict and reason, phone numbers and more](docs/screenshots/leads.png)
@@ -106,9 +106,10 @@ the update check, your data folder, and **Uninstall**.
 
 1. Download `GeoHarvest-vX.Y.Z-windows.zip` from the
    [latest release](../../releases/latest).
-2. Open the zip and double-click **GeoHarvest-Setup-vX.Y.Z.exe**.
-3. Follow the steps: choose whether you want a desktop shortcut and whether GeoHarvest should
-   open when Windows starts. No administrator rights needed.
+2. Right-click it and choose **Extract All** (Setup can't run from inside the zip).
+3. Open the extracted folder, double-click **GeoHarvest-Setup.exe** and click **Install**.
+   At the end, choose the Start menu entry, a desktop shortcut and whether GeoHarvest opens
+   when Windows starts. No administrator rights needed.
 
 **"Windows protected your PC"?** GeoHarvest is new and not yet code-signed (a signing
 certificate costs money every year), so Windows SmartScreen does not recognise it. Press
@@ -148,7 +149,6 @@ pip install -r requirements-dev.txt
 python run.py                      # run the app
 python -m pytest tests/ -q         # tests (no network needed)
 python tools/build.py              # dist/GeoHarvest-vX.Y.Z-windows.zip (installer inside), self-tested
-                                   # needs Inno Setup once: winget install JRSoftware.InnoSetup
 python tools/screenshot.py         # these README screenshots, from made-up demo data
 ```
 

@@ -9,7 +9,7 @@ from app.services import updater
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (ChoiceButtons, FormRow, Section, danger_button, hint, muted,
                                    open_url, row, secondary_button)
-from app.ui.widgets.dialogs import ConfirmDialog
+from app.ui.widgets.dialogs import ChoiceDialog, ConfirmDialog
 from app.ui.widgets.inputs import checkbox
 
 SPEEDS = [("2", "Gentle"), ("4", "Normal"), ("8", "Fast")]
@@ -95,10 +95,17 @@ class SettingsPage(Page):
         if self.window_.busy_page_reason():
             self.notify("Wait until the search has finished, or stop it first.", "warn")
             return
-        if not ConfirmDialog.ask(self, "Uninstall GeoHarvest?",
-                                 "GeoHarvest will close and be removed from this computer. You "
-                                 "will then be asked whether to keep your searches, leads and "
-                                 "settings.", confirm_text="Uninstall", danger=True):
+        choice = ChoiceDialog.ask(
+            self, "Uninstall GeoHarvest?",
+            "GeoHarvest will close and be removed from this computer, with its shortcuts.",
+            [("keep", "Uninstall, keep my searches, leads and settings", "danger"),
+             ("delete", "Uninstall and delete my searches, leads and settings too", "secondary"),
+             (None, "Cancel", "secondary")])
+        if choice is None:
             return
-        updater.start_uninstall()
+        try:
+            updater.start_uninstall(delete_data=choice == "delete")
+        except OSError as error:
+            self.notify(f"The uninstaller didn't start: {error}", "error")
+            return
         self.window_.quit_app()
