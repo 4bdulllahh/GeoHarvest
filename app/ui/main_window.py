@@ -371,9 +371,9 @@ class MainWindow(QMainWindow):
     def refresh_status(self) -> None:
         row = db.query_one("SELECT COUNT(*) AS n FROM leads")
         self.status_right.setText(t("{count:,} leads saved", count=row["n"] if row else 0))
-        if not self.status_left.text():
+        if not self.busy_page_reason():  # while a search runs, the Search page owns this text
             mode = db.get_setting("ai_provider", "")
-            self.status_left.setText(t("Smart mode on") if mode else t("Quick mode"))
+            self.status_left.setText(t("Smart mode ready") if mode else t("Quick mode"))
 
     # --- appearance ---------------------------------------------------------
     def apply_theme(self) -> None:

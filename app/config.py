@@ -22,9 +22,9 @@ def _app_data_dir() -> Path:
 
 DATA_DIR = _app_data_dir()
 DB_PATH = DATA_DIR / "geoharvest.db"
+SECRETS_PATH = DATA_DIR / "secrets.dat"
 EXPORTS_DIR = DATA_DIR / "exports"
 LOGS_DIR = DATA_DIR / "logs"
-BROWSER_PROFILE_DIR = DATA_DIR / "browser"
 
 
 def ensure_dirs() -> None:

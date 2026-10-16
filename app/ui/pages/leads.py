@@ -16,6 +16,7 @@ from app.ui.widgets.dialogs import ConfirmDialog
 from app.ui.widgets.inputs import Debouncer, combo, line_edit
 from app.ui.widgets.leads_model import LEAD_ROLE, LeadsModel, LeadsProxy
 from app.ui.widgets.tables import DataTable
+from app.workers.ai import AIScoreWorker
 from app.workers.base import Task
 
 ALL = "All searches"
@@ -35,8 +36,10 @@ class LeadsPage(Page):
         self.excel_button = primary_button("Export to Excel", lambda: self.export("xlsx"))
         self.csv_button = secondary_button("Export CSV", lambda: self.export("csv"))
         self.delete_button = danger_button("Delete search...", self.delete_search)
-        self.root.addWidget(row(self.picker, self.filter, self.excel_button, self.csv_button,
-                                self.delete_button, stretch=1))
+        self.score_button = secondary_button("Score with AI", self.score_with_ai)
+        self.score_worker = None
+        self.root.addWidget(row(self.picker, self.filter, self.score_button, self.excel_button,
+                                self.csv_button, self.delete_button, stretch=1))
 
         card = Card(padding=12)
         self.count_label = muted("", wrap=False)
@@ -104,6 +107,9 @@ class LeadsPage(Page):
         self.model.set_leads(leads)
         self._hide_empty_columns()
         self.delete_button.setEnabled(bool(self.current_id))
+        self.score_button.setEnabled(bool(self.current_id) and self.score_worker is None)
+        self.score_button.setToolTip("" if self.current_id else
+                                     "Pick one search in the list first")
 
     def _on_leads_added(self, search_id: int, leads: list) -> None:
         if self.current_id == search_id:
@@ -189,6 +195,47 @@ class LeadsPage(Page):
         Task(exporter.export, leads, Path(path)).start(
             on_result=self.guard(done), on_error=self.guard(failed),
             on_done=self.guard(self._update_count))
+
+    def score_with_ai(self) -> None:
+        from app.core import ai
+
+        if ai.settings() is None:
+            self.notify("Set up Smart mode first: open Smart mode in the menu.", "warn")
+            return
+        leads = self.proxy.visible_leads()
+        if not leads or not ConfirmDialog.ask(
+                self, "Score these leads with AI?",
+                f"The AI will read and score the {len(leads):,} leads shown, using your ideal "
+                "customer description. Leads already scored are scored again.",
+                confirm_text="Score them"):
+            return
+        search_id = self.current_id
+        worker = AIScoreWorker(search_id, leads)
+        worker.signals.updated.connect(
+            lambda pid, fields: self.window_.lead_updated.emit(search_id, pid, fields))
+        worker.signals.progress.connect(
+            lambda done, total, _detail: self.score_button.setText(f"Scoring {done} of {total}"))
+        worker.signals.message.connect(lambda text, level: self.notify(text, level))
+        worker.signals.finished.connect(
+            lambda result: self.notify(f"Scored {result['scored']:,} leads.", "success"))
+        worker.signals.failed.connect(lambda message: self.notify(message, "error", 8000))
+        worker.signals.done.connect(self._scoring_done)
+        self.score_worker = worker
+        self.score_button.setEnabled(False)
+        self.score_button.setText("Starting...")
+        worker.start()
+
+    def _scoring_done(self) -> None:
+        self.score_worker = None
+        self.score_button.setText("Score with AI")
+        self.score_button.setEnabled(bool(self.current_id))
+
+    def busy_reason(self) -> str | None:
+        return "leads are being scored" if self.score_worker is not None else None
+
+    def stop(self) -> None:
+        if self.score_worker is not None:
+            self.score_worker.cancel()
 
     def delete_search(self) -> None:
         if not self.current_id:

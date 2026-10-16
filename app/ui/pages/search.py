@@ -183,8 +183,9 @@ class SearchPage(Page):
         self.tile_web = StatTile("Websites checked", "-")
         self.tile_email = StatTile("With an email", "0")
         self.tile_phone = StatTile("With a phone", "0")
+        self.tile_ai = StatTile("AI checked", "-")
         for tile in (self.tile_leads, self.tile_places, self.tile_web, self.tile_email,
-                     self.tile_phone):
+                     self.tile_phone, self.tile_ai):
             stats.addWidget(tile)
         self.stats = QWidget()
         self.stats.setLayout(stats)
@@ -267,6 +268,8 @@ class SearchPage(Page):
         self.known: dict[str, dict] = {}  # what each lead added to the tiles, to undo on removal
         self.queries_done = len(record["progress"].get("done", []))
         self.tile_web.update_value("-")
+        self.tile_ai.update_value("-")
+        self.tile_ai.setVisible(bool(record["options"]["smart"]))
         for lead in searches.leads(search_id):
             self._count(lead)
         self._show_counts()
@@ -276,6 +279,8 @@ class SearchPage(Page):
         self.worker.signals.updated.connect(self._on_updated)
         self.worker.signals.removed.connect(self._on_removed)
         self.worker.signals.checked.connect(self._on_checked)
+        self.worker.signals.scored.connect(
+            lambda done, total: self.tile_ai.update_value(f"{done:,} of {total:,}"))
         self.worker.signals.progress.connect(self._on_progress)
         self.worker.signals.message.connect(lambda text, level: self.notify(text, level))
         self.worker.signals.finished.connect(self._on_finished)
@@ -358,6 +363,11 @@ class SearchPage(Page):
             self.status.setText("Paused: Google is limiting requests from your connection.")
             self.notify("Google asked GeoHarvest to slow down. Everything found so far is saved. "
                         "Wait about 15 minutes, then resume it from Past searches.", "warn", 10000)
+        elif result.get("ai_error"):
+            self.status.setText("Smart mode stopped: " + result["ai_error"])
+            self.notify(f"Smart mode stopped: {result['ai_error']} Leads found so far are "
+                        "saved; fix it on the Smart mode page, then resume from Past searches.",
+                        "warn", 10000)
         elif result["status"] == "done":
             self.queries_done = self.total_queries  # also true when "Stop after" ended it early
             self._show_counts()

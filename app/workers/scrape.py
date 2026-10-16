@@ -14,8 +14,9 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 from PyQt6.QtCore import pyqtSignal
 
-from app.core import db, enrich, scraper
+from app.core import ai, db, enrich, scraper
 from app.core import search as searches
+from app.workers.ai import AIStage
 from app.workers.base import Signals, Worker
 
 DEFAULT_PARALLEL = 4
@@ -27,6 +28,7 @@ class ScrapeSignals(Signals):
     updated = pyqtSignal(str, dict)     # place id, fields added by enrichment
     removed = pyqtSignal(str)           # place id dropped by the company age filter
     checked = pyqtSignal(int, int)      # websites checked, websites to check
+    scored = pyqtSignal(int, int)       # leads the AI has checked, leads to check
 
 
 class ScrapeWorker(Worker):
@@ -70,8 +72,9 @@ class ScrapeWorker(Worker):
             except Exception as error:  # noqa: BLE001 - one odd website must not end the search
                 self.log(f"Could not check {lead.get('website')}: {error}", "warn")
                 fields = {"enriched": True}
+            keep = enrich.matches_age({**lead, **fields}, options["company_age"])
             with lock:
-                if enrich.matches_age({**lead, **fields}, options["company_age"]):
+                if keep:
                     searches.update_lead(self.search_id, lead["place_id"], fields)
                     self.signals.updated.emit(lead["place_id"], fields)
                 else:
@@ -79,18 +82,57 @@ class ScrapeWorker(Worker):
                     self.signals.removed.emit(lead["place_id"])
                 checks["done"] += 1
                 self.signals.checked.emit(checks["done"], checks["total"])
+            if keep:
+                queue_scoring({**lead, **fields})
 
         def queue_enrichment(leads: list[dict]) -> None:
             if enrich_pool is None:
+                for lead in leads:
+                    queue_scoring(lead)
                 return
             with lock:
                 checks["total"] += len(leads)
             for lead in leads:
                 enrich_pool.submit(enrich_one, lead)
 
-        # Resuming: leads saved last time but never checked
-        queue_enrichment([lead for lead in searches.leads(self.search_id)
-                          if not lead.get("enriched")])
+        # --- smart mode: the AI scores each lead once its details are complete ---
+        cfg = ai.settings() if options["smart"] else None
+        min_score = cfg["min_score"] if cfg else 0
+        scores = {"done": 0, "total": 0}
+
+        def on_scored(batch: list[dict], scored: dict[str, dict]) -> None:
+            with lock:
+                for lead in batch:
+                    fields = scored.get(lead["place_id"])
+                    if fields is None:
+                        continue  # left unscored; resuming the search tries again
+                    if min_score and fields["ai_score"] < min_score:
+                        searches.remove_lead(self.search_id, lead["place_id"])
+                        self.signals.removed.emit(lead["place_id"])
+                    else:
+                        searches.update_lead(self.search_id, lead["place_id"], fields)
+                        self.signals.updated.emit(lead["place_id"], fields)
+                scores["done"] += len(batch)
+                self.signals.scored.emit(scores["done"], scores["total"])
+
+        stage = AIStage(cfg, ", ".join(options["niches"]), on_scored,
+                        lambda message: self.log(message, "warn")) if cfg else None
+
+        def queue_scoring(lead: dict) -> None:
+            if stage is None:
+                return
+            with lock:
+                scores["total"] += 1
+            stage.put(lead)
+
+        # Resuming: leads saved last time but never checked or never scored
+        unchecked = []
+        for lead in searches.leads(self.search_id):
+            if enrich_pool is not None and not lead.get("enriched"):
+                unchecked.append(lead)
+            elif "ai_score" not in lead:
+                queue_scoring(lead)
+        queue_enrichment(unchecked)
 
         def run(query: str) -> None:
             if stopping():
@@ -134,13 +176,18 @@ class ScrapeWorker(Worker):
             if enrich_pool is not None:
                 # Stop drops the website visits still waiting; resume picks them up
                 enrich_pool.shutdown(wait=True, cancel_futures=self._stop.is_set())
+            if stage is not None:
+                stage.close(cancel=self._stop.is_set())
         finally:
             client.close()
             if enricher is not None:
                 enricher.close()
 
         searched = state["finished"] == len(all_queries) or (limit and state["found"] >= limit)
-        complete = searched and checks["done"] == checks["total"]
+        ai_error = stage.failed if stage is not None else None
+        complete = searched and checks["done"] == checks["total"] \
+            and scores["done"] == scores["total"] and not ai_error
         status = "done" if complete and not self.blocked else "stopped"
         searches.set_status(self.search_id, status)
-        return {"status": status, "found": state["found"], "blocked": self.blocked}
+        return {"status": status, "found": state["found"], "blocked": self.blocked,
+                "ai_error": ai_error}

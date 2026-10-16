@@ -246,3 +246,62 @@ def test_enrich_crawls_contact_page_and_looks_up_age():
 
     social = enricher.enrich({"website": "https://www.facebook.com/acme"})
     assert social == {"enriched": True, "facebook": "https://www.facebook.com/acme"}
+
+
+# --- smart mode -------------------------------------------------------------
+def test_ai_prompt_and_reply_parsing():
+    from app.core import ai
+
+    leads = [{"place_id": "A", "name": "One", "emails": "a@b.c", "instagram": "x", "hours": "h" * 900},
+             {"place_id": "B", "name": "Two"}]
+    prompt = ai.build_prompt("Clinics with a website", "dentist in Lahore", leads)
+    assert '"id": 0' in prompt and '"has_email": true' in prompt and '"instagram"' in prompt
+    assert "h" * 301 not in prompt  # long fields are cut down
+
+    reply = 'Sure!\n```json\n{"results": [{"id": 0, "score": 140, "reason": "Great"},' \
+            '{"id": 1, "score": 30, "reason": "Closed"}, {"id": 7, "score": 90, "reason": "?"},' \
+            '{"id": "x"}]}\n```'
+    assert ai.parse_reply(reply, leads) == {
+        "A": {"ai_score": 100, "ai_verdict": "Good fit", "ai_reason": "Great"},
+        "B": {"ai_score": 30, "ai_verdict": "Poor fit", "ai_reason": "Closed"},
+    }
+    assert ai.verdict(50) == "Maybe" and ai.verdict(49) == "Poor fit"
+    with pytest.raises(ai.AIError):
+        ai.parse_reply("no json here", leads)
+
+
+def test_ai_openai_style_call_retries_rate_limits(monkeypatch):
+    import httpx
+
+    from app.core import ai
+
+    calls = []
+
+    def fake_post(url, json, headers, timeout):
+        calls.append((url, headers, json["model"]))
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"retry-after": "1"})
+        content = '{"results": [{"id": 0, "score": 85, "reason": "Fits"}]}'
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(ai.httpx, "post", fake_post)
+    monkeypatch.setattr(ai.time, "sleep", lambda seconds: None)
+    cfg = {"kind": "openai", "base_url": "https://api.groq.com/openai/v1", "model": "m",
+           "key": "k", "profile": ""}
+    assert ai.test(cfg) == {"ai_score": 85, "ai_verdict": "Good fit", "ai_reason": "Fits"}
+    assert len(calls) == 2
+    assert calls[0][0].endswith("/chat/completions") and calls[0][1] == {"Authorization": "Bearer k"}
+
+
+def test_ai_wrong_key_is_fatal(monkeypatch):
+    import httpx
+
+    from app.core import ai
+
+    monkeypatch.setattr(ai.httpx, "post", lambda *a, **k: httpx.Response(401))
+    cfg = {"kind": "gemini", "base_url": "https://x", "model": "m", "key": "bad", "profile": ""}
+    with pytest.raises(ai.AIError) as caught:
+        ai.score(cfg, "q", [{"place_id": "A", "name": "One"}])
+    assert caught.value.fatal
+    with pytest.raises(ai.AIError):
+        ai.score({**cfg, "key": ""}, "q", [])
