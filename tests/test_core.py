@@ -90,20 +90,41 @@ def test_search_stops_when_cancelled(page):
 
 # --- queries and filters ----------------------------------------------------
 def test_queries_from_cities_or_country():
-    chosen = {"niches": ["dentist", " "], "country": "Pakistan", "cities": ["Lahore", "Multan"]}
+    chosen = {"niches": ["dentist", " "], "countries": ["Pakistan"], "cities": ["Lahore", "Multan"]}
     assert searches.build_queries(chosen) == [
         "dentist in Lahore, Pakistan", "dentist in Multan, Pakistan"]
-    sweep = searches.build_queries({"niches": ["cafe", "bakery"], "country": "Pakistan",
+    sweep = searches.build_queries({"niches": ["cafe", "bakery"], "countries": ["USA"],
                                     "city_count": 2})
-    assert sweep == ["cafe in Lahore, Pakistan", "bakery in Lahore, Pakistan",
-                     "cafe in Karachi, Pakistan", "bakery in Karachi, Pakistan"]
-    assert searches.title({"niches": ["cafe"], "country": "Pakistan", "city_count": 2}) == \
-        "cafe in Pakistan (2 biggest cities)"
+    assert sweep == ["cafe in New York City, United States", "bakery in New York City, United States",
+                     "cafe in Los Angeles, United States", "bakery in Los Angeles, United States"]
+    assert searches.title({"niches": ["cafe"], "countries": ["uae"], "city_count": 2}) ==         "cafe in United Arab Emirates, 2 biggest cities"
+    # old saved searches had one "country"
+    assert searches.build_queries({"niches": ["cafe"], "country": "Germany", "city_count": 1}) == [
+        "cafe in Berlin, Germany"]
+
+
+def test_regions_and_several_countries():
+    from app.core import geo
+
+    eu = geo.expand(["European Union"])
+    assert len(eu) == 27 and "Germany" in eu and "Netherlands" in eu
+    assert geo.expand(["UK", "Germany", "EU"])[:2] == ["United Kingdom", "Germany"]
+    assert len(geo.expand(["UK", "Germany", "EU"])) == 28  # Germany only once
+    assert geo.resolve("holland") == "Netherlands" and geo.resolve("Atlantis") is None
+
+    options = {"niches": ["lawyer"], "countries": ["Gulf (GCC)"], "city_count": 1,
+               "cities": ["ignored with several countries"]}
+    queries = searches.build_queries(options)
+    assert len(queries) == 6 and "lawyer in Dubai, United Arab Emirates" in queries
+    assert searches.title(options) == "lawyer in Gulf (GCC), biggest city each"
+    full = searches.options_with_defaults(options)
+    assert searches.passes({"country_code": "QA", "status": "Open"}, full)
+    assert not searches.passes({"country_code": "US", "status": "Open"}, full)
 
 
 def test_filters():
     options = searches.options_with_defaults(
-        {"country": "Pakistan", "min_rating": 4, "min_reviews": 10, "require_website": True})
+        {"countries": ["Pakistan"], "min_rating": 4, "min_reviews": 10, "require_website": True})
     good = {"country_code": "PK", "status": "Open", "rating": 4.5, "reviews": 50,
             "website": "x.pk"}
     assert searches.passes(good, options)
@@ -117,14 +138,14 @@ def test_filters():
 
 # --- storage ----------------------------------------------------------------
 def test_save_dedupes_and_resumes(fresh_db):
-    first = searches.create({"niches": ["cafe"], "country": "Pakistan"})
+    first = searches.create({"niches": ["cafe"], "countries": ["Pakistan"]})
     lead = {"place_id": "A", "name": "One"}
     assert searches.save_leads(first, [lead, lead, {"place_id": "B", "name": "Two"}]) == [
         lead, {"place_id": "B", "name": "Two"}]
     assert searches.save_leads(first, [lead]) == []
     assert searches.count(first) == 2
 
-    second = searches.create({"niches": ["cafe"], "country": "Pakistan"})
+    second = searches.create({"niches": ["cafe"], "countries": ["Pakistan"]})
     assert searches.save_leads(second, [lead], skip_known=True) == []
     assert searches.save_leads(second, [lead]) == [lead]
 
@@ -171,7 +192,7 @@ def test_find_emails_handles_obfuscation_and_junk():
     # Cloudflare encodes "info@acme.pk" with key 0x42
     hidden = "42" + "".join(f"{ord(c) ^ 0x42:02x}" for c in "info@acme.pk")
     page = ('<a href="mailto:Sales@Acme.pk">x</a> logo@2x.png you@example.com '
-            f'hello&#64;acme.pk mailto:%20sales@acme.pk hello@acme.pkClifton <span data-cfemail="{hidden}"></span> sales@acme.pk')
+            f'hello&#64;acme.pk mailto:%20sales@acme.pk hello@acme.pkClifton gebruiker@domein.com max@mustermann.de a@sentry.wixpress.com <span data-cfemail="{hidden}"></span> sales@acme.pk')
     assert enrich.find_emails(page) == ["sales@acme.pk", "hello@acme.pk", "info@acme.pk"]
 
 
@@ -305,3 +326,24 @@ def test_ai_wrong_key_is_fatal(monkeypatch):
     assert caught.value.fatal
     with pytest.raises(ai.AIError):
         ai.score({**cfg, "key": ""}, "q", [])
+
+
+# --- updates ----------------------------------------------------------------
+def test_update_version_and_release_parsing(tmp_path):
+    from pathlib import Path
+
+    from app.services import updater
+
+    assert updater.is_newer("v0.2.0", "v0.1.0 beta")
+    assert updater.is_newer("v0.1.0", "v0.1.0 beta")       # final after its beta
+    assert not updater.is_newer("v0.1.0-beta", "v0.1.0 beta")
+    assert not updater.is_newer("v0.0.9", "v0.1.0 beta")
+    release = updater.parse_release({
+        "tag_name": "v0.2.0", "html_url": "https://github.com/x/releases/v0.2.0", "body": "Notes",
+        "assets": [{"name": "source.zip"},
+                   {"name": "GeoHarvest-v0.2.0-windows.zip", "size": 10,
+                    "browser_download_url": "https://dl/zip", "digest": "sha256:ABC"}]})
+    assert (release.zip_url, release.sha256, release.zip_size) == ("https://dl/zip", "abc", 10)
+    script = updater.install_script(Path("C:/tmp/new"), Path("C:/Apps/GeoHarvest"), 1234)
+    assert "/E " in script and "/MIR" not in script  # never deletes in the app folder
+    assert '"PID eq 1234"' in script and "GeoHarvest.exe" in script

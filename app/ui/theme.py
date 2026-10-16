@@ -298,6 +298,16 @@ def chevron(token: str = "fg_muted") -> str:
         'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')
 
 
+def chevron_up(token: str = "fg_muted") -> str:
+    """The spin box's up arrow."""
+    shade = color(token).lstrip("#")
+    return _asset(
+        f"chevron-up-{shade}.svg",
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 8">'
+        f'<path d="M1.5 6 L6 1.5 L10.5 6" fill="none" stroke="#{shade}" '
+        'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
+
 def px(size: int) -> int:
     """A design size in points scaled by the Text size setting."""
     return max(8, round(size * _state["scale"]))
@@ -466,6 +476,19 @@ QComboBox::down-arrow {{
     height: {px(7)}px;
     margin-right: {px(8)}px;
 }}
+QSpinBox {{ padding-right: {px(24)}px; }}
+QSpinBox::up-button, QSpinBox::down-button {{
+    subcontrol-origin: border;
+    width: {px(22)}px;
+    border: none;
+    border-left: 1px solid {t['border']};
+    background: transparent;
+}}
+QSpinBox::up-button {{ subcontrol-position: top right; border-top-right-radius: {RADIUS}px; }}
+QSpinBox::down-button {{ subcontrol-position: bottom right; border-bottom-right-radius: {RADIUS}px; }}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {t['bg_hover']}; }}
+QSpinBox::up-arrow {{ image: url("{chevron_up()}"); width: {px(9)}px; height: {px(6)}px; }}
+QSpinBox::down-arrow {{ image: url("{chevron()}"); width: {px(9)}px; height: {px(6)}px; }}
 QComboBox QAbstractItemView {{
     background-color: {t['bg_panel']};
     color: {t['fg']};

@@ -51,8 +51,14 @@ HOSTED_SUFFIXES = ("netlify.app", "vercel.app", "github.io", "wixsite.com", "wix
                    "google.com", "jimdosite.com", "myshopify.com", "pages.dev", "web.app",
                    "firebaseapp.com", "herokuapp.com", "site123.me", "strikingly.com", "cal.com")
 WAYBACK_AT_ONCE = 4  # the archive is slow and shared; be gentle with it
-PLACEHOLDER_DOMAINS = ("example.", "domain.com", "email.com", "yourdomain", "sentry",
-                       "wixpress.com", "godaddy.com", "mysite.com", "test.com")
+# Template addresses left in contact forms ("you@example.com"), in the languages GeoHarvest
+# is used in most. Matched exactly or as whole names, so a real "mycompany.com" survives.
+PLACEHOLDER_DOMAINS = {"domain.com", "email.com", "company.com", "website.com", "mysite.com",
+                       "test.com", "yourdomain.com", "yoursite.com", "wixpress.com",
+                       "godaddy.com", "sentry.io"}
+PLACEHOLDER_NAMES = ("example", "domein", "beispiel", "exemple", "ejemplo", "dominio", "esempio",
+                     "voorbeeld", "musterfirma", "mustermann", "votredomaine", "tudominio",
+                     "ihredomain", "sentry")
 
 
 # --- finding things in a page -------------------------------------------------
@@ -73,7 +79,8 @@ def find_emails(page: str) -> list[str]:
         ending = re.match(r"[a-z]+|[A-Z]+", host)
         email = f"{name}.{ending.group(0) if ending else host}".lower()
         domain = email.split("@", 1)[1]
-        if email.endswith(NOT_EMAIL_ENDINGS) or any(p in domain for p in PLACEHOLDER_DOMAINS):
+        names = domain.split(".")
+        if email.endswith(NOT_EMAIL_ENDINGS) or domain in PLACEHOLDER_DOMAINS or                 any(n in PLACEHOLDER_NAMES for n in names):
             continue
         if len(email) <= 80 and email not in clean:
             clean.append(email)

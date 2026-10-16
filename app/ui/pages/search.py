@@ -10,7 +10,7 @@ from app.ui.pages.base import Page
 from app.ui.widgets.common import (Card, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
                                    confirm_button, danger_button, hint, muted, row,
                                    secondary_button)
-from app.ui.widgets.inputs import checkbox, combo, line_edit
+from app.ui.widgets.inputs import checkbox, line_edit
 
 NICHES = [
     "accountant", "advertising agency", "architect", "auto repair shop", "bakery", "bank",
@@ -92,30 +92,33 @@ class SearchPage(Page):
 
         # --- where ----------------------------------------------------------
         where = Section("Where?")
-        country_row = FormRow("Country")
-        self.country = combo([""] + geo.countries(), last["country"], translate=False)
-        self.country.setEditable(True)
-        self.country.lineEdit().setPlaceholderText("Start typing a country")
-        self.country.completer().setFilterMode(Qt.MatchFlag.MatchContains)
-        self.country.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self.country.setFixedWidth(320)
-        self.country.currentTextChanged.connect(self._country_changed)
+        country_row = FormRow("Countries",
+                              "One or several, separated by commas. Regions work too: European "
+                              "Union (all 27 countries) and Gulf (GCC).")
+        self.country = list_input("For example: United States, Germany, or European Union",
+                                  geo.choices())
+        self.country.setText(", ".join(last["countries"]))
         country_row.add(self.country)
         where.add(country_row)
 
-        cities_row = FormRow("Cities (optional)",
-                             "Leave empty to search the country's biggest cities one by one. "
+        cities_row = FormRow("Cities (optional, with one country)",
+                             "Leave empty to search each country's biggest cities one by one. "
                              "Google shows about 200 businesses per city, so more cities means "
                              "more leads.")
-        self.cities = list_input("For example: Lahore, Karachi", [])
+        self.cities = list_input("For example: Dubai, Abu Dhabi", [])
         self.cities.setText(", ".join(last["cities"]))
         cities_row.add(self.cities)
         self.city_count = spin(1, 60, int(last["city_count"]), " cities")
         cities_row.add(row(muted("If empty, search the biggest", wrap=False), self.city_count,
                            None))
         where.add(cities_row)
+        self.plan = hint("")
+        where.add(self.plan)
         layout.addWidget(where)
-        self._country_changed(self.country.lineEdit().text())
+        for edit in (self.country, self.cities, self.niches):
+            edit.textChanged.connect(self._country_changed)
+        self.city_count.valueChanged.connect(self._country_changed)
+        self._country_changed()
 
         # --- which ----------------------------------------------------------
         which = Section("Which businesses?")
@@ -205,9 +208,25 @@ class SearchPage(Page):
         self.root.addWidget(bar)
 
     # --- form ---------------------------------------------------------------
-    def _country_changed(self, country: str) -> None:
-        completer = self.cities.completer()
-        completer.model().setStringList(geo.cities(country))
+    def _country_changed(self, *_args) -> None:
+        countries = geo.expand(split_list(self.country.text()))
+        one = len(countries) == 1
+        self.cities.completer().model().setStringList(geo.cities(countries[0]) if one else [])
+        self.cities.setEnabled(one or not countries)
+        self.cities.setPlaceholderText("For example: Dubai, Abu Dhabi" if one or not countries
+                                       else "Each country's biggest cities are searched")
+        unknown = [c for c in split_list(self.country.text()) if geo.resolve(c) is None]
+        searches_count = len(searches.build_queries({
+            "niches": split_list(self.niches.text()), "countries": split_list(self.country.text()),
+            "cities": split_list(self.cities.text()), "city_count": self.city_count.value()}))
+        if unknown:
+            self.plan.setText(f"Not a country GeoHarvest knows: {', '.join(unknown)}. "
+                              "Pick from the list as you type.")
+        elif searches_count:
+            self.plan.setText(f"{len(countries)} {'country' if one else 'countries'}, "
+                              f"{searches_count:,} searches (one per city and business type).")
+        else:
+            self.plan.setText("")
 
     def on_show(self) -> None:
         ready = bool(db.get_setting("ai_provider", ""))
@@ -221,7 +240,7 @@ class SearchPage(Page):
     def options(self) -> dict:
         return {
             "niches": split_list(self.niches.text()),
-            "country": self.country.lineEdit().text().strip(),
+            "countries": split_list(self.country.text()),
             "cities": split_list(self.cities.text()),
             "city_count": self.city_count.value(),
             "company_age": self.company_age.get(),
@@ -236,13 +255,31 @@ class SearchPage(Page):
             "smart": self.smart.isChecked(),
         }
 
+    def load_options(self, options: dict) -> None:
+        """Fill the form from a saved search (Past searches: resume or run again)."""
+        options = searches.options_with_defaults(options)
+        self.niches.setText(", ".join(options["niches"]))
+        self.country.setText(", ".join(options["countries"]))
+        self.cities.setText(", ".join(options["cities"]))
+        self.city_count.setValue(int(options["city_count"]))
+        self.company_age.set(options["company_age"])
+        self.min_rating.set(str(options["min_rating"]).removesuffix(".0"))
+        self.min_reviews.setValue(int(options["min_reviews"]))
+        self.max_results.setValue(int(options["max_results"]))
+        for name in ("require_website", "require_phone", "skip_closed", "skip_known",
+                     "find_emails"):
+            getattr(self, name).setChecked(bool(options[name]))
+        self.on_show()  # Smart mode only stays ticked if it is still set up
+        self.smart.setChecked(bool(options["smart"]) and self.smart.isEnabled())
+
     def _validate(self, options: dict) -> str | None:
         if not options["niches"]:
             return "Type what kind of business you are looking for."
-        if not options["country"] and not options["cities"]:
+        if not options["countries"] and not options["cities"]:
             return "Pick a country, or type at least one city."
-        if options["country"] and options["country"] not in geo.countries():
-            return "Pick the country from the list, so GeoHarvest knows its cities."
+        unknown = [c for c in options["countries"] if geo.resolve(c) is None]
+        if unknown:
+            return f"Pick the country from the list, so GeoHarvest knows its cities: {unknown[0]}"
         return None
 
     # --- running ------------------------------------------------------------

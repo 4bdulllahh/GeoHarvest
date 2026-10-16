@@ -85,6 +85,9 @@ def main() -> int:
     config.ensure_dirs()
     install_crash_guard()
     db.init()
+    from app.core import search
+
+    search.recover_interrupted()
 
     for name in ("assets/icon.ico", "assets/logo-256.png"):
         path = config.resource_path(name)
@@ -101,6 +104,7 @@ def main() -> int:
 
     window = MainWindow()
     window.show()
+    window.check_for_update_soon()
     return app.exec()
 
 

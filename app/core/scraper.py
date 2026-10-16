@@ -49,8 +49,12 @@ class MapsClient:
     def __init__(self, language: str = "en"):
         self.language = language
         self.template = config.resource_path("app/data/maps_pb.txt").read_text("utf-8").strip()
+        # From an EU or UK connection Google first redirects to its cookie-consent page;
+        # these cookies record "reject all", which is what a visitor who said no would carry
         self.http = httpx.Client(
             headers={"User-Agent": USER_AGENT, "Accept-Language": f"{language},en;q=0.8"},
+            cookies={"CONSENT": "PENDING+987",
+                     "SOCS": "CAESHAgBEhJnd3NfMjAyMzA4MTAtMF9SQzIaAmVuIAEaBgiAo_CmBg"},
             timeout=25, follow_redirects=False)
 
     def close(self) -> None:
@@ -65,9 +69,12 @@ class MapsClient:
                   f"!4f13.1!7i{PAGE_SIZE}!8i{offset}" + self.template)
         params = {"tbm": "map", "authuser": "0", "hl": self.language, "q": query, "pb": pb}
         response = self.http.get("https://www.google.com/search", params=params)
-        if response.status_code in (429, 403) or (
-                response.is_redirect and "sorry" in response.headers.get("location", "")):
+        location = response.headers.get("location", "")
+        if response.status_code in (429, 403) or (response.is_redirect and "sorry" in location):
             raise Blocked("Google is limiting requests from this connection")
+        if response.is_redirect and "consent." in location:
+            raise httpx.HTTPError("Google asked for cookie consent; the consent cookie needs "
+                                  "refreshing in app/core/scraper.py")
         response.raise_for_status()
         return decode(response.text)
 

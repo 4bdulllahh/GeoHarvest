@@ -136,7 +136,8 @@ def parse(place: list, query: str = "") -> dict | None:
         "address": at(place, 39) or at(place, 18) or "",
         "street": at(parts, 1) or "",
         "neighborhood": at(parts, 0) or "",
-        "city": at(parts, 3) or "",
+        # [166] is "City, Country"; the only place the city appears in some countries (UAE)
+        "city": at(parts, 3) or (at(place, 166) or "").split(",")[0].strip(),
         "postal_code": at(parts, 4) or "",
         "state": at(parts, 5) or "",
         "country_code": at(parts, 6) or at(place, 243) or "",

@@ -33,6 +33,8 @@ def main() -> None:
             continue
         cities.setdefault(cols[8], []).append((int(cols[14] or 0), cols[1], cols[10]))
 
+    # GeoNames' official names, swapped for the ones people actually type
+    countries.update({"NL": "Netherlands", "BS": "Bahamas", "GM": "Gambia"})
     data = {}
     for code, name in sorted(countries.items(), key=lambda item: item[1]):
         found = sorted(cities.get(code, []), reverse=True)

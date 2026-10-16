@@ -441,6 +441,46 @@ class MainWindow(QMainWindow):
         finally:
             self.setUpdatesEnabled(True)
 
+    # --- updates ------------------------------------------------------------
+    def check_for_update_soon(self, delay_ms: int = 2500) -> None:
+        """Ask GitHub for a newer release once the window is up. Silent when offline."""
+        if db.get_setting("check_updates", True):
+            QTimer.singleShot(delay_ms, self.check_for_update)
+
+    def check_for_update(self, tell_if_none: bool = False) -> None:
+        from app.services import updater
+        from app.workers.base import Task
+
+        def result(release) -> None:
+            if release is not None:
+                self._offer_update(release)
+            elif tell_if_none:
+                toast(self, t("You have the latest version ({version}).",
+                              version=config.APP_VERSION), "success")
+
+        Task(updater.available_update).start(on_result=result)
+
+    def _offer_update(self, release) -> None:
+        if QApplication.activeModalWidget() is not None:
+            # Something else is asking the user a question; don't stack a popup on it
+            QTimer.singleShot(5000, lambda: self._offer_update(release))
+            return
+        from app.ui.widgets.update_dialog import UpdateDialog
+
+        UpdateDialog.offer(self, release)
+
+    def quit_app(self) -> None:
+        """Close without questions (the updater is waiting for us to exit)."""
+        for page in self._pages.values():
+            stop = getattr(page, "stop", None)
+            if callable(stop):
+                stop()
+        from app.workers import base as workers
+
+        workers.shutdown(2000)
+        db.close()
+        QApplication.quit()
+
     # --- lifecycle ----------------------------------------------------------
     def busy_page_reason(self) -> str | None:
         """The first reason any built page gives for not being torn down."""

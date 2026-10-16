@@ -11,8 +11,8 @@ from app.core import db, geo
 
 DEFAULT_OPTIONS = {
     "niches": [],             # "dentist", "real estate agency"...
-    "country": "",
-    "cities": [],             # empty: the country's biggest `city_count` cities
+    "countries": [],          # countries and/or regions ("European Union"), as typed
+    "cities": [],             # only with one country; empty: its biggest `city_count` cities
     "city_count": 10,
     "company_age": "any",     # any, startup, established (estimated, see enrich.py)
     "min_rating": 0.0,
@@ -23,23 +23,30 @@ DEFAULT_OPTIONS = {
     "skip_known": False,      # leave out businesses found by an earlier search
     "max_results": 0,         # 0: no limit
     "find_emails": True,      # visit websites for emails and social links
-    "smart": False,           # AI check (milestone 5)
+    "smart": False,           # score every lead with the user's AI
 }
 
 
 def options_with_defaults(options: dict) -> dict:
-    return {**DEFAULT_OPTIONS, **options}
+    merged = {**DEFAULT_OPTIONS, **options}
+    if merged.pop("country", None) and not options.get("countries"):  # saved before 0.1
+        merged["countries"] = [options["country"]]
+    return merged
 
 
 def places_for(options: dict) -> list[str]:
-    """The places to search: the chosen cities, else the country's biggest ones."""
-    country = options["country"]
+    """The places to search: typed cities (one country only), else each country's biggest."""
+    countries = geo.expand(options["countries"])
     chosen = [c.strip() for c in options["cities"] if c.strip()]
-    if not chosen and country:
-        chosen = geo.cities(country)[: max(1, int(options["city_count"]))]
-    if not chosen:
-        return [country] if country else []
-    return [f"{city}, {country}" if country else city for city in chosen]
+    if chosen and len(countries) <= 1:
+        suffix = f", {countries[0]}" if countries else ""
+        return [city + suffix for city in chosen]
+    count = max(1, int(options["city_count"]))
+    places = []
+    for country in countries:
+        biggest = geo.cities(country)[:count]
+        places += [f"{city}, {country}" for city in biggest] if biggest else [country]
+    return places
 
 
 def build_queries(options: dict) -> list[str]:
@@ -51,22 +58,25 @@ def build_queries(options: dict) -> list[str]:
 def title(options: dict) -> str:
     options = options_with_defaults(options)
     niches = ", ".join(n.strip() for n in options["niches"] if n.strip())
+    named = [geo.resolve(c) or c for c in options["countries"]]
+    countries = geo.expand(options["countries"])
     cities = [c for c in options["cities"] if c.strip()]
-    if cities:
+    if cities and len(countries) <= 1:
         where = cities[0] if len(cities) == 1 else f"{len(cities)} cities"
-        where += f", {options['country']}" if options["country"] else ""
+        where += f", {countries[0]}" if countries else ""
     else:
-        where = f"{options['country']} ({options['city_count']} biggest cities)"
+        where = ", ".join(named) if len(named) <= 3 else f"{len(countries)} countries"
+        biggest = "biggest city" if options["city_count"] == 1 else             f"{options['city_count']} biggest cities"
+        where += f", {biggest}" + (" each" if len(countries) > 1 else "")
     return f"{niches} in {where}"
 
 
 def passes(lead: dict, options: dict) -> bool:
     """The filters that can be decided from Google's data alone."""
-    if options["country"]:
-        code = geo.country_code(options["country"])
-        # Ambiguous city names ("Hyderabad", "Victoria") can pull in another country
-        if code and lead.get("country_code") and lead["country_code"] != code:
-            return False
+    codes = {geo.country_code(c) for c in geo.expand(options["countries"])} - {""}
+    # Ambiguous city names ("Hyderabad", "Victoria") can pull in another country
+    if codes and lead.get("country_code") and lead["country_code"] not in codes:
+        return False
     if options["skip_closed"] and lead.get("status") != "Open":
         return False
     if (lead.get("rating") or 0) < float(options["min_rating"] or 0):
@@ -176,3 +186,8 @@ def delete(search_id: int) -> None:
 
 def remove_lead(search_id: int, place_id: str) -> None:
     db.execute("DELETE FROM leads WHERE search_id = ? AND place_id = ?", (search_id, place_id))
+
+
+def recover_interrupted() -> None:
+    """At start-up nothing is running, so a 'running' search was cut off by closing the app."""
+    db.execute("UPDATE searches SET status = 'stopped' WHERE status = 'running'")
