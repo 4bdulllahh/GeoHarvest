@@ -120,6 +120,21 @@ No account, no sign-in. Your searches, leads and settings are kept on your compu
 GeoHarvest, use **Settings > Uninstall GeoHarvest** or Windows Settings > Apps; it asks
 whether to keep your data.
 
+## Testing the beta
+
+Thanks for trying GeoHarvest! The most useful feedback is:
+
+- **What you searched for** (business type, countries and cities) and what went wrong or
+  looked odd.
+- **Anything confusing**: a button you couldn't find, wording that didn't make sense, a
+  step you got stuck on.
+- **What you wish it did.**
+
+Post it as a [GitHub issue](../../issues/new) or send it to the person who shared GeoHarvest
+with you. If the app crashed, attach `%APPDATA%\GeoHarvest\logs\crash.log`. If Setup
+failed, attach `%TEMP%\GeoHarvest-setup-log.txt` (Setup's **Open log file** button shows it).
+Paste either path into the File Explorer address bar to find it.
+
 ## Good to know
 
 - **Results per search.** Google shows about 200 businesses per city and business type. For
@@ -167,6 +182,8 @@ the decisions behind it, and where each feature lives.
 | ✓ | 5. Smart mode | AI lead scoring with free, paid and on-your-PC AIs |
 | ✓ | 6. History and updates | Past searches, resume, auto-update, settings, every country |
 | ✓ | 7. Release | The Windows download, automatic builds, this README |
+
+| ✓ | 0.1.1 and 0.1.2 | Installer, uninstall, exact lead counts, a Stop that stops, updates without a console window |
 
 **Ideas for later:** more languages in the app, emails from Facebook pages, a map view of
 results, scheduled searches, and a Mac version.

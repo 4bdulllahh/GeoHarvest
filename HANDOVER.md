@@ -3,6 +3,53 @@
 Read this first when picking the work back up (person or Claude). It says what
 is done, what is next, and the decisions already made so nobody re-asks them.
 
+## Where things stand (start here)
+
+**Phase: beta testing (since 2026-10-16).** All 7 milestones are done, plus the v0.1.1 and
+v0.1.2 fixes. The user has handed **v0.1.2 beta** to a group of testers and will come back
+with their feedback. The next work is changes based on that feedback. Don't start new
+features or the "ideas for later" unless the user asks.
+
+**When the user comes back with feedback:**
+
+1. Collect it from what they paste and from GitHub issues
+   (https://github.com/4bdulllahh/GeoHarvest/issues). Sort it into bugs (crashes, wrong or
+   missing data, things that don't work), confusing screens or wording, and feature
+   requests. Show the user the sorted list and agree what goes in the next version before
+   writing code.
+2. Bugs: reproduce first, then fix the root cause. Add a test in `tests/test_core.py` for
+   anything in `app/core/` or `app/workers/`. Read the "Decisions" table below before
+   changing behaviour; it records why things are the way they are.
+3. Ship the batch as one release (see "Releasing a new version" at the bottom). The
+   user always wants a paste-ready paragraph for the GitHub release description. Write it
+   in plain English for testers, not developers.
+4. Follow the working agreement: update the Log here, commit, push, then ask before
+   starting the next batch.
+
+**Where testers' problems usually come from:**
+
+| They say | Likely cause |
+|---|---|
+| Setup won't open, or a "Failed to load Python DLL" error | They ran `GeoHarvest-Setup.exe` from inside the zip. Extract it first (READ ME FIRST.txt says so). |
+| "Windows protected your PC" | The app isn't code-signed. More info > Run anyway. |
+| Setup says files are missing, or the app vanished | Antivirus quarantined something. Ask which antivirus they use. |
+| "Google asked GeoHarvest to slow down" | Google rate-limited their connection (`scraper.Blocked`). Wait 15 min, resume, use Gentle speed. |
+| Few or no results in the EU/UK | Google's consent page. The `CONSENT`/`SOCS` cookies were never tested from an EU IP. |
+| Smart mode errors with Gemini or Claude | Never tested with a real key (only a fake OpenAI-style server). Check `app/core/ai.py` reply parsing. |
+| No emails for many leads | Normal for businesses with only Facebook or Instagram (those block plain requests), or with no website. |
+| Update now didn't work | 0.1.0 and 0.1.1 can't update to 0.1.2 by themselves. Install 0.1.2 by hand once. |
+
+**Logs to ask testers for:**
+- app crashes: `%APPDATA%\GeoHarvest\logs\crash.log`
+- Setup problems: `%TEMP%\GeoHarvest-setup-log.txt` (Setup's "Open log file" button opens it)
+
+**Never tested for real** (watch for these in feedback):
+- Setup installing into the default folder over an Inno-installed 0.1.1
+- 0.1.1's updater running the new Setup (the `/SILENT` path)
+- Smart mode with real Gemini or Claude keys
+- Searches from an EU IP
+- Windows 10 (only built and run on Windows 11)
+
 ## The product
 
 A free Windows desktop app (Python + PyQt6) that finds business leads on Google
@@ -43,7 +90,7 @@ theme module, sidebar, cards, status bar, worker pattern.
 - [x] **3. Search and Leads pages**: `pages/search.py` (form remembers last options in setting `last_options`, comma-list autocomplete for niches and cities, live stat tiles, Stop, Open leads; `run(search_id)` also resumes), `pages/leads.py` (search picker, instant filter, sort, hides empty columns, live rows via `MainWindow.leads_added`, right-click copy/open, delete search), `widgets/leads_model.py`, `core/exporter.py` (xlsx + csv, only used columns, formula-injection safe)
 - [x] **4. Enrichment**: `app/core/enrich.py` (`Enricher`: home page + up to 3 contact/about pages, 2 MB cap per page, emails incl. Cloudflare-obfuscated and HTML-entity ones, own-domain emails first, socials; social pages given as "website" are filed under that network and not crawled; RDAP + Wayback age). Runs inside `ScrapeWorker` in a 16-thread pool alongside the search; the age filter deletes non-matching leads (`removed` signal -> Leads table). Lead key `enriched` marks done, so resume re-checks only the rest
 - [x] **5. Smart mode**: `app/core/ai.py` (providers, prompt, batch of 8 leads per request, tolerant JSON parsing, 429 wait-and-retry, fatal vs skippable errors, `test()` scores a sample lead), `app/workers/ai.py` (`AIStage`: scoring thread fed while the search runs, after enrichment; `AIScoreWorker`: Leads page "Score with AI"), `pages/smart.py` (provider buttons, key, address for local/custom, model + Load models, ideal customer text, "leave out below N", Save and test, Turn off). Verdict comes from the score in code: 80+ Good fit, 50-79 Maybe, else Poor fit. A fatal AI error leaves the search `stopped` so resume re-scores
-- [x] **6. History, resume, updater, Settings**: `pages/history.py` (open leads, resume, run again, delete), `search.recover_interrupted()` at start-up, `SearchPage.load_options()`, `app/services/updater.py` + `widgets/update_dialog.py` (GitHub latest release, asset `GeoHarvest-vX.Y.Z-windows.zip`, SHA-256 check, `install.bat` waits for the app to exit, robocopy **/E never /MIR**, restarts; only when frozen), Settings (speed Gentle 2 / Normal 4 / Fast 8 parallel searches, updates, data folder, delete all, fair-use note), styled spin box arrows
+- [x] **6. History, resume, updater, Settings**: `pages/history.py` (open leads, resume, run again, delete), `search.recover_interrupted()` at start-up, `SearchPage.load_options()`, `app/services/updater.py` + `widgets/update_dialog.py` (GitHub latest release, asset `GeoHarvest-vX.Y.Z-windows.zip`, SHA-256 check, since 0.1.2 it hands over to `GeoHarvest-Setup.exe --update`, see the Release row in Decisions; only when frozen), Settings (speed Gentle 2 / Normal 4 / Fast 8 parallel searches, updates, data folder, delete all, fair-use note), styled spin box arrows
 - [x] **7. Release**: `tools/build.py` (PyInstaller one-folder, unused Qt/numpy/PIL/lxml/cryptography left out: 38 MB zip, then runs `GeoHarvest.exe --self-test`), `.github/workflows/build.yml` (tests + build on every push; on a published release it attaches the zip), `tools/screenshot.py` (README screenshots from fictional demo data in a throwaway data folder), full README, release notes in `docs/releases/v0.1.0-beta.md`. The GitHub release itself is published by the user
 
 ## Layout
@@ -141,13 +188,14 @@ python tools/make_icons.py    # after editing assets/logo.svg
   test folder (installs, opens the app), the installed uninstaller (removes everything, keeps
   data), screenshots of welcome/progress/remove pages. Not tested: a real default-folder install
   over the user's 0.1.1, and 0.1.1's updater driving the new Setup (/SILENT path).
+- 2026-10-16: v0.1.2 beta handed to testers. Waiting for feedback; see "Where things stand".
 
 ## Releasing a new version
 
 1. Bump `APP_VERSION` in `app/config.py` (e.g. "v0.2.0 beta"); write `docs/releases/<tag>.md`.
 2. Commit and push; check the Actions run is green.
-3. On GitHub: Releases > Draft a new release, tag `v0.2.0-beta` (the version with a hyphen),
-   paste the notes, Publish. The workflow attaches `GeoHarvest-v0.2.0-beta-windows.zip` within
+3. On GitHub: Releases > Draft a new release, tag `v0.2.0` or `v0.2.0-beta` (only the
+   numbers are compared, so either works), paste the notes, Publish. The workflow attaches `GeoHarvest-v0.2.0-beta-windows.zip` within
    about 5 minutes; every installed copy then offers the update on its next start.
 
 ## Working agreement
