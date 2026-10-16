@@ -57,7 +57,46 @@ def install_crash_guard() -> None:
     sys.excepthook = hook
 
 
+def self_test(out: str) -> int:
+    """GeoHarvest.exe --self-test RESULT.json: prove a build works, without a window.
+
+    Loads every bundled library, runs one real Google Maps search and exports it to
+    Excel. The build script and CI run it, because a missing hidden import only
+    shows up in the packaged app.
+    """
+    import json
+    import tempfile
+    from pathlib import Path
+
+    result: dict = {"ok": False}
+    try:
+        import anthropic  # noqa: F401 - bundled for Smart mode with Claude
+        from PyQt6.QtWidgets import QApplication  # noqa: F401
+
+        from app.core import ai, credentials, enrich, exporter, geo, scraper  # noqa: F401
+        from app.services import updater  # noqa: F401
+
+        # The live search is reported, not required: a build server's address may be one
+        # Google refuses, and that says nothing about whether the build is sound
+        leads = [{"place_id": "x", "name": "Sample", "rating": 4.5}]
+        try:
+            client = scraper.MapsClient()
+            leads = next(scraper.search(client, "dentist in Dubai, United Arab Emirates"))
+            client.close()
+            result["search"] = f"{len(leads)} leads"
+        except Exception as error:  # noqa: BLE001
+            result["search"] = f"skipped: {type(error).__name__}: {error}"
+        exporter.export(leads, Path(tempfile.gettempdir()) / "geoharvest-self-test.xlsx")
+        result.update(ok=True, countries=len(geo.countries()))
+    except Exception as error:  # noqa: BLE001 - the point is to report it
+        result["error"] = f"{type(error).__name__}: {error}"
+    Path(out).write_text(json.dumps(result), encoding="utf-8")
+    return 0 if result["ok"] else 1
+
+
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
+        return self_test(sys.argv[2])
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QIcon
     from PyQt6.QtWidgets import QApplication

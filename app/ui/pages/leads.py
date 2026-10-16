@@ -32,6 +32,7 @@ class LeadsPage(Page):
 
         self.picker = combo([ALL], ALL, on_change=lambda _text: self._load(), translate={ALL})
         self.picker.setMinimumWidth(360)
+        self.picker.setMaximumWidth(460)
         self.filter = line_edit("Filter: type a name, city, category, email...")
         self.excel_button = primary_button("Export to Excel", lambda: self.export("xlsx"))
         self.csv_button = secondary_button("Export CSV", lambda: self.export("csv"))

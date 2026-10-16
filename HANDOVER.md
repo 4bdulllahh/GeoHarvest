@@ -43,7 +43,7 @@ theme module, sidebar, cards, status bar, worker pattern.
 - [x] **4. Enrichment**: `app/core/enrich.py` (`Enricher`: home page + up to 3 contact/about pages, 2 MB cap per page, emails incl. Cloudflare-obfuscated and HTML-entity ones, own-domain emails first, socials; social pages given as "website" are filed under that network and not crawled; RDAP + Wayback age). Runs inside `ScrapeWorker` in a 16-thread pool alongside the search; the age filter deletes non-matching leads (`removed` signal -> Leads table). Lead key `enriched` marks done, so resume re-checks only the rest
 - [x] **5. Smart mode**: `app/core/ai.py` (providers, prompt, batch of 8 leads per request, tolerant JSON parsing, 429 wait-and-retry, fatal vs skippable errors, `test()` scores a sample lead), `app/workers/ai.py` (`AIStage`: scoring thread fed while the search runs, after enrichment; `AIScoreWorker`: Leads page "Score with AI"), `pages/smart.py` (provider buttons, key, address for local/custom, model + Load models, ideal customer text, "leave out below N", Save and test, Turn off). Verdict comes from the score in code: 80+ Good fit, 50-79 Maybe, else Poor fit. A fatal AI error leaves the search `stopped` so resume re-scores
 - [x] **6. History, resume, updater, Settings**: `pages/history.py` (open leads, resume, run again, delete), `search.recover_interrupted()` at start-up, `SearchPage.load_options()`, `app/services/updater.py` + `widgets/update_dialog.py` (GitHub latest release, asset `GeoHarvest-vX.Y.Z-windows.zip`, SHA-256 check, `install.bat` waits for the app to exit, robocopy **/E never /MIR**, restarts; only when frozen), Settings (speed Gentle 2 / Normal 4 / Fast 8 parallel searches, updates, data folder, delete all, fair-use note), styled spin box arrows
-- [ ] **7. Release**: PyInstaller build script, GitHub Actions workflow, full README with screenshots, tag v0.1.0-beta
+- [x] **7. Release**: `tools/build.py` (PyInstaller one-folder, unused Qt/numpy/PIL/lxml/cryptography left out: 38 MB zip, then runs `GeoHarvest.exe --self-test`), `.github/workflows/build.yml` (tests + build on every push; on a published release it attaches the zip), `tools/screenshot.py` (README screenshots from fictional demo data in a throwaway data folder), full README, release notes in `docs/releases/v0.1.0-beta.md`. The GitHub release itself is published by the user
 
 ## Layout
 
@@ -73,7 +73,9 @@ app/ui/pages/              one module per page
 app/ui/widgets/            shared widgets (from HomingPigeon)
 assets/                    logo.svg, PNG sizes, icon.ico
 tools/make_icons.py        logo.svg -> PNGs + ico
-tools/screenshot.py        opens the app and saves each page to docs/screenshots/
+tools/screenshot.py        README screenshots from made-up demo data
+tools/build.py             build + zip + self-test the Windows release
+.github/workflows/build.yml  CI build; attaches the zip to published releases
 ```
 
 ## Rules carried over from HomingPigeon
@@ -89,7 +91,8 @@ tools/screenshot.py        opens the app and saves each page to docs/screenshots
 pip install -r requirements-dev.txt
 python run.py                 # run the app
 python -m pytest tests/ -q    # tests
-python tools/screenshot.py    # refresh README screenshots
+python tools/screenshot.py    # refresh README screenshots (demo data)
+python tools/build.py         # dist/GeoHarvest-vX.Y.Z-windows.zip + self-test
 python tools/make_icons.py    # after editing assets/logo.svg
 ```
 
@@ -118,6 +121,18 @@ python tools/make_icons.py    # after editing assets/logo.svg
   finished with 1,033 unique leads, no duplicates. City falls back to Google's locality field [166]
   (UAE addresses have no city part). Junk emails now filtered in NL/DE/FR/ES/IT too. The self-update
   install step can only be tested on a packaged build (milestone 7).
+- 2026-10-16: Milestone 7 done. Countries and cities became tick-box checklists at the user's
+  request. Packaged exe verified: GUI starts, `--self-test` passes (imports, live search, Excel
+  export), and the updater's install.bat tested against the real build (copied new files, kept a
+  user file in the app folder, restarted the app).
+
+## Releasing a new version
+
+1. Bump `APP_VERSION` in `app/config.py` (e.g. "v0.2.0 beta"); write `docs/releases/<tag>.md`.
+2. Commit and push; check the Actions run is green.
+3. On GitHub: Releases > Draft a new release, tag `v0.2.0-beta` (the version with a hyphen),
+   paste the notes, Publish. The workflow attaches `GeoHarvest-v0.2.0-beta-windows.zip` within
+   about 5 minutes; every installed copy then offers the update on its next start.
 
 ## Working agreement
 

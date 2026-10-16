@@ -108,8 +108,8 @@ class SearchPage(Page):
         left.add(self.countries)
         right.add(self.cities)
         right.add(row(self.extra_place, small_button("Add", self._add_place), stretch=0))
-        columns.addWidget(left, 1)
-        columns.addWidget(right, 1)
+        columns.addWidget(left, 1, Qt.AlignmentFlag.AlignTop)
+        columns.addWidget(right, 1, Qt.AlignmentFlag.AlignTop)
         where.add_layout(columns)
         self.city_count = spin(0, 60, int(last["city_count"]), " cities", "No cities")
         where.add(row(muted("Ticking a country also ticks its biggest", wrap=False),

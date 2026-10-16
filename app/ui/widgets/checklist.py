@@ -89,4 +89,8 @@ class CheckList(QWidget):
         self._update_count()
 
     def _update_count(self) -> None:
-        self.count.setText(f"{len(self.checked()):,} of {self.list.count():,} ticked")
+        ticked = [self.list.item(i).text() for i in range(self.list.count())
+                  if self.list.item(i).checkState() == Qt.CheckState.Checked]
+        summary = f"{len(ticked):,} of {self.list.count():,} ticked"
+        # A few ticks are easy to lose in a long list, so name them
+        self.count.setText(summary + (": " + ", ".join(ticked) if 0 < len(ticked) <= 6 else ""))

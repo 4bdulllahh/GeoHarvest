@@ -1,0 +1,49 @@
+name: Build Windows release
+
+# * every push / pull request: run the tests and check the app still builds
+# * publishing a release on GitHub: build GeoHarvest-vX.Y.Z-windows.zip and attach
+#   it to that release automatically (takes about 5 minutes)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+      - name: Build and self-test the app
+        run: python tools/build.py
+
+      - name: Keep the build (downloadable from the Actions tab)
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoHarvest-windows
+          path: dist/GeoHarvest-*-windows.zip
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/GeoHarvest-*-windows.zip
