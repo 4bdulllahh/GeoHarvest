@@ -27,8 +27,8 @@ subscription, nothing to pay: everything runs on your own computer.
 
 ## Features
 
-- **Any business, anywhere.** Type a niche (restaurant, dentist, real estate agency,
-  consultancy...) or several at once, with suggestions as you type. Then choose where:
+- **Any business, anywhere.** Pick business types from a grouped list (Marketing, Health,
+  Food, Property, Shops...) that narrows as you type, or type your own. Then choose where:
   - **Countries and cities.** Switch on the countries you want, including the whole
     **European Union** or the **Gulf (GCC)** in one click, then the cities in them. Any town
     that isn't listed can be added.
@@ -65,8 +65,9 @@ subscription, nothing to pay: everything runs on your own computer.
   - Must have a phone number, leave out closed businesses, leave out businesses you found in
     earlier searches, and keep only the best N leads,
     shared fairly between your cities and business types.
-- **Only the details you need.** Switch off any column before a search (Details to include)
-  or after it (Columns). Exports contain only the columns that are on.
+- **Only the details you need.** Click any detail to leave it out before a search (Details to
+  include) or after it (Columns): selected ones are highlighted, the rest greyed out. Exports
+  contain only the selected columns.
 - **Smart mode (optional).** Connect an AI and describe your ideal customer in plain words. The
   AI checks every business is genuine and gives it a score from 0 to 100, a verdict (Good fit,
   Maybe, Poor fit) and a one-line reason, and can leave out poor fits for you. Works with free
@@ -95,7 +96,7 @@ subscription, nothing to pay: everything runs on your own computer.
 - **Light and easy to install.** A 32 MB download with its own installer: no administrator
   rights, no Python, nothing else to install, and Cancel never leaves a half-installed app.
 - **Easy to read.** Dark, light or match-your-computer themes, four text sizes, high contrast,
-  bold text, and on/off switches throughout.
+  bold text, and on/off switches for settings.
 
 ## Screenshots
 
@@ -103,11 +104,11 @@ subscription, nothing to pay: everything runs on your own computer.
 
 | Filters: rating, reviews, website and opening hours | A search running, with live tiles |
 | --- | --- |
-| <img src="docs/screenshots/filters.png" alt="The filters: rating at least and at most, reviews at least and at most set to 150, website any, has or none, and opening-hours switches with Open on weekends on" width="420" /> | <img src="docs/screenshots/search-running.png" alt="A search in progress: 612 leads found, 9 of 16 searches done, 498 of 571 websites checked, 344 with an email, 590 with a phone, 480 of 498 checked by AI" width="420" /> |
+| <img src="docs/screenshots/filters.png" alt="The filters: rating at least and at most, reviews at least and at most set to 150, website any, has or none, and opening-hours switches with Open on weekends on" width="420" /> | <img src="docs/screenshots/search-running.png" alt="A search in step 2 of 3: 1,412 businesses found, 16 of 16 searches done, 298 of 450 websites checked, 187 with an email, 1,290 with a phone, best leads still to be picked out of 300" width="420" /> |
 
-| Everything about one business | Columns: switch any detail on or off |
+| Everything about one business | Columns: select the details to show |
 | --- | --- |
-| <img src="docs/screenshots/lead.png" alt="The details window for a dental clinic: AI score and reason, owner and where it was found, a LinkedIn search link, phone, email, website, rating, company age, opening hours and address" width="380" /> | <img src="docs/screenshots/columns.png" alt="The Columns window: switches grouped into Business, Owner, Contact, Social media, Reviews, Location, Company age, Smart mode and Other" width="440" /> |
+| <img src="docs/screenshots/lead.png" alt="The details window for a dental clinic: AI score and reason, owner and where it was found, a LinkedIn search link, phone, email, website, rating, company age, opening hours and address" width="380" /> | <img src="docs/screenshots/columns.png" alt="The Columns window: select buttons grouped into Business, Owner, Contact, Social media, Reviews, Location, Company age, Smart mode and Other" width="440" /> |
 
 <p align="center"><img src="docs/screenshots/exports.png" alt="The More exports menu: CSV file, CSV for HubSpot, Pipedrive, Zoho CRM and Salesforce, and Copy for Google Sheets" width="860" /></p>
 

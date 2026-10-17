@@ -249,7 +249,8 @@ class ScrapeWorker(Worker):
 
         def key(lead: dict) -> float:  # fully checked leads first (Stop leaves some unchecked)
             return (searches.score(lead) + 1000 * bool(lead.get("enriched") or not enriching)
-                    + 1000 * ("ai_score" in lead or not options["smart"]))
+                    + 1000 * ("ai_score" in lead or not options["smart"])
+                    + 500 * ("age_years" in lead or options["company_age"] == "any"))
 
         picked = searches.balanced(fits, key)
         picked = picked[:limit] if limit else picked

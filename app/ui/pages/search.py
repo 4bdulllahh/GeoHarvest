@@ -1,8 +1,8 @@
 """New search: what to look for, where, which businesses, and the run itself."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QSpinBox, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QHBoxLayout, QSpinBox, QWidget
 
 from app.core import db, enrich, geo, hours, scraper
 from app.core import search as searches
@@ -10,31 +10,11 @@ from app.ui.pages.base import Page
 from app.core.places import FIELD_GROUPS, HEADERS
 from app.ui.widgets.common import (Card, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
                                    confirm_button, danger_button, flow_row, hint, muted, row,
-                                   secondary_button)
+                                   secondary_button, select_button)
 from app.ui.widgets.checklist import CheckList
 from app.ui.widgets.inputs import checkbox, combo, line_edit
+from app.ui.widgets.type_picker import TypePicker
 from app.workers.base import Task
-
-NICHES = [
-    "accountant", "advertising agency", "architect", "auto repair shop", "bakery", "bank",
-    "barber shop", "beauty salon", "bookstore", "builder", "business consultant", "cafe",
-    "car dealer", "car rental", "carpenter", "catering", "chiropractor", "cleaning service",
-    "clothing store", "coffee shop", "construction company", "consultancy", "coworking space",
-    "dentist", "digital marketing agency", "doctor", "electrician", "electronics store",
-    "event planner", "fitness center", "florist", "furniture store", "gas station",
-    "graphic designer", "grocery store", "gym", "hair salon", "hardware store",
-    "home builder", "hospital", "hotel", "HVAC contractor", "insurance agency",
-    "interior designer", "IT company", "jewelry store", "language school", "laundry",
-    "law firm", "lawyer", "logistics company", "manufacturer", "marketing agency",
-    "medical clinic", "mobile phone store", "moving company", "nail salon", "optician",
-    "painter", "pest control", "pet store", "pharmacy", "photographer", "physiotherapist",
-    "pizza restaurant", "plumber", "printing service", "private school", "property management",
-    "real estate agency", "recruitment agency", "restaurant", "roofing contractor",
-    "school", "security company", "shoe store", "software company", "solar energy company",
-    "spa", "supermarket", "tailor", "tattoo shop", "travel agency", "tutoring service",
-    "university", "veterinarian", "web design company", "wedding venue", "wholesaler",
-    "yoga studio",
-]
 
 # Filled in only by visiting the business's website
 FROM_WEBSITE = {"emails", "facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok",
@@ -44,33 +24,6 @@ TIMES = [f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (0, 30)]
 RATINGS = [("3.5", "3.5"), ("4", "4"), ("4.5", "4.5")]
 STEPS = {1: "Searching Google", 2: "Checking websites", 3: "Picking the best leads"}
 MORE_CITIES = 10
-
-
-class ListCompleter(QCompleter):
-    """Completes the last entry of a comma-separated list, keeping the ones before it."""
-
-    def splitPath(self, path: str) -> list[str]:  # noqa: N802 - Qt naming
-        return [path.split(",")[-1].strip()]
-
-    def pathFromIndex(self, index) -> str:  # noqa: N802 - Qt naming
-        # Replaces only the last entry. No ", " here: Qt writes this in on highlight too, and
-        # a finished entry would make the click that follows add the choice a second time.
-        typed = self.widget().text()
-        before = typed.rsplit(",", 1)[0] + ", " if "," in typed else ""
-        return before + super().pathFromIndex(index)
-
-
-def list_input(placeholder: str, options: list[str]) -> QLineEdit:
-    edit = line_edit(placeholder)
-    completer = ListCompleter(options, edit)
-    # Ready for the next entry once a suggestion is picked (after Qt has written it in)
-    completer.activated.connect(lambda _text: QTimer.singleShot(
-        0, lambda: edit.setText(edit.text().rstrip(", ") + ", ")))
-    completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-    completer.setFilterMode(Qt.MatchFlag.MatchContains)
-    completer.setMaxVisibleItems(10)
-    edit.setCompleter(completer)
-    return edit
 
 
 def split_list(text: str) -> list[str]:
@@ -101,8 +54,10 @@ class SearchPage(Page):
 
         # --- what -----------------------------------------------------------
         what = Section("What are you looking for?",
-                       "Type it the way you would into Google Maps. Separate several with commas.")
-        self.niches = list_input("For example: dentist, real estate agency, coffee shop", NICHES)
+                       "Pick business types from the list, or type them the way you would into "
+                       "Google Maps. Separate several with commas.")
+        self.niches = TypePicker("Click to pick, or type: dentist, real estate agency, "
+                                 "coffee shop...")
         self.niches.setText(", ".join(last["niches"]))
         what.add(self.niches)
         layout.addWidget(what)
@@ -169,7 +124,9 @@ class SearchPage(Page):
                           "Estimated from when the business's website was registered (or first "
                           "appeared online, for countries whose registry keeps that private, "
                           "which takes longer). Google Maps does not record when a company was "
-                          "founded, so businesses without a website only appear under Any age.")
+                          "founded, so businesses without a website only appear under Any age. "
+                          "Websites whose age can't be found are kept, marked Unknown, and "
+                          "ranked after the rest.")
         self.company_age = ChoiceButtons(
             [("any", "Any age"), ("startup", "Startups (under 3 years)"),
              ("established", "Established (3 years or more)")], last["company_age"])
@@ -264,13 +221,14 @@ class SearchPage(Page):
 
         # --- details ----------------------------------------------------------
         details = Section("Details to include",
-                          "Switch off what you don't need. It is left out of the Leads table and "
-                          "the Excel file. Name is always included.")
+                          "Highlighted details are included; click one to leave it out (it "
+                          "greys out) or put it back. Left-out details are not in the Leads "
+                          "table or the Excel file. Name is always included.")
         self.detail_boxes: dict[str, object] = {}
         for group, keys in FIELD_GROUPS:
             container, flow = flow_row(spacing=14)
             for key in keys:
-                box = checkbox(HEADERS[key], key in last["fields"] or key == "name")
+                box = select_button(HEADERS[key], key in last["fields"] or key == "name")
                 self.detail_boxes[key] = box
                 flow.addWidget(box)
             group_row = FormRow(group)
@@ -279,8 +237,9 @@ class SearchPage(Page):
         self.detail_boxes["name"].setEnabled(False)
         details.add(row(hint("Emails, social media, company age and the owner need \"Visit "
                              "each website\" switched on above."),
-                        small_button("All on", lambda: self._tick_details(True)),
-                        small_button("All off", lambda: self._tick_details(False)), stretch=0))
+                        small_button("Select all", lambda: self._tick_details(True)),
+                        small_button("Select none", lambda: self._tick_details(False)),
+                        stretch=0))
         layout.addWidget(details)
         self.find_emails.toggled.connect(self._website_details)
         self._website_details(self.find_emails.isChecked())

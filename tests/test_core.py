@@ -175,7 +175,8 @@ def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
             pass
 
         def enrich(self, lead, find_contacts, find_owner=False):
-            return {"enriched": True, "young": int(lead["place_id"].rsplit("-", 1)[1]) % 2 == 0}
+            young = int(lead["place_id"].rsplit("-", 1)[1]) % 2 == 0
+            return {"enriched": True, "young": young, "age_years": 1 if young else 5}
 
         def close(self):
             pass
@@ -183,7 +184,6 @@ def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
     monkeypatch.setattr(scrape.scraper, "search", fake_search)
     monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: FakeEnricher(False))
     monkeypatch.setattr(enrich, "Enricher", FakeEnricher)
-    monkeypatch.setattr(enrich, "matches_age", lambda lead, wanted: lead["young"])
     search_id = searches.create({"niches": ["cafe"], "countries": ["Pakistan"],
                                  "cities": ["Lahore, Pakistan"], "company_age": "startup",
                                  "find_emails": False, "max_results": 30})
@@ -355,6 +355,8 @@ def test_company_age():
     assert enrich.domain_candidates("clinic.netlify.app") == []
     assert enrich.matches_age(fields, "startup") and not enrich.matches_age(fields, "established")
     assert enrich.matches_age({}, "any") and not enrich.matches_age({}, "startup")
+    assert enrich.age_mismatch({}, "startup") is None  # unknown ages are kept
+    assert enrich.age_mismatch(fields, "established") == "younger than 3 years"
     assert enrich.domain_candidates("www.shop.acme.co.uk") == ["shop.acme.co.uk", "acme.co.uk",
                                                                "co.uk"]
 

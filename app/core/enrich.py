@@ -226,16 +226,16 @@ def matches_age(lead: dict, wanted: str) -> bool:
     return years < STARTUP_YEARS if wanted == "startup" else years >= STARTUP_YEARS
 
 
+# The first is no longer given (unknown ages are kept since 2026-10-17), but older searches have it
 AGE_REASONS = ("company age unknown", f"older than {STARTUP_YEARS} years",
                f"younger than {STARTUP_YEARS} years")
 
 
 def age_mismatch(lead: dict, wanted: str) -> str | None:
-    """Why the lead fails the company age filter (one of AGE_REASONS), or None if it passes."""
-    if matches_age(lead, wanted):
+    """Why the lead fails the company age filter, or None if it passes. An unknown age passes
+    (user's choice: many registries hide dates); the pick ranks those after known ones."""
+    if lead.get("age_years") is None or matches_age(lead, wanted):
         return None
-    if lead.get("age_years") is None:
-        return AGE_REASONS[0]
     return AGE_REASONS[1] if wanted == "startup" else AGE_REASONS[2]
 
 
@@ -353,7 +353,7 @@ class Enricher:
             fields.update(found["socials"])
         domain = lead.get("domain") or urlsplit(website).netloc
         if domain:
-            fields.update(age_fields(*self.domain_created(domain)))
+            fields.update(age_fields(*self.domain_created(domain)) or {"company_age": "Unknown"})
         if find_owner:
             if found["owner"]:
                 fields.update(owner_name=found["owner"], owner_source="Website")

@@ -18,7 +18,7 @@ with the AskUserQuestion form, not as a text list (their preference).
 - [x] **A. Search pipeline**: three steps, candidates, quality score, balanced pick, shortfall
   explanation with "Add 10 more cities" / "Allow any company age", hidden addresses (see the
   "Three-step search" and "Hidden addresses" rows below)
-- [ ] **B. New search UI**: business-type picker at the top of New search (typing filters a
+- [x] **B. New search UI**: business-type picker at the top of New search (typing filters a
   grouped list in columns; several can be picked; own types still allowed). "Details to include"
   and Leads > Columns become select/unselect buttons (selected = highlighted like Settings'
   Theme buttons, unselected = greyed) instead of switches. Switches stay everywhere else
@@ -27,8 +27,9 @@ with the AskUserQuestion form, not as a text list (their preference).
   website links to it, else "N/A"; for the owner, look up a real linkedin.com/in/ profile with a
   web search ("owner + company site:linkedin.com/in"), else "N/A" (user chose this knowing it is
   slower and can be rate limited)
-- Open question for the user: many UAE (.ae) sites get "company age unknown" (registry hides
-  dates, Wayback often has nothing), so Startups/Established leave them all out
+- Unknown company ages (many .ae sites: the registry hides dates and Wayback often has
+  nothing) are **kept** for Startups/Established since 2026-10-17 (user's choice), marked
+  "Unknown" and ranked after known ages (`pick()` key in `workers/scrape.py`)
 - Licence: user keeps PyQt6 for now (no plan to sell closed source); PySide6 is the route if that
   changes
 
@@ -116,8 +117,9 @@ theme module, sidebar, cards, status bar, worker pattern.
 | Owner's name (0.2.1) | Optional (`find_owner`, needs "Visit each website"). `enrich.find_owner`: schema.org "founder", then "Founder: Name" / "Name, Owner" / "founded by Name" in page text (role words in EN/DE/FR/ES), rejecting heading words. Else the RDAP registrant unless hidden for privacy. Always adds `owner_linkedin`, a LinkedIn people-search link (LinkedIn blocks automatic reading). Columns `owner_name`, `owner_source`, `owner_linkedin`. Live: 1 of 15 Dubai dentists had a name, so expect few |
 | Exports (0.2.1) | Leads page "More exports": CSV, CSV for HubSpot / Pipedrive / Zoho CRM / Salesforce (`exporter.CRMS`: each CRM's company/account column names), "Copy for Google Sheets" (tab-separated text on the clipboard + opens sheets.new; values starting with = + - @ get a leading ' so Sheets keeps them as text). A direct Google Sheets upload was rejected: it needs OAuth and a Google Cloud project |
 | Proxies (0.2.1) | Settings > Proxies: one per line (host:port, user:pass@host:port, host:port:user:pass, http/https/socks5/socks5h://), saved encrypted (`credentials`, name "proxies"), "Test them" checks each against google.com/generate_204. Only Google Maps searches use them (`MapsClient` keeps one httpx client per proxy and takes turns; a proxy that is limited or doesn't answer is skipped; `Blocked` only when none worked and at least one was limited). Website visits and AI go direct. Needs `httpx[socks]` (socksio, bundled); the self-test checks it. Tested live through local HTTP and SOCKS5 proxies |
-| Switches | Every QCheckBox and checklist item is drawn as an on/off switch by the stylesheet (`theme.switch_knob` SVGs), so pages still use `checkbox()` |
-| Columns after a search | Leads page "Columns..." opens `ColumnsDialog` (switches grouped like New search, `places.FIELD_GROUPS`; every FIELDS key in exactly one group, tested). Saves to the search's `fields` (`searches.set_fields`) or, for All searches, setting `all_searches_fields` |
+| Switches | Every QCheckBox and checklist item is drawn as an on/off switch by the stylesheet (`theme.switch_knob` SVGs), so pages still use `checkbox()`. **Except** "Details to include" and Leads > Columns (user, 2026-10-17: a switch beside each word was confusing): those use `common.select_button()`, a checkable button with the same isChecked/setChecked/toggled API, styled by `pick="on"/"off"` (selected = accent fill, unselected = greyed, selected but disabled = accent outline) |
+| Business types (2026-10-17) | `widgets/type_picker.py` `TypePicker`: the text box (still a comma list, the source of truth) plus a grouped list of `BUSINESS_TYPES` in columns that opens below on focus or click, narrows to what is typed after the last comma, adds/removes on click, Enter adds an unlisted type, Esc or leaving the box closes it. The list's buttons are NoFocus and the picker is ClickFocus with the box as focus proxy, so a click doesn't move focus to the page's scroll area (which closed the list after one click). Replaced the old comma-list completer |
+| Columns after a search | Leads page "Columns..." opens `ColumnsDialog` (select buttons grouped like New search, `places.FIELD_GROUPS`; every FIELDS key in exactly one group, tested). Saves to the search's `fields` (`searches.set_fields`) or, for All searches, setting `all_searches_fields` |
 | License and legal (2026-10-17) | Code is **MIT** (`LICENSE`, "Copyright (c) 2026 Abdullah", same as typencut). **PyQt6 is GPL v3**, so the Windows download as a whole is distributed under GPL v3: `tools/build.py` `add_legal_files()` puts `LICENSE.txt`, `THIRD-PARTY-NOTICES.md` and every bundled library's own license (`licenses/<package>/`, found by walking requirements.txt's dependencies, plus Python's `LICENSE.txt`, which covers OpenSSL, SQLite and Tcl/Tk) in the app folder and the zip root; Settings > About shows the notice GPL v3 asks interactive programs to show, with "Open the licenses". `PRIVACY.md` (what is stored and sent where: keep it true when adding a network call), `DISCLAIMER.md` (acceptable use, GDPR/CAN-SPAM, estimates, no warranty, not affiliated with Google), `SECURITY.md` (private reporting via GitHub's Security tab). GeoNames data needs its CC BY 4.0 credit (in the notices). If the user ever wants the whole download permissive, the route is PySide6 (LGPL) instead of PyQt6 |
 | README | Laid out like the user's typencut README (centred logo, pitch, badges, hero shot, long Features list, 2-up screenshot tables, Privacy, Principles, Tech stack, How a search works, Roadmap, Legal, License). Screenshots come from `python tools/screenshot.py` (fictional demo data in a throwaway data folder; documentation-only proxy addresses); refresh them whenever a page changes |
 | Languages | English only for v0.1. `app/i18n.py` is a pass-through `t()` so HomingPigeon's translation system can drop in later |
@@ -259,6 +261,13 @@ python tools/make_icons.py    # after editing assets/logo.svg
   topped up from 60 to 141 as the age filter dropped leads, 26 of 40 picked with the reasons
   shown and both widen buttons. Not tested: the widen buttons clicked live, Smart mode with a
   real key in the new flow, a big multi-country run.
+- 2026-10-17: Milestone B: business-type picker, select buttons for Details to include and
+  Columns, unknown company ages kept. Tested: 30 unit tests; the picker driven in the real window
+  (offscreen, dark theme): opens on focus, typing narrows it, Enter adds an own type, clicks add
+  and remove while the list stays open (it closed after one click before the focus-proxy fix),
+  Esc closes; details buttons change the saved fields; README screenshots refreshed (rendered
+  offscreen with `QT_QPA_PLATFORM=offscreen QT_QPA_FONTDIR=C:/Windows/Fonts`, no window
+  shown). Not tested: the picker with a real mouse and keyboard on the user's machine.
 - 2026-10-17: README rewritten in typencut's style with 10 new screenshots, MIT LICENSE, third-party
   notices and license files bundled in the download (PyQt6 is GPL v3), PRIVACY, DISCLAIMER and
   SECURITY pages, Settings > About. On-screen "tick" wording changed to match the switches.

@@ -573,6 +573,26 @@ QPushButton[choice="on"] {{
 }}
 QPushButton[choice="on"]:hover {{ background-color: {t['accent_hover']}; }}
 
+/* select buttons: any number selected; the unselected ones are greyed out */
+QPushButton[pick="off"] {{
+    background-color: transparent;
+    color: {t['fg_muted']};
+    border: 1px solid {t['border']};
+}}
+QPushButton[pick="off"]:hover {{ background-color: {t['bg_hover']}; color: {t['fg']}; }}
+QPushButton[pick="on"] {{
+    background-color: {t['accent']};
+    color: {t['fg_on_accent']};
+    border: 1px solid {t['accent']};
+    font-weight: {heavy};
+}}
+QPushButton[pick="on"]:hover {{ background-color: {t['accent_hover']}; }}
+QPushButton[pick="on"]:disabled {{  /* selected and locked (Name), not greyed out */
+    background-color: {t['bg_hover']};
+    color: {t['fg']};
+    border: 1px solid {t['accent']};
+}}
+
 /* ---------- sidebar ---------- */
 QFrame#Sidebar {{ background-color: {t['bg_sidebar']}; border-right: 1px solid {t['border']}; }}
 QFrame#Sidebar QLabel {{ background: transparent; }}

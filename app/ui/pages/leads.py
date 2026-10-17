@@ -17,9 +17,9 @@ from app.core.places import FIELD_GROUPS, FIELDS, HEADERS
 from app.ui import theme
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (Card, copy_to_clipboard, danger_button, flow_row, hint, muted,
-                                   open_url, primary_button, row, secondary_button)
+                                   open_url, primary_button, row, secondary_button, select_button)
 from app.ui.widgets.dialogs import ConfirmDialog
-from app.ui.widgets.inputs import Debouncer, checkbox, combo, line_edit
+from app.ui.widgets.inputs import Debouncer, combo, line_edit
 from app.ui.widgets.leads_model import LEAD_ROLE, LeadsModel, LeadsProxy
 from app.ui.widgets.tables import DataTable
 from app.workers.ai import AIScoreWorker
@@ -43,7 +43,7 @@ def as_text(value) -> str:
 
 
 class ColumnsDialog(QDialog):
-    """Switch columns of the Leads table (and the export) on and off, grouped as on New search."""
+    """Select the columns of the Leads table (and the export), grouped as on New search."""
 
     def __init__(self, parent: QWidget, chosen: set[str], empty: set[str], apply):
         super().__init__(parent)
@@ -55,10 +55,10 @@ class ColumnsDialog(QDialog):
         layout.setContentsMargins(pad, pad, pad, pad)
         layout.setSpacing(round(8 * scale))
         layout.addWidget(text_label("Columns", "heading"))
-        layout.addWidget(text_label("Switch off what you don't need. Export saves only the "
-                                    "columns that are on. Columns marked \"no data\" have "
-                                    "nothing in them for these leads, so they stay hidden.",
-                                    "muted"))
+        layout.addWidget(text_label("Highlighted columns are shown and exported; click one to "
+                                    "hide it (it greys out) or show it again. Columns marked "
+                                    "\"no data\" have nothing in them for these leads, so they "
+                                    "stay hidden.", "muted"))
         content = QWidget()
         content.setProperty("role", "plain")
         inner = QVBoxLayout(content)
@@ -68,8 +68,8 @@ class ColumnsDialog(QDialog):
             container, flow = flow_row(spacing=14)
             for key in keys:
                 label = HEADERS[key] + (" (no data)" if key in empty else "")
-                box = checkbox(label, key in chosen or key == "name",
-                               on_change=lambda _on: apply(self.chosen()))
+                box = select_button(label, key in chosen or key == "name",
+                                    on_change=lambda _on: apply(self.chosen()))
                 self.boxes[key] = box
                 flow.addWidget(box)
             inner.addWidget(text_label(group, "subheading"))
@@ -82,8 +82,8 @@ class ColumnsDialog(QDialog):
         area.setWidget(content)
         layout.addWidget(area, 1)
         buttons = QHBoxLayout()
-        buttons.addWidget(secondary_button("All on", lambda: self._all(True)))
-        buttons.addWidget(secondary_button("All off", lambda: self._all(False)))
+        buttons.addWidget(secondary_button("Select all", lambda: self._all(True)))
+        buttons.addWidget(secondary_button("Select none", lambda: self._all(False)))
         buttons.addStretch(1)
         buttons.addWidget(primary_button("Done", self.accept, width=120))
         layout.addLayout(buttons)

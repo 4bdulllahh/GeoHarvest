@@ -530,6 +530,26 @@ class ChoiceButtons(QWidget):
         return self.value
 
 
+def select_button(text: str, on: bool = False, on_change: Callable | None = None) -> QPushButton:
+    """A button that stays selected (highlighted) or not (greyed out) when clicked: for
+    picking several things, where a switch beside each word is hard to read. Same
+    isChecked / setChecked / toggled as a check box."""
+    button = QPushButton(button_text(t(text)))
+    button.setCheckable(True)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def paint(checked: bool) -> None:
+        button.setProperty("pick", "on" if checked else "off")
+        restyle(button)
+
+    button.toggled.connect(paint)
+    button.setChecked(on)
+    paint(on)
+    if on_change:
+        button.toggled.connect(on_change)
+    return button
+
+
 class TabBar(QWidget):
     """Tabs as a row of real buttons, with the pages in a card underneath.
 
