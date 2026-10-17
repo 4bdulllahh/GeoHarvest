@@ -13,7 +13,7 @@ from pathlib import Path
 from app.core.places import FIELDS
 
 LINK_COLUMNS = {"website", "maps_url", "reviews_url", "facebook", "instagram", "linkedin",
-                "twitter", "youtube", "tiktok", "photo"}
+                "twitter", "youtube", "tiktok", "photo", "owner_linkedin"}
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")  # Excel refuses these outright
 _PHONE = re.compile(r"^[+-][\d\s().-]+$")
 EXCEL_CELL_LIMIT = 32767
@@ -91,6 +91,64 @@ def to_xlsx(leads: list[dict], path: Path, keys: list[str] | None = None) -> int
     sheet.auto_filter.ref = sheet.dimensions
     book.save(path)
     return len(leads)
+
+
+# CRM imports: each CRM's own column names for a company (account, organization), so its
+# import screen matches them up by itself. "first_email" is the business's first email.
+CRMS = {
+    "hubspot": ("HubSpot", [
+        ("Company name", "name"), ("Company domain name", "domain"), ("Website URL", "website"),
+        ("Phone number", "phone"), ("Email", "first_email"), ("Street address", "street"),
+        ("City", "city"), ("State/Region", "state"), ("Postal code", "postal_code"),
+        ("Country/Region", "country_code"), ("Description", "description"),
+        ("Contact name", "owner_name"), ("LinkedIn company page", "linkedin"),
+        ("Facebook company page", "facebook"), ("Google Maps link", "maps_url")]),
+    "pipedrive": ("Pipedrive", [
+        ("Organization - Name", "name"), ("Organization - Address", "address"),
+        ("Organization - Website", "website"), ("Person - Name", "owner_name"),
+        ("Person - Email", "first_email"), ("Person - Phone", "phone"),
+        ("Note - Content", "category")]),
+    "zoho": ("Zoho CRM", [
+        ("Account Name", "name"), ("Phone", "phone"), ("Website", "website"),
+        ("Email", "first_email"), ("Industry", "category"), ("Billing Street", "street"),
+        ("Billing City", "city"), ("Billing State", "state"), ("Billing Code", "postal_code"),
+        ("Billing Country", "country_code"), ("Description", "description"),
+        ("Contact Name", "owner_name"), ("Rating", "rating")]),
+    "salesforce": ("Salesforce", [
+        ("Account Name", "name"), ("Phone", "phone"), ("Website", "website"),
+        ("Industry", "category"), ("Billing Street", "street"), ("Billing City", "city"),
+        ("Billing State/Province", "state"), ("Billing Zip/Postal Code", "postal_code"),
+        ("Billing Country", "country_code"), ("Description", "description"),
+        ("Email", "first_email"), ("Contact Name", "owner_name")]),
+}
+
+
+def _crm_value(lead: dict, key: str):
+    if key == "first_email":
+        return (str(lead.get("emails") or "").split(",")[0]).strip()
+    if key == "street" and not lead.get("street"):
+        return lead.get("address")  # some countries' addresses have no street part
+    return lead.get(key)
+
+
+def to_crm(leads: list[dict], path: Path, crm: str) -> int:
+    columns = CRMS[crm][1]
+    with open(path, "w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([header for header, _key in columns])
+        for lead in leads:
+            writer.writerow([safe_csv(_crm_value(lead, key)) for _header, key in columns])
+    return len(leads)
+
+
+def to_tsv(leads: list[dict], keys: list[str] | None = None) -> str:
+    """Tab-separated text for pasting into Google Sheets (which reads it as cells)."""
+    columns = columns_in_use(leads, keys)
+    rows = [[header for _key, header in columns]]
+    # Sheets reads a pasted "+971..." as a formula; a leading ' keeps it text and is not shown
+    rows += [["'" + text if (text := " ".join(_text(lead.get(key)).split()))[:1] in "=+-@"
+              else text for key, _header in columns] for lead in leads]
+    return "\n".join("\t".join(row) for row in rows)
 
 
 def export(leads: list[dict], path: Path, keys: list[str] | None = None) -> int:

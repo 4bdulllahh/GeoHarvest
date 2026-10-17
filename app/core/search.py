@@ -7,23 +7,37 @@ from __future__ import annotations
 
 import json
 
-from app.core import db, geo
+from app.core import db, geo, hours
 from app.core.places import FIELDS
 
 DEFAULT_OPTIONS = {
     "niches": [],             # "dentist", "real estate agency"...
+    "where": "cities",        # cities (countries + ticked cities) or area (around one place)
+    "area_place": "",         # "Dubai Marina": typed by the user...
+    "area_km": 5,
+    "area_lat": None,         # ...and found on the map when the search starts
+    "area_lng": None,
     "countries": [],          # countries and/or regions ("European Union"), as typed
     "cities": [],             # "City, Country" as ticked; empty: each country's biggest
     "city_count": 10,
     "company_age": "any",     # any, startup, established (estimated, see enrich.py)
     "min_rating": 0.0,
     "min_reviews": 0,
-    "require_website": False,
+    "max_rating": 0.0,        # 0: no maximum
+    "max_reviews": -1,        # -1: no maximum (0 is a real choice: no reviews yet)
+    "website": "any",         # any, yes (must have one), no (must not: leads for web designers)
     "require_phone": False,
+    "open_now": False,        # opening hours filters; leads without listed hours are left out
+    "open_24h": False,
+    "open_weekends": False,
+    "open_at": False,         # open on open_day (0 = Monday) at open_time ("HH:MM")
+    "open_day": 4,
+    "open_time": "20:00",
     "skip_closed": True,
     "skip_known": True,       # leave out businesses found by an earlier search
     "max_results": 0,         # 0: no limit
     "find_emails": True,      # visit websites for emails and social links
+    "find_owner": False,      # owner's name from the website and domain record, LinkedIn link
     "smart": False,           # score every lead with the user's AI
     "fields": [key for key, _ in FIELDS],  # columns to show and export; leads keep everything
 }
@@ -33,6 +47,8 @@ def options_with_defaults(options: dict) -> dict:
     merged = {**DEFAULT_OPTIONS, **options}
     if merged.pop("country", None) and not options.get("countries"):  # saved before 0.1
         merged["countries"] = [options["country"]]
+    if merged.pop("require_website", False) and "website" not in options:  # before 0.2.1
+        merged["website"] = "yes"
     return merged
 
 
@@ -52,14 +68,27 @@ def places_for(options: dict) -> list[str]:
 
 
 def build_queries(options: dict) -> list[str]:
+    """One query per business type and city, or per business type and map view of an area.
+
+    Area queries end in "@lat,lng,camera" (see ``scraper.search``); before the place has
+    been found on the map they still count right, for the plan shown on the form.
+    """
     options = options_with_defaults(options)
     niches = [n.strip() for n in options["niches"] if n.strip()]
+    if options["where"] == "area":
+        place = options["area_place"].strip()
+        cells = geo.radius_cells(options["area_lat"] or 0.0, options["area_lng"] or 0.0,
+                                 float(options["area_km"])) if place else []
+        return [f"{niche} near {place} @{lat},{lng},{camera}"
+                for lat, lng, camera in cells for niche in niches]
     return [f"{niche} in {place}" for place in places_for(options) for niche in niches]
 
 
 def title(options: dict) -> str:
     options = options_with_defaults(options)
     niches = ", ".join(n.strip() for n in options["niches"] if n.strip())
+    if options["where"] == "area":
+        return f"{niches} within {options['area_km']} km of {options['area_place'].strip()}"
     named = [geo.resolve(c) or c for c in options["countries"]]
     countries = geo.expand(options["countries"])
     cities = [c for c in options["cities"] if c.strip()]
@@ -79,20 +108,44 @@ def title(options: dict) -> str:
 
 def passes(lead: dict, options: dict) -> bool:
     """The filters that can be decided from Google's data alone."""
-    codes = {geo.country_code(c) for c in geo.expand(options["countries"])} - {""}
-    # Ambiguous city names ("Hyderabad", "Victoria") can pull in another country
-    if codes and lead.get("country_code") and lead["country_code"] not in codes:
-        return False
+    if options["where"] == "area":
+        if options["area_lat"] is not None:  # the map views are squares; keep the circle
+            if lead.get("latitude") is None or geo.distance_km(
+                    options["area_lat"], options["area_lng"], lead["latitude"],
+                    lead["longitude"]) > float(options["area_km"]):
+                return False
+    else:
+        codes = {geo.country_code(c) for c in geo.expand(options["countries"])} - {""}
+        # Ambiguous city names ("Hyderabad", "Victoria") can pull in another country
+        if codes and lead.get("country_code") and lead["country_code"] not in codes:
+            return False
     if options["skip_closed"] and lead.get("status") != "Open":
         return False
-    if (lead.get("rating") or 0) < float(options["min_rating"] or 0):
+    rating, reviews = lead.get("rating") or 0, lead.get("reviews") or 0
+    if rating < float(options["min_rating"] or 0) or reviews < int(options["min_reviews"] or 0):
         return False
-    if (lead.get("reviews") or 0) < int(options["min_reviews"] or 0):
+    if float(options["max_rating"] or 0) and rating > float(options["max_rating"]):
         return False
-    if options["require_website"] and not lead.get("website"):
+    if int(options["max_reviews"]) >= 0 and reviews > int(options["max_reviews"]):
+        return False
+    if options["website"] != "any" and bool(lead.get("website")) != (options["website"] == "yes"):
         return False
     if options["require_phone"] and not lead.get("phone"):
         return False
+    return passes_hours(lead.get("hours") or "", lead.get("timezone"), options)
+
+
+def passes_hours(text: str, timezone: str | None, options: dict) -> bool:
+    if options["open_now"] and not hours.open_now(text, timezone):
+        return False
+    if options["open_24h"] and not hours.always_open(text):
+        return False
+    if options["open_weekends"] and not hours.open_weekends(text):
+        return False
+    if options["open_at"]:
+        hour, _, minute = str(options["open_time"]).partition(":")
+        if not hours.open_at(text, int(options["open_day"]), int(hour) * 60 + int(minute or 0)):
+            return False
     return True
 
 
@@ -192,6 +245,14 @@ def delete(search_id: int) -> None:
 
 def remove_lead(search_id: int, place_id: str) -> None:
     db.execute("DELETE FROM leads WHERE search_id = ? AND place_id = ?", (search_id, place_id))
+
+
+def set_fields(search_id: int, fields: list[str]) -> None:
+    """The columns a search shows, changed on the Leads page."""
+    record = get(search_id)
+    if record is not None:
+        options = {**record["options"], "fields": fields}
+        db.execute("UPDATE searches SET options = ? WHERE id = ?", (json.dumps(options), search_id))
 
 
 def delete_leads(place_ids: list[str], search_id: int = 0) -> None:

@@ -86,6 +86,11 @@ def self_test(out: str) -> int:
                 messages=[{"role": "user", "content": "test"}])
         except anthropic.APIConnectionError:
             pass
+        # SOCKS5 proxies need socksio bundled; "Open now" needs the time-zone database
+        scraper.MapsClient(proxies=["socks5://127.0.0.1:9"]).close()
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo("Asia/Dubai")
 
         # The live search is reported, not required: a build server's address may be one
         # Google refuses, and that says nothing about whether the build is sound

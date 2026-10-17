@@ -72,7 +72,8 @@ class ScrapeWorker(Worker):
 
         # --- enrichment: runs alongside the search, fed as leads are saved ----
         wants_age = options["company_age"] != "any"
-        enricher = enrich.Enricher(wayback=wants_age) if options["find_emails"] or wants_age             else None
+        enricher = enrich.Enricher(wayback=wants_age) \
+            if options["find_emails"] or options["find_owner"] or wants_age else None
         enrich_pool = ThreadPoolExecutor(ENRICH_PARALLEL) if enricher else None
         checks = {"done": 0, "total": 0}
 
@@ -80,7 +81,8 @@ class ScrapeWorker(Worker):
             if self._stop.is_set():
                 return
             try:
-                fields = enricher.enrich(lead, options["find_emails"])
+                fields = enricher.enrich(lead, options["find_emails"],
+                                         find_owner=options["find_owner"])
             except Exception as error:  # noqa: BLE001 - one odd website must not end the search
                 if self._stop.is_set():
                     return  # Stop cut the connection; resuming checks this site again

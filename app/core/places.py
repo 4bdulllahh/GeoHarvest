@@ -19,6 +19,9 @@ FIELDS = [
     ("ai_verdict", "AI verdict"),
     ("ai_reason", "AI reason"),
     ("category", "Category"),
+    ("owner_name", "Owner"),
+    ("owner_source", "Owner found in"),
+    ("owner_linkedin", "Owner on LinkedIn (search)"),
     ("phone", "Phone"),
     ("phone_international", "Phone (international)"),
     ("emails", "Emails"),
@@ -60,6 +63,21 @@ FIELDS = [
     ("query", "Found by search"),
 ]
 HEADERS = dict(FIELDS)
+# How the columns are grouped where the user picks them (New search, Leads > Columns).
+# Every key of FIELDS appears exactly once.
+FIELD_GROUPS = [
+    ("Business", ["name", "category", "categories", "description", "status", "hours", "price",
+                  "attributes", "claimed", "local_name"]),
+    ("Owner", ["owner_name", "owner_source", "owner_linkedin"]),
+    ("Contact", ["phone", "phone_international", "emails", "website", "domain"]),
+    ("Social media", ["facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok"]),
+    ("Reviews", ["rating", "reviews", "reviews_url"]),
+    ("Location", ["address", "street", "neighborhood", "city", "postal_code", "state",
+                  "country_code", "latitude", "longitude", "timezone", "maps_url"]),
+    ("Company age", ["company_age", "domain_created", "age_source"]),
+    ("Smart mode", ["ai_score", "ai_verdict", "ai_reason"]),
+    ("Other", ["photo", "place_id", "query"]),
+]
 
 
 def at(obj, *path):

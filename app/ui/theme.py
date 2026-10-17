@@ -275,17 +275,17 @@ def _asset(name: str, content: str) -> str:
     return path.as_posix()
 
 
-def check_mark() -> str:
-    """The tick inside a ticked checkbox.
+def switch_knob(on: bool, token: str = "fg_muted") -> str:
+    """The round knob of an on/off switch: left in the theme's muted colour, right in white.
 
-    White on transparent, which reads correctly on the accent fill in every
-    palette, so one file serves all four themes.
+    Every tick box in the app is drawn as a switch (the box itself is the track).
     """
+    shade = "ffffff" if on else color(token).lstrip("#")
+    x = 26 if on else 10
     return _asset(
-        "check.svg",
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
-        '<path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" fill="none" stroke="#ffffff" '
-        'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+        f"knob-{'on' if on else 'off'}-{shade}.svg",
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 20">'
+        f'<circle cx="{x}" cy="10" r="7" fill="#{shade}"/></svg>')
 
 
 def chevron(token: str = "fg_muted") -> str:
@@ -371,6 +371,7 @@ def stylesheet() -> str:
     # the tick box and radio dot are sized together rather than independently.
     box = px(16)
     box_radius = box // 2
+    track = round(box * 1.8)  # a switch is this wide and `box` high
     dot = max(3, box // 4)
 
     return f"""
@@ -613,13 +614,22 @@ QCheckBox::indicator, QRadioButton::indicator {{
     border: 1px solid {t['border_strong']};
     background-color: {t['bg_input']};
 }}
-QCheckBox::indicator {{ border-radius: 3px; }}
+QCheckBox::indicator {{
+    width: {track - 2}px; border-radius: {box_radius}px;
+    image: url("{switch_knob(False)}");
+}}
 QRadioButton::indicator {{ border-radius: {box_radius}px; }}
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{ border-color: {t['accent']}; }}
 QCheckBox::indicator:checked {{
     background-color: {t['accent']};
     border-color: {t['accent']};
-    image: url("{check_mark()}");
+    image: url("{switch_knob(True)}");
+}}
+QCheckBox::indicator:disabled {{
+    background-color: {t['bg_panel']}; border-color: {t['border']};
+}}
+QCheckBox::indicator:checked:disabled {{
+    background-color: {t['border_strong']}; border-color: {t['border_strong']};
 }}
 QRadioButton::indicator:checked {{
     width: {box - 2 * dot}px; height: {box - 2 * dot}px;
@@ -754,15 +764,16 @@ QListView {{
 QListView::item {{ padding: {px(5)}px {px(8)}px; }}
 QListView::item:hover {{ background-color: {t['bg_hover']}; }}
 QListView::indicator {{
-    width: {box - 2}px; height: {box - 2}px;
+    width: {track - 2}px; height: {box - 2}px;
     border: 1px solid {t['border_strong']};
-    border-radius: 3px;
+    border-radius: {box_radius}px;
     background-color: {t['bg_input']};
+    image: url("{switch_knob(False)}");
 }}
 QListView::indicator:checked {{
     background-color: {t['accent']};
     border-color: {t['accent']};
-    image: url("{check_mark()}");
+    image: url("{switch_knob(True)}");
 }}
 
 /* ---------- toasts ---------- */

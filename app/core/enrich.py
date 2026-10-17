@@ -6,6 +6,11 @@ the free public successor to WHOIS). Google Maps has no founding date, so the
 domain's age is the best free estimate of how old a company is. Some country
 registries (.pk, for one) publish no dates over RDAP; for those the first
 snapshot in the Internet Archive's Wayback Machine stands in.
+
+When the user asks for it, the same pages are read for the owner's name ("Founder: Jane
+Smith", "Jane Smith, Owner", or the page's schema.org data), and the domain record for a
+registrant name that is not hidden for privacy. LinkedIn blocks automatic reading, so the
+lead gets a LinkedIn search link to check by hand instead.
 """
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ import html
 import re
 import threading
 from datetime import date, datetime
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 import httpx
 
@@ -42,7 +47,8 @@ EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}")
 CFEMAIL = re.compile(r'data-cfemail="([0-9a-fA-F]+)"')
 HREF = re.compile(r'href\s*=\s*["\']([^"\'#]+)', re.I)
 CONTACT_WORDS = ("contact", "about", "impressum", "kontakt", "contacto", "contato", "team",
-                 "get-in-touch", "reach-us", "nous-contacter")
+                 "get-in-touch", "reach-us", "nous-contacter", "founder", "leadership",
+                 "our-story", "who-we-are")
 NOT_EMAIL_ENDINGS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css", ".js", ".ico")
 # Free website builders: the domain's age is the platform's, not the business's
 HOSTED_SUFFIXES = ("netlify.app", "vercel.app", "github.io", "wixsite.com", "wix.com",
@@ -59,6 +65,28 @@ PLACEHOLDER_DOMAINS = {"domain.com", "email.com", "company.com", "website.com", 
 PLACEHOLDER_NAMES = ("example", "domein", "beispiel", "exemple", "ejemplo", "dominio", "esempio",
                      "voorbeeld", "musterfirma", "mustermann", "votredomaine", "tudominio",
                      "ihredomain", "sentry")
+
+
+# Owner's name: a role word next to a name of two or three capitalised words
+ROLE = (r"(?i:co-?founder|founder|owner|proprietor|ceo|chief executive officer|managing director|"
+        r"managing partner|principal|president|geschäftsführer(?:in)?|inhaber(?:in)?|gérant|"
+        r"fondateur|fondatrice|propietario|propietaria|director general)")
+NAME = r"((?:Dr\.?\s+)?[A-ZÀ-Þ][a-zß-ÿ'\-]+(?:\s+[A-ZÀ-Þ][a-zß-ÿ'\-]+){1,2})"
+OWNER_PATTERNS = [
+    re.compile(ROLE + r"\s*[:\-–|,]?\s*" + NAME),                       # Founder: Jane Smith
+    re.compile(NAME + r"\s*[,\-–|(]?\s*(?:(?i:our|the)\s+)?" + ROLE),   # Jane Smith, Owner
+    re.compile(r"(?i:founded)(?:\s+in\s+\d{4})?\s+(?i:by)\s+" + NAME),  # founded by Jane Smith
+]
+FOUNDER_DATA = re.compile(r'"founder"\s*:\s*(?:\[\s*)?(?:\{[^{}]*?"name"\s*:\s*)?"([^"]{3,60})"')
+# Words that look like names in headings ("Meet Our Team") but are not people
+NOT_NAME_WORDS = {"Our", "The", "Meet", "Team", "About", "Contact", "Home", "Welcome", "Read",
+                  "More", "Message", "Since", "Company", "Board", "And", "With", "From", "Your",
+                  "View", "Profile", "Office", "Group", "Services", "Clinic", "Ltd", "Llc",
+                  "Inc", "Gmbh", "Founder", "Owner", "Director", "Managing", "Chief", "Today",
+                  "Us", "Call", "Email", "Book", "Now", "Here"}
+HIDDEN_REGISTRANT = ("redact", "privacy", "private", "proxy", "withheld", "protect", "gdpr",
+                     "not disclosed", "data", "masked", "registrant", "whois", "domain")
+TAGS = re.compile(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", re.S | re.I)
 
 
 # --- finding things in a page -------------------------------------------------
@@ -95,6 +123,48 @@ def find_socials(page: str) -> dict[str, str]:
             link = match.group(0).rstrip("/.\\")
             found[network] = "https:" + link if link.startswith("//") else link
     return found
+
+
+def _person(name: str) -> str | None:
+    name = " ".join(name.split())
+    words = [w for w in name.split() if w not in ("Dr", "Dr.")]
+    if not 2 <= len(words) <= 3 or any(w in NOT_NAME_WORDS for w in words):
+        return None
+    return name
+
+
+def find_owner(page: str) -> str | None:
+    """The owner's or founder's name on a page, if it says so plainly."""
+    for match in FOUNDER_DATA.finditer(page):
+        if person := _person(html.unescape(match.group(1))):
+            return person
+    text = " ".join(html.unescape(TAGS.sub(" ", page)).split())
+    # "Jane Smith Co-Founder": "Co" must not be read as part of the name
+    text = re.sub(r"\bco[\s-]+(?=founder)", "co", text, flags=re.I)
+    for pattern in OWNER_PATTERNS:
+        for match in pattern.finditer(text):
+            if person := _person(match.group(1)):
+                return person
+    return None
+
+
+def registrant(rdap: dict) -> str | None:
+    """The registrant's name in a domain record, unless it is hidden for privacy."""
+    for entity in rdap.get("entities", []):
+        if "registrant" not in entity.get("roles", []):
+            continue
+        for item in (entity.get("vcardArray") or [None, []])[1]:
+            if len(item) == 4 and item[0] in ("fn", "org") and isinstance(item[3], str):
+                name = item[3].strip()
+                if len(name) > 2 and not any(w in name.lower() for w in HIDDEN_REGISTRANT):
+                    return name
+    return None
+
+
+def linkedin_search(business: str, owner: str | None) -> str:
+    """A LinkedIn people search to check by hand (LinkedIn blocks automatic reading)."""
+    words = f"{owner} {business}" if owner else f"{business} owner"
+    return "https://www.linkedin.com/search/results/people/?keywords=" + quote(words)
 
 
 def social_network(url: str) -> str | None:
@@ -169,6 +239,7 @@ class Enricher:
         self.http = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=10,
                                  follow_redirects=True, verify=False, transport=transport)
         self._ages: dict[str, tuple[date | None, str]] = {}
+        self._registrants: dict[str, str | None] = {}
         self._wayback = threading.Semaphore(WAYBACK_AT_ONCE)
 
     def close(self) -> None:
@@ -190,6 +261,7 @@ class Enricher:
     def crawl(self, url: str) -> dict:
         emails: list[str] = []
         socials: dict[str, str] = {}
+        owner = None
         queue, seen = [url], set()
         while queue and len(seen) < MAX_PAGES:
             page_url = queue.pop(0)
@@ -201,9 +273,10 @@ class Enricher:
             emails += [e for e in find_emails(page) if e not in emails]
             for network, link in find_socials(page).items():
                 socials.setdefault(network, link)
+            owner = owner or find_owner(page)
             if page_url == url:
                 queue += contact_links(page, url)
-        return {"emails": emails, "socials": socials}
+        return {"emails": emails, "socials": socials, "owner": owner}
 
     def domain_created(self, domain: str) -> tuple[date | None, str]:
         """When the domain was registered, else first archived; and which of the two."""
@@ -218,7 +291,9 @@ class Enricher:
                 break
             if response.status_code == 200:
                 try:
-                    created = registration_date(response.json())
+                    record = response.json()
+                    created = registration_date(record)
+                    self._registrants[domain] = registrant(record)
                 except ValueError:
                     pass
                 break
@@ -242,7 +317,7 @@ class Enricher:
             return datetime.strptime(rows[1][0][:8], "%Y%m%d").date()
         return None
 
-    def enrich(self, lead: dict, find_contacts: bool = True) -> dict:
+    def enrich(self, lead: dict, find_contacts: bool = True, find_owner: bool = False) -> dict:
         """The new fields for one lead (does not modify it)."""
         fields: dict = {"enriched": True}
         website = lead.get("website") or ""
@@ -254,6 +329,7 @@ class Enricher:
             return fields
         if not website:
             return fields
+        found = {"owner": None}
         if find_contacts:
             found = self.crawl(website)
             domain = (lead.get("domain") or urlsplit(website).netloc).lower()
@@ -265,4 +341,11 @@ class Enricher:
         domain = lead.get("domain") or urlsplit(website).netloc
         if domain:
             fields.update(age_fields(*self.domain_created(domain)))
+        if find_owner:
+            if found["owner"]:
+                fields.update(owner_name=found["owner"], owner_source="Website")
+            elif self._registrants.get(domain):
+                fields.update(owner_name=self._registrants[domain], owner_source="Domain record")
+            fields["owner_linkedin"] = linkedin_search(lead.get("name") or domain,
+                                                       fields.get("owner_name"))
         return fields

@@ -5,11 +5,14 @@ is done, what is next, and the decisions already made so nobody re-asks them.
 
 ## Where things stand (start here)
 
-**Phase: beta testing (since 2026-10-16).** All 7 milestones are done, plus v0.1.1, v0.1.2
-and **v0.1.3** (2026-10-17: first batch of tester feedback, see the Log). v0.1.3 is built and
-pushed but **not yet published as a GitHub release** (the user publishes it). At the end of
-v0.1.3 the user was asked a list of questions about more search options and features; their
-answers decide the next batch. Don't start new features unless the user asks.
+**Phase: beta testing (since 2026-10-16).** All 7 milestones are done, plus v0.1.1, v0.1.2,
+v0.1.3 (first tester feedback) and **v0.2.1** (the features the user picked from the question
+list, 2026-10-17; see the Log and the "Decided 2026-10-17" rows). **The user published the v0.1.3
+commit as GitHub release v0.2** (its app still calls itself "v0.1.3 beta", so those copies keep
+offering the v0.2 update until v0.2.1 is out). v0.2.1 is built and pushed but not yet published
+(the user publishes it, tag `v0.2.1`). Version numbers from now on follow the user's tags: keep
+`APP_VERSION` equal to the tag's numbers. Don't start new features unless the user asks. Ask the user questions
+with the AskUserQuestion form, not as a text list (their preference).
 
 **When the user comes back with feedback:**
 
@@ -87,6 +90,14 @@ theme module, sidebar, cards, status bar, worker pattern.
 | Columns ("Details to include") | `fields` option: the columns a search shows and exports (default all). Leads always store everything; the Leads page hides columns not in the selected search's `fields`, and export writes only the columns on screen (`exporter.export(..., keys)`). Website-only details (emails, socials, age) are greyed out when "Visit each website" is off. Every `places.FIELDS` key must be listed in `DETAIL_GROUPS` in `pages/search.py` |
 | Cities | Since 0.1.3, ticking a country ticks **none** of its cities (user's request); the "ticks its biggest N" spin box is gone. `city_count` stays in options only for searches saved before city ticks |
 | Leads page | Opens on the newest search, and switches to a search when it starts. Double-click opens `LeadDialog` (every filled field, links, Copy all, Open in Google Maps). Delete key, right-click or "Delete selected" removes leads (`searches.delete_leads`): from the selected search, or from every search when "All searches" is picked. Past searches > **Load** selects the search on the Leads page and shows a toast without leaving the page |
+| AI keys | **No built-in API key anywhere** (user's explicit rule, 2026-10-17). Every provider uses only the key the user enters on the Smart mode page, stored DPAPI-encrypted. The only `api_key=` literal is `run.py`'s self-test sending "test" to a closed local port. Keep the official `anthropic` SDK (user said keep it; it costs ~5 MB) |
+| Search around a place (0.2.1) | Options `where` = cities / area, `area_place`, `area_km`, `area_lat/lng`. The place is found with `scraper.locate()` (Google centres the map on it) when Start is pressed, and the point is saved in the options so resume/run again don't look it up again. `geo.radius_cells` covers the circle with map views at most 5 km wide (max 8 x 8); each query is "niche near Place @lat,lng,camera" and `scraper.search` sends only the niche with the map put there. Camera distance = view size / 0.23 (measured). Google pages outward past the view, so paging stops at the first page with nothing inside the view (measured: 102 s -> 7 s for 3 km, 111 -> 109 leads). `passes()` keeps only leads inside the circle; the country filter is off in area mode |
+| Filters added 0.2.1 | `max_rating` (0 = none), `max_reviews` (-1 = none; 0 means no reviews), `website` any/yes/no (replaces `require_website`, converted in `options_with_defaults`), opening hours `open_now`, `open_24h`, `open_weekends`, `open_at` + `open_day` (0 = Monday) + `open_time`. Hours are parsed from Google's English text in `core/hours.py`, in the lead's own time zone; leads without hours are left out while any hours filter is on. Not wanted (user said no): exclude keywords, unclaimed-only, language choice, dedupe by phone/website, email verification, review text, notes/tags, scheduling. Deleted leads can come back in later searches (user's choice) |
+| Owner's name (0.2.1) | Optional (`find_owner`, needs "Visit each website"). `enrich.find_owner`: schema.org "founder", then "Founder: Name" / "Name, Owner" / "founded by Name" in page text (role words in EN/DE/FR/ES), rejecting heading words. Else the RDAP registrant unless hidden for privacy. Always adds `owner_linkedin`, a LinkedIn people-search link (LinkedIn blocks automatic reading). Columns `owner_name`, `owner_source`, `owner_linkedin`. Live: 1 of 15 Dubai dentists had a name, so expect few |
+| Exports (0.2.1) | Leads page "More exports": CSV, CSV for HubSpot / Pipedrive / Zoho CRM / Salesforce (`exporter.CRMS`: each CRM's company/account column names), "Copy for Google Sheets" (tab-separated text on the clipboard + opens sheets.new; values starting with = + - @ get a leading ' so Sheets keeps them as text). A direct Google Sheets upload was rejected: it needs OAuth and a Google Cloud project |
+| Proxies (0.2.1) | Settings > Proxies: one per line (host:port, user:pass@host:port, host:port:user:pass, http/https/socks5/socks5h://), saved encrypted (`credentials`, name "proxies"), "Test them" checks each against google.com/generate_204. Only Google Maps searches use them (`MapsClient` keeps one httpx client per proxy and takes turns; a proxy that is limited or doesn't answer is skipped; `Blocked` only when none worked and at least one was limited). Website visits and AI go direct. Needs `httpx[socks]` (socksio, bundled); the self-test checks it. Tested live through local HTTP and SOCKS5 proxies |
+| Switches | Every QCheckBox and checklist item is drawn as an on/off switch by the stylesheet (`theme.switch_knob` SVGs), so pages still use `checkbox()` |
+| Columns after a search | Leads page "Columns..." opens `ColumnsDialog` (switches grouped like New search, `places.FIELD_GROUPS`; every FIELDS key in exactly one group, tested). Saves to the search's `fields` (`searches.set_fields`) or, for All searches, setting `all_searches_fields` |
 | Languages | English only for v0.1. `app/i18n.py` is a pass-through `t()` so HomingPigeon's translation system can drop in later |
 
 ## Milestones
@@ -111,7 +122,8 @@ app/core/                  no UI imports; business logic, unit tested
   scraper.py               Google Maps over HTTPS: MapsClient.fetch, search() pager, Blocked
   places.py                parse one raw place; FIELDS (key, header) = table/export columns
   search.py                options dict, build_queries, passes (filters), save/update leads
-  geo.py                   countries and cities from app/data/cities.json
+  geo.py                   countries and cities from app/data/cities.json; distance, radius map views
+  hours.py                 opening hours text -> open now / 24 hours / weekends / a day and time
 app/data/                  cities.json (GeoNames CC BY 4.0), maps_pb.txt (Google request template)
 app/workers/scrape.py      ScrapeWorker: runs a search's queries in parallel, resumable
 app/core/exporter.py       Excel/CSV export
@@ -206,10 +218,20 @@ python tools/make_icons.py    # after editing assets/logo.svg
   cancel mid-copy keeps the previous version with no leftovers, packaged self-test and GUI start,
   completer driven by keyboard and mouse (the old code reproduced the bug), UI smoke test with
   demo data. Not tested: a real default-folder install over a broken 0.1.2.
+- 2026-10-17: v0.2.1 beta, the user's answers to the feature questions (see "Decided"
+  rows above): search around a place, max rating/reviews, website any/has/none, four opening-hours
+  switches, owner's name + LinkedIn search link, Leads > Columns, CRM CSVs + Copy for Google
+  Sheets, proxies, switches instead of tick boxes. Tested: 27 unit tests; live area search
+  (Dubai Marina 3 km, then a 2 km run through the real ScrapeWorker with owner lookup: 15 leads,
+  all inside the circle and matching the filters, 13 s); Google searches through local HTTP and
+  SOCKS5 proxies; UI smoke tests with screenshots; packaged self-test (now also SOCKS + time
+  zones) and GUI start. Not tested: real paid proxies, the CRM files imported into the real CRMs,
+  and Open now across many time zones.
 
 ## Releasing a new version
 
-1. Bump `APP_VERSION` in `app/config.py` (e.g. "v0.2.0 beta"); write `docs/releases/<tag>.md`.
+1. Bump `APP_VERSION` in `app/config.py` to the numbers of the tag you will publish (e.g. "v0.2.2 beta"
+   for tag v0.2.2; if they differ, installed copies keep offering the same update); write `docs/releases/<tag>.md`.
 2. Commit and push; check the Actions run is green.
 3. On GitHub: Releases > Draft a new release, tag `v0.2.0` or `v0.2.0-beta` (only the
    numbers are compared, so either works), paste the notes, Publish. The workflow attaches `GeoHarvest-v0.2.0-beta-windows.zip` within

@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from app import config
-from app.core import db, prefs
+from app.core import credentials, db, prefs, scraper
 from app.services import updater
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (ChoiceButtons, FormRow, Section, danger_button, hint, muted,
                                    open_url, row, secondary_button)
 from app.ui.widgets.dialogs import ChoiceDialog, ConfirmDialog
-from app.ui.widgets.inputs import checkbox
+from app.ui.widgets.inputs import checkbox, text_box
+from app.workers.base import Task
 
 SPEEDS = [("2", "Gentle"), ("4", "Normal"), ("8", "Fast")]
 
@@ -46,6 +48,24 @@ class SettingsPage(Page):
                        "resume it later from Past searches. Applies to the next search."))
         layout.addWidget(speed)
 
+        proxies = Section("Proxies (optional)",
+                          "For people who search a lot. GeoHarvest sends its Google Maps "
+                          "searches through these, taking turns, and skips any that stop working "
+                          "or that Google slows down. Website visits and AI go direct.")
+        self.proxies = text_box("One per line, for example:\n1.2.3.4:8080\n"
+                                "user:password@1.2.3.4:8080\n1.2.3.4:8080:user:password\n"
+                                "socks5://1.2.3.4:1080", monospace=True, lines=6)
+        self.proxies.setPlainText(credentials.load_secret(scraper.PROXIES_SECRET))
+        proxies.add(self.proxies)
+        self.proxy_status = hint("")
+        self.test_button = secondary_button("Test them", self.test_proxies)
+        proxies.add(row(secondary_button("Save", self.save_proxies), self.test_button,
+                        self.proxy_status, stretch=2))
+        proxies.add(hint("Kept encrypted on this computer, since proxies often include a "
+                         "password. Leave the box empty to search without proxies. Applies to "
+                         "the next search."))
+        layout.addWidget(proxies)
+
         updates = Section("Updates", f"You have GeoHarvest {config.APP_VERSION}.")
         updates.add(checkbox("Check for a new version when GeoHarvest opens",
                              bool(db.get_setting("check_updates", True)),
@@ -76,6 +96,43 @@ class SettingsPage(Page):
                        "UAE's data protection law, and Google's terms of service."))
         layout.addWidget(fair)
         layout.addStretch(1)
+
+    def save_proxies(self) -> None:
+        good, bad = scraper.parse_proxies(self.proxies.toPlainText())
+        if bad:
+            self.notify("These lines aren't proxies: " + ", ".join(bad[:3]) +
+                        (" and more" if len(bad) > 3 else "") + ". Fix them, then save again.",
+                        "warn", 8000)
+            return
+        credentials.save_secret(scraper.PROXIES_SECRET, "\n".join(good))
+        self.proxies.setPlainText("\n".join(good))
+        self.notify(f"Saved {len(good)} {'proxy' if len(good) == 1 else 'proxies'}." if good
+                    else "Proxies cleared: searches go direct.", "success")
+
+    def test_proxies(self) -> None:
+        good, bad = scraper.parse_proxies(self.proxies.toPlainText())
+        if bad or not good:
+            self.proxy_status.setText("Nothing to test." if not bad else
+                                      "Fix the lines that aren't proxies first.")
+            return
+
+        def check_all() -> list[str | None]:
+            with ThreadPoolExecutor(8) as pool:
+                return list(pool.map(scraper.check_proxy, good))
+
+        def done(results: list[str | None]) -> None:
+            working = sum(r is None for r in results)
+            failed = [f"{proxy.split('@')[-1]}: {r}" for proxy, r in zip(good, results) if r]
+            self.proxy_status.setText(f"{working} of {len(good)} working." + (
+                " Not working: " + "; ".join(failed[:3]) + (" ..." if len(failed) > 3 else "")
+                if failed else ""))
+
+        self.test_button.setEnabled(False)
+        self.proxy_status.setText(f"Testing {len(good)}...")
+        Task(check_all).start(
+            on_result=self.guard(done),
+            on_error=self.guard(lambda message: self.proxy_status.setText(message)),
+            on_done=self.guard(lambda: self.test_button.setEnabled(True)))
 
     def delete_all(self) -> None:
         if self.window_.busy_page_reason():

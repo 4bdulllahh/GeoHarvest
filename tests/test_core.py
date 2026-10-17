@@ -174,7 +174,7 @@ def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
         def __init__(self, wayback):
             pass
 
-        def enrich(self, lead, find_contacts):
+        def enrich(self, lead, find_contacts, find_owner=False):
             return {"enriched": True, "young": int(lead["place_id"].rsplit("-", 1)[1]) % 2 == 0}
 
         def close(self):
@@ -196,7 +196,7 @@ def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
     import time
 
     started = threading.Event()
-    FakeEnricher.enrich = lambda self, lead, contacts: (started.set(), time.sleep(3), {})[2]
+    FakeEnricher.enrich = lambda self, lead, contacts, **_: (started.set(), time.sleep(3), {})[2]
     worker = scrape.ScrapeWorker(searches.create({**searches.get(search_id)["options"],
                                                   "max_results": 0}))
     threading.Thread(target=lambda: (started.wait(), worker.stop()), daemon=True).start()
@@ -413,3 +413,137 @@ def test_update_version_and_release_parsing(tmp_path):
     assert (release.zip_url, release.sha256, release.zip_size) == ("https://dl/zip", "abc", 10)
     assert updater.update_command(Path("C:/tmp/GeoHarvest-Setup.exe"), Path("C:/Apps/GeoHarvest")) == [
         str(Path("C:/tmp/GeoHarvest-Setup.exe")), "--update", "--target", str(Path("C:/Apps/GeoHarvest"))]
+
+
+# --- 0.2.1 filters, area search, owner ---------------------------------------
+def test_opening_hours():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.core import hours
+
+    text = "Monday: 1-11 PM; Tuesday: 9 AM-12 AM; Wednesday: 6 PM-2 AM; Thursday: Closed; " \
+           "Friday: 9 AM-1 PM, 3-7 PM; Saturday: Open 24 hours; Sunday: Closed"
+    week = hours.weekly(text)
+    assert week[0] == [(13 * 60, 23 * 60)]
+    assert week[1] == [(9 * 60, 24 * 60)] and week[3] == []
+    assert hours.open_at(text, 3, 60)                  # Wednesday's late night runs into Thursday
+    assert not hours.open_at(text, 3, 3 * 60)
+    assert hours.open_at(text, 4, 16 * 60) and not hours.open_at(text, 4, 14 * 60)
+    assert hours.open_weekends(text) and not hours.always_open(text)
+    every_day = "; ".join(f"{day}: Open 24 hours" for day in hours.DAYS)
+    assert hours.always_open(every_day)
+    monday_2pm_dubai = datetime(2026, 10, 19, 14, 0, tzinfo=ZoneInfo("Asia/Dubai"))
+    assert hours.open_now(text, "Asia/Dubai", monday_2pm_dubai)
+    assert not hours.open_now(text, "Asia/Karachi", monday_2pm_dubai.replace(hour=11))
+
+
+def test_new_filters():
+    def keep(lead, **options):
+        return searches.passes(lead, searches.options_with_defaults(
+            {"skip_closed": False, **options}))
+
+    lead = {"rating": 4.6, "reviews": 3, "website": "", "hours": "Monday: 9 AM-5 PM"}
+    assert keep(lead, max_rating=4.8) and not keep(lead, max_rating=4.5)
+    assert keep(lead, max_reviews=3) and not keep(lead, max_reviews=2)
+    assert keep(lead, max_reviews=-1)
+    assert keep(lead, website="no") and not keep(lead, website="yes")
+    assert keep(lead, open_at=True, open_day=0, open_time="10:30")
+    assert not keep(lead, open_at=True, open_day=1, open_time="10:30")
+    assert not keep({**lead, "hours": ""}, open_weekends=True)  # unknown hours are left out
+    # Searches saved before 0.2.1
+    assert searches.options_with_defaults({"require_website": True})["website"] == "yes"
+
+
+def test_area_search_queries_and_circle():
+    from app.core import geo
+
+    options = {"niches": ["dentist"], "where": "area", "area_place": "Dubai Marina",
+               "area_km": 3, "area_lat": 25.08, "area_lng": 55.13}
+    queries = searches.build_queries(options)
+    assert len(queries) == 4 and all(q.startswith("dentist near Dubai Marina @") for q in queries)
+    match = scraper.AREA.match(queries[0])
+    assert match and match.group(1) == "dentist near Dubai Marina"
+    assert searches.title(options) == "dentist within 3 km of Dubai Marina"
+    full = searches.options_with_defaults({**options, "skip_closed": False})
+    assert searches.passes({"latitude": 25.09, "longitude": 55.14}, full)
+    assert not searches.passes({"latitude": 25.2, "longitude": 55.13}, full)  # 13 km away
+    assert 13 < geo.distance_km(25.08, 55.13, 25.2, 55.13) < 14
+    # The plan on the form counts the same before the place is found on the map
+    assert len(searches.build_queries({**options, "area_lat": None})) == 4
+
+
+def test_owner_name():
+    from app.core import enrich
+
+    assert enrich.find_owner("<p>Founder: Jane Smith</p>") == "Jane Smith"
+    assert enrich.find_owner("<div>Jane Smith, Owner of Acme</div>") == "Jane Smith"
+    assert enrich.find_owner("<p>Acme was founded in 2012 by Omar Farsi.</p>") == "Omar Farsi"
+    assert enrich.find_owner("<h3>Dr. Udita Baralay</h3> Co-Founder") == "Dr. Udita Baralay"
+    assert enrich.find_owner('{"founder": {"@type": "Person", "name": "Lena Weber"}}') == \
+        "Lena Weber"
+    assert enrich.find_owner("<h2>Meet Our Team</h2><p>Contact our owner today!</p>") is None
+    hidden = {"entities": [{"roles": ["registrant"], "vcardArray": [
+        "vcard", [["fn", {}, "text", "REDACTED FOR PRIVACY"]]]}]}
+    shown = {"entities": [{"roles": ["registrant"], "vcardArray": [
+        "vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "Ahmed Khan"]]]}]}
+    assert enrich.registrant(hidden) is None and enrich.registrant(shown) == "Ahmed Khan"
+
+
+def test_crm_and_sheets_export(tmp_path):
+    import csv
+
+    from app.core import exporter
+
+    leads = [{"name": "=Acme", "emails": "a@acme.ae, b@acme.ae", "phone": "+971 4 555 0100",
+              "address": "1 Marina Walk, Dubai", "city": "Dubai", "description": "line\tone\ntwo"}]
+    for crm in exporter.CRMS:
+        exporter.to_crm(leads, tmp_path / f"{crm}.csv", crm)
+        rows = list(csv.reader((tmp_path / f"{crm}.csv").open(encoding="utf-8-sig")))
+        assert len(rows) == 2 and rows[1][0] == "'=Acme"  # never a formula
+        assert "a@acme.ae" in rows[1] and "b@acme.ae, " not in rows[1]
+    hubspot = dict(zip(*csv.reader((tmp_path / "hubspot.csv").open(encoding="utf-8-sig"))))
+    assert hubspot["Street address"] == "1 Marina Walk, Dubai"  # no street part: whole address
+    text = exporter.to_tsv(leads, ["name", "phone", "description"])
+    assert text.splitlines() == ["Name\tPhone\tDescription",
+                                 "'=Acme\t'+971 4 555 0100\tline one two"]
+
+
+def test_proxies_parse_and_rotate(page):
+    import httpx
+
+    good, bad = scraper.parse_proxies(
+        "1.2.3.4:8080\nuser:pw@5.6.7.8:3128\nsocks5://9.9.9.9:1080\n"
+        "10.0.0.1:8000:bob:secret\n# a comment\nnot a proxy\n\n")
+    assert good == ["http://1.2.3.4:8080", "http://user:pw@5.6.7.8:3128",
+                    "socks5://9.9.9.9:1080", "http://bob:secret@10.0.0.1:8000"]
+    assert bad == ["not a proxy"]
+
+    body = ")]}'\n" + json.dumps(page)
+
+    class Fake:
+        def __init__(self, answer):
+            self.answer, self.calls = answer, 0
+
+        def get(self, url, params):
+            self.calls += 1
+            if self.answer == "dead":
+                raise httpx.ConnectError("no answer")
+            request = httpx.Request("GET", url)
+            if self.answer == "limited":
+                return httpx.Response(429, request=request)
+            return httpx.Response(200, text=body, request=request)
+
+    client = scraper.MapsClient(proxies=[])
+    client.clients = [Fake("dead"), Fake("limited"), Fake("ok")]
+    for _ in range(3):  # whichever proxy's turn it is, the working one answers
+        assert client.fetch("dentist in Lahore")
+    assert client.clients[2].calls == 3
+    client.clients = [Fake("limited"), Fake("dead")]
+    with pytest.raises(scraper.Blocked):  # every proxy limited or dead: pause the search
+        client.fetch("dentist in Lahore")
+
+
+def test_every_column_has_a_group():
+    keys = [key for _group, group_keys in places.FIELD_GROUPS for key in group_keys]
+    assert sorted(keys) == sorted(key for key, _ in places.FIELDS) and len(keys) == len(set(keys))

@@ -10,16 +10,16 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMenu,
                              QScrollArea, QVBoxLayout, QWidget)
 
-from app.core import exporter
+from app.core import db, exporter
 from app.core import search as searches
 from app.core.exporter import LINK_COLUMNS
-from app.core.places import FIELDS
+from app.core.places import FIELD_GROUPS, FIELDS, HEADERS
 from app.ui import theme
 from app.ui.pages.base import Page
-from app.ui.widgets.common import (Card, copy_to_clipboard, danger_button, hint, muted, open_url,
-                                   primary_button, row, secondary_button)
+from app.ui.widgets.common import (Card, copy_to_clipboard, danger_button, flow_row, hint, muted,
+                                   open_url, primary_button, row, secondary_button)
 from app.ui.widgets.dialogs import ConfirmDialog
-from app.ui.widgets.inputs import Debouncer, combo, line_edit
+from app.ui.widgets.inputs import Debouncer, checkbox, combo, line_edit
 from app.ui.widgets.leads_model import LEAD_ROLE, LeadsModel, LeadsProxy
 from app.ui.widgets.tables import DataTable
 from app.workers.ai import AIScoreWorker
@@ -40,6 +40,60 @@ def text_label(text: str, role: str = "") -> QLabel:
 
 def as_text(value) -> str:
     return ", ".join(map(str, value)) if isinstance(value, list) else str(value)
+
+
+class ColumnsDialog(QDialog):
+    """Switch columns of the Leads table (and the export) on and off, grouped as on New search."""
+
+    def __init__(self, parent: QWidget, chosen: set[str], empty: set[str], apply):
+        super().__init__(parent)
+        scale = theme.text_scale()
+        self.setWindowTitle("Columns")
+        self.resize(round(760 * scale), round(640 * scale))
+        pad = round(22 * scale)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(pad, pad, pad, pad)
+        layout.setSpacing(round(8 * scale))
+        layout.addWidget(text_label("Columns", "heading"))
+        layout.addWidget(text_label("Switch off what you don't need. Export saves only the "
+                                    "columns that are on. Columns marked \"no data\" have "
+                                    "nothing in them for these leads, so they stay hidden.",
+                                    "muted"))
+        content = QWidget()
+        content.setProperty("role", "plain")
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(0, 0, round(8 * scale), 0)
+        self.boxes = {}
+        for group, keys in FIELD_GROUPS:
+            container, flow = flow_row(spacing=14)
+            for key in keys:
+                label = HEADERS[key] + (" (no data)" if key in empty else "")
+                box = checkbox(label, key in chosen or key == "name",
+                               on_change=lambda _on: apply(self.chosen()))
+                self.boxes[key] = box
+                flow.addWidget(box)
+            inner.addWidget(text_label(group, "subheading"))
+            inner.addWidget(container)
+        self.boxes["name"].setEnabled(False)
+        inner.addStretch(1)
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QScrollArea.Shape.NoFrame)
+        area.setWidget(content)
+        layout.addWidget(area, 1)
+        buttons = QHBoxLayout()
+        buttons.addWidget(secondary_button("All on", lambda: self._all(True)))
+        buttons.addWidget(secondary_button("All off", lambda: self._all(False)))
+        buttons.addStretch(1)
+        buttons.addWidget(primary_button("Done", self.accept, width=120))
+        layout.addLayout(buttons)
+
+    def _all(self, on: bool) -> None:
+        for key, box in self.boxes.items():
+            box.setChecked(on or key == "name")
+
+    def chosen(self) -> set[str]:
+        return {key for key, box in self.boxes.items() if box.isChecked()}
 
 
 class LeadDialog(QDialog):
@@ -109,7 +163,16 @@ class LeadsPage(Page):
         self.picker.setMaximumWidth(460)
         self.filter = line_edit("Filter: type a name, city, category, email...")
         self.excel_button = primary_button("Export to Excel", lambda: self.export("xlsx"))
-        self.csv_button = secondary_button("Export CSV", lambda: self.export("csv"))
+        self.csv_button = secondary_button("More exports")
+        exports = QMenu(self.csv_button)
+        exports.addAction("CSV file", lambda: self.export("csv"))
+        exports.addSeparator()
+        for crm, (name, _columns) in exporter.CRMS.items():
+            exports.addAction(f"CSV for {name}", lambda c=crm: self.export(c))
+        exports.addSeparator()
+        exports.addAction("Copy for Google Sheets", self.copy_for_sheets)
+        self.csv_button.setMenu(exports)
+        self.columns_button = secondary_button("Columns...", self.choose_columns)
         self.delete_button = danger_button("Delete search...", self.delete_search)
         self.delete_leads_button = secondary_button("Delete selected", self.delete_selected)
         self.score_button = secondary_button("Score with AI", self.score_with_ai)
@@ -119,7 +182,7 @@ class LeadsPage(Page):
 
         card = Card(padding=12)
         self.count_label = muted("", wrap=False)
-        card.add(row(self.count_label, self.delete_leads_button, stretch=0))
+        card.add(row(self.count_label, self.columns_button, self.delete_leads_button, stretch=0))
         self.model = LeadsModel(self)
         self.proxy = LeadsProxy(self.model, self)
         self.table = DataTable(self.proxy, "No leads yet. Start a search on the New search page.",
@@ -184,7 +247,8 @@ class LeadsPage(Page):
         self.current_id = self.search_ids.get(self.picker.currentText(), 0)
         leads = searches.leads(self.current_id) if self.current_id else searches.all_leads()
         record = searches.get(self.current_id) if self.current_id else None
-        self.fields = set(record["options"]["fields"] if record else [k for k, _ in FIELDS])
+        self.fields = set(record["options"]["fields"] if record else
+                          db.get_setting("all_searches_fields", [k for k, _ in FIELDS]))
         self.model.set_leads(leads)
         self._hide_empty_columns()
         self.delete_button.setEnabled(bool(self.current_id))
@@ -212,6 +276,19 @@ class LeadsPage(Page):
         empty = set(self.model.empty_columns())
         for column, key in enumerate(self.model.keys):
             self.table.view.setColumnHidden(column, column in empty or key not in self.fields)
+
+    def choose_columns(self) -> None:
+        def apply(chosen: set[str]) -> None:
+            self.fields = chosen
+            self._hide_empty_columns()
+
+        empty = {self.model.keys[column] for column in self.model.empty_columns()}
+        ColumnsDialog(self.window(), self.fields, empty, apply).exec()
+        keys = [key for key, _ in FIELDS if key in self.fields]
+        if self.current_id:
+            searches.set_fields(self.current_id, keys)
+        else:
+            db.set_setting("all_searches_fields", keys)
 
     def _shown_keys(self) -> list[str]:
         return [key for column, key in enumerate(self.model.keys)
@@ -262,13 +339,26 @@ class LeadsPage(Page):
         return menu
 
     # --- actions ------------------------------------------------------------
-    def export(self, kind: str) -> None:
+    def copy_for_sheets(self) -> None:
         leads = self.proxy.visible_leads()
         if not leads:
             return
+        copy_to_clipboard(exporter.to_tsv(leads, self._shown_keys()))
+        open_url("https://sheets.new")
+        self.notify(f"Copied {len(leads):,} leads. A new Google Sheet is opening in your "
+                    "browser: click cell A1 and press Ctrl+V.", "success", 10000)
+
+    def export(self, kind: str) -> None:
+        """kind: xlsx, csv, or a CRM from exporter.CRMS (a CSV in that CRM's columns)."""
+        leads = self.proxy.visible_leads()
+        if not leads:
+            return
+        crm = exporter.CRMS.get(kind)
+        suffix = "xlsx" if kind == "xlsx" else "csv"
         title = self.picker.currentText().split("  (")[0] if self.current_id else "All leads"
         safe = "".join(c for c in title if c.isalnum() or c in " ,-_")[:80].strip()
-        default = Path.home() / "Documents" / f"GeoHarvest - {safe} - {date.today()}.{kind}"
+        name = f"GeoHarvest - {safe}{f' - {crm[0]}' if crm else ''} - {date.today()}.{suffix}"
+        default = Path.home() / "Documents" / name
         wanted = "Excel workbook (*.xlsx)" if kind == "xlsx" else "CSV file (*.csv)"
         path, _ = QFileDialog.getSaveFileName(self, "Export leads", str(default), wanted)
         if not path:
@@ -282,7 +372,9 @@ class LeadsPage(Page):
         def failed(message: str) -> None:
             self.notify(f"Could not save the file: {message}. Is it open in Excel?", "error", 8000)
 
-        Task(exporter.export, leads, Path(path), self._shown_keys()).start(
+        job = Task(exporter.to_crm, leads, Path(path), kind) if crm else \
+            Task(exporter.export, leads, Path(path), self._shown_keys())
+        job.start(
             on_result=self.guard(done), on_error=self.guard(failed),
             on_done=self.guard(self._update_count))
 

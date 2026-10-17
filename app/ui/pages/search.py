@@ -4,15 +4,16 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QSpinBox, QWidget
 
-from app.core import db, geo
+from app.core import db, geo, hours, scraper
 from app.core import search as searches
 from app.ui.pages.base import Page
-from app.core.places import HEADERS
+from app.core.places import FIELD_GROUPS, HEADERS
 from app.ui.widgets.common import (Card, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
                                    confirm_button, danger_button, flow_row, hint, muted, row,
                                    secondary_button)
 from app.ui.widgets.checklist import CheckList
-from app.ui.widgets.inputs import checkbox, line_edit
+from app.ui.widgets.inputs import checkbox, combo, line_edit
+from app.workers.base import Task
 
 NICHES = [
     "accountant", "advertising agency", "architect", "auto repair shop", "bakery", "bank",
@@ -35,22 +36,12 @@ NICHES = [
     "yoga studio",
 ]
 
-# The tick boxes under "Details to include", every column of places.FIELDS once
-DETAIL_GROUPS = [
-    ("Business", ["name", "category", "categories", "description", "status", "hours", "price",
-                  "attributes", "claimed", "local_name"]),
-    ("Contact", ["phone", "phone_international", "emails", "website", "domain"]),
-    ("Social media", ["facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok"]),
-    ("Reviews", ["rating", "reviews", "reviews_url"]),
-    ("Location", ["address", "street", "neighborhood", "city", "postal_code", "state",
-                  "country_code", "latitude", "longitude", "timezone", "maps_url"]),
-    ("Company age", ["company_age", "domain_created", "age_source"]),
-    ("Smart mode", ["ai_score", "ai_verdict", "ai_reason"]),
-    ("Other", ["photo", "place_id", "query"]),
-]
 # Filled in only by visiting the business's website
 FROM_WEBSITE = {"emails", "facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok",
-                "company_age", "domain_created", "age_source"}
+                "company_age", "domain_created", "age_source", "owner_name", "owner_source",
+                "owner_linkedin"}
+TIMES = [f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (0, 30)]
+RATINGS = [("3.5", "3.5"), ("4", "4"), ("4.5", "4.5")]
 
 
 class ListCompleter(QCompleter):
@@ -116,8 +107,12 @@ class SearchPage(Page):
 
         # --- where ----------------------------------------------------------
         where = Section("Where?",
-                        "Tick the countries, then the cities you want in them. Google shows "
-                        "about 200 businesses per city, so more cities means more leads.")
+                        "Search whole countries city by city, or everything within a distance "
+                        "of one place.")
+        self.where = ChoiceButtons([("cities", "Countries and cities"),
+                                    ("area", "Around a place")], last["where"],
+                                   on_change=lambda _key: self._where_changed())
+        where.add(self.where)
         self.countries = CheckList("Search countries")
         self.countries.set_items([(r, f"{r} (all its countries)") for r in geo.REGIONS]
                                  + [(c, c) for c in geo.countries()], set())
@@ -125,7 +120,10 @@ class SearchPage(Page):
         self.extra_places: list[str] = []
         self.extra_place = line_edit("A town or area that is not listed")
         self.extra_place.returnPressed.connect(self._add_place)
-        columns = QHBoxLayout()
+        self.cities_box = QWidget()
+        self.cities_box.setProperty("role", "plain")
+        columns = QHBoxLayout(self.cities_box)
+        columns.setContentsMargins(0, 0, 0, 0)
         columns.setSpacing(16)
         left, right = FormRow("Countries"), FormRow("Cities")
         left.add(self.countries)
@@ -133,7 +131,25 @@ class SearchPage(Page):
         right.add(row(self.extra_place, small_button("Add", self._add_place), stretch=0))
         columns.addWidget(left, 1, Qt.AlignmentFlag.AlignTop)
         columns.addWidget(right, 1, Qt.AlignmentFlag.AlignTop)
-        where.add_layout(columns)
+        where.add(self.cities_box)
+
+        self.area_box = QWidget()
+        self.area_box.setProperty("role", "plain")
+        area = QHBoxLayout(self.area_box)
+        area.setContentsMargins(0, 0, 0, 0)
+        area.setSpacing(12)
+        self.area_place = line_edit("For example: Dubai Marina, or 5th Avenue, New York")
+        self.area_place.setText(last["area_place"])
+        self.area_km = spin(1, 100, int(last["area_km"]), " km")
+        place_row = FormRow("Place or address", "Type it the way you would into Google Maps.")
+        place_row.add(self.area_place)
+        km_row = FormRow("Within")
+        km_row.add(self.area_km)
+        area.addWidget(place_row, 1, Qt.AlignmentFlag.AlignTop)
+        area.addWidget(km_row, 0, Qt.AlignmentFlag.AlignTop)
+        where.add(self.area_box)
+        # Where the place is on the map, once found: (typed text, latitude, longitude)
+        self.located: tuple[str, float, float] | None = None
         self.city_count = int(last["city_count"])  # only for searches saved before city ticks
         self.plan = hint("")
         where.add(self.plan)
@@ -142,6 +158,8 @@ class SearchPage(Page):
         self.countries.changed.connect(self._rebuild_cities)
         self.cities.changed.connect(self._update_plan)
         self.niches.textChanged.connect(self._update_plan)
+        self.area_place.textChanged.connect(self._update_plan)
+        self.area_km.valueChanged.connect(self._update_plan)
 
         # --- which ----------------------------------------------------------
         which = Section("Which businesses?")
@@ -156,34 +174,70 @@ class SearchPage(Page):
         age_row.add(self.company_age)
         which.add(age_row)
 
-        rating_row = FormRow("Google rating")
-        self.min_rating = ChoiceButtons(
-            [("0", "Any rating"), ("3.5", "3.5 and up"), ("4", "4 and up"), ("4.5", "4.5 and up")],
-            str(last["min_rating"]).removesuffix(".0"))
-        rating_row.add(self.min_rating)
-        which.add(rating_row)
+        ratings = QWidget()
+        ratings_layout = QHBoxLayout(ratings)
+        ratings_layout.setContentsMargins(0, 0, 0, 0)
+        ratings_layout.setSpacing(24)
+        self.min_rating = ChoiceButtons([("0", "Any")] + RATINGS,
+                                        str(last["min_rating"]).removesuffix(".0"))
+        self.max_rating = ChoiceButtons([("0", "Any")] + RATINGS,
+                                        str(last["max_rating"]).removesuffix(".0"))
+        for label, choice in (("Google rating at least", self.min_rating),
+                              ("Google rating at most", self.max_rating)):
+            field = FormRow(label)
+            field.add(choice)
+            ratings_layout.addWidget(field, 1, Qt.AlignmentFlag.AlignTop)
+        which.add(ratings)
 
         self.min_reviews = spin(0, 100000, int(last["min_reviews"]), " reviews", "Any")
+        self.max_reviews = spin(-1, 100000, int(last["max_reviews"]), " reviews", "No maximum")
         self.max_results = spin(0, 100000, int(last["max_results"]), " leads", "No limit")
         limits = QWidget()
         limits_layout = QHBoxLayout(limits)
         limits_layout.setContentsMargins(0, 0, 0, 0)
         limits_layout.setSpacing(12)
-        for label, box in (("At least", self.min_reviews), ("Stop after", self.max_results)):
-            field = FormRow(label, "You get exactly this many, if Google has enough" if box
-                            is self.max_results else "")
+        for label, box, note in (
+                ("Reviews at least", self.min_reviews, ""),
+                ("Reviews at most", self.max_reviews, "Few reviews often means a business "
+                                                      "that needs more customers"),
+                ("Stop after", self.max_results, "You get exactly this many, if Google has "
+                                                 "enough")):
+            field = FormRow(label, note)
             field.add(box)
             limits_layout.addWidget(field, 0, Qt.AlignmentFlag.AlignTop)
         limits_layout.addStretch(1)
         which.add(limits)
 
-        self.require_website = checkbox("Must have a website", last["require_website"])
+        website_row = FormRow("Website", "\"No website\" finds businesses you could build a "
+                                         "site for. Emails, social media, company age and the "
+                                         "owner's name come from websites, so those stay empty.")
+        self.website = ChoiceButtons([("any", "Any"), ("yes", "Has a website"),
+                                      ("no", "No website")], last["website"])
+        website_row.add(self.website)
+        which.add(website_row)
+
         self.require_phone = checkbox("Must have a phone number", last["require_phone"])
         self.skip_closed = checkbox("Leave out closed businesses", last["skip_closed"])
         self.skip_known = checkbox("Leave out businesses I found in earlier searches",
                                    last["skip_known"])
-        for box in (self.require_website, self.require_phone, self.skip_closed, self.skip_known):
+        for box in (self.require_phone, self.skip_closed, self.skip_known):
             which.add(box)
+
+        hours_row = FormRow("Opening hours", "In each business's own time zone. Businesses "
+                                             "that don't list their hours on Google are left "
+                                             "out while any of these is on.")
+        self.open_now = checkbox("Open now", last["open_now"])
+        self.open_24h = checkbox("Open 24 hours", last["open_24h"])
+        self.open_weekends = checkbox("Open on weekends", last["open_weekends"])
+        self.open_at = checkbox("Open on", last["open_at"])
+        self.open_day = combo(hours.DAYS, hours.DAYS[int(last["open_day"])], translate=False)
+        self.open_time = combo(TIMES, last["open_time"], translate=False)
+        hours_row.add(self.open_now)
+        hours_row.add(self.open_24h)
+        hours_row.add(self.open_weekends)
+        hours_row.add(row(self.open_at, self.open_day, muted("at", wrap=False), self.open_time,
+                          None))
+        which.add(hours_row)
         layout.addWidget(which)
 
         # --- extra ----------------------------------------------------------
@@ -192,6 +246,10 @@ class SearchPage(Page):
             "Visit each website to find emails and social media (Facebook, Instagram, "
             "LinkedIn...) and estimate company age", last["find_emails"])
         extra.add(self.find_emails)
+        self.find_owner = checkbox(
+            "Look for the owner's name (on the website and in the domain record) and add a "
+            "LinkedIn search link", last["find_owner"])
+        extra.add(self.find_owner)
         self.smart = checkbox("Smart mode: let AI check every lead against your ideal customer",
                               last["smart"])
         extra.add(self.smart)
@@ -204,7 +262,7 @@ class SearchPage(Page):
                           "Untick what you don't need. It is left out of the Leads table and "
                           "the Excel file. Name is always included.")
         self.detail_boxes: dict[str, object] = {}
-        for group, keys in DETAIL_GROUPS:
+        for group, keys in FIELD_GROUPS:
             container, flow = flow_row(spacing=14)
             for key in keys:
                 box = checkbox(HEADERS[key], key in last["fields"] or key == "name")
@@ -214,8 +272,8 @@ class SearchPage(Page):
             group_row.add(container)
             details.add(group_row)
         self.detail_boxes["name"].setEnabled(False)
-        details.add(row(hint("Emails, social media and company age need \"Visit each "
-                             "website\" ticked above."),
+        details.add(row(hint("Emails, social media, company age and the owner need \"Visit "
+                             "each website\" switched on above."),
                         small_button("Tick all", lambda: self._tick_details(True)),
                         small_button("Untick all", lambda: self._tick_details(False)), stretch=0))
         layout.addWidget(details)
@@ -295,9 +353,23 @@ class SearchPage(Page):
         self.extra_place.clear()
         self._rebuild_cities(tick=set(self.cities.checked()) | {place})
 
+    def _where_changed(self) -> None:
+        area = self.where.get() == "area"
+        self.cities_box.setVisible(not area)
+        self.area_box.setVisible(area)
+        self._update_plan()
+
     def _update_plan(self) -> None:
+        niches = split_list(self.niches.text())
+        if self.where.get() == "area":
+            count = len(searches.build_queries({
+                "niches": niches, "where": "area", "area_place": self.area_place.text(),
+                "area_km": self.area_km.value()}))
+            self.plan.setText(f"{count:,} searches (the area is covered in small map views, one "
+                              "search per view and business type)." if count else "")
+            return
         count = len(searches.build_queries({
-            "niches": split_list(self.niches.text()), "countries": self._chosen_countries(),
+            "niches": niches, "countries": self._chosen_countries(),
             "cities": self.cities.checked()})) if self.cities.checked() else 0
         countries, cities = len(self._chosen_countries()), len(self.cities.checked())
         self.plan.setText(f"{countries} {'country' if countries == 1 else 'countries'}, "
@@ -312,6 +384,9 @@ class SearchPage(Page):
     def _website_details(self, on: bool) -> None:
         for key in FROM_WEBSITE:
             self.detail_boxes[key].setEnabled(on)
+        self.find_owner.setEnabled(on)
+        if not on:
+            self.find_owner.setChecked(False)
 
     def on_show(self) -> None:
         ready = bool(db.get_setting("ai_provider", ""))
@@ -323,20 +398,36 @@ class SearchPage(Page):
                                 "free AI key or a local model.")
 
     def options(self) -> dict:
+        place = self.area_place.text().strip()
+        found = self.located if self.located and self.located[0] == place else None
         return {
             "niches": split_list(self.niches.text()),
+            "where": self.where.get(),
+            "area_place": place,
+            "area_km": self.area_km.value(),
+            "area_lat": found[1] if found else None,
+            "area_lng": found[2] if found else None,
             "countries": self._chosen_countries(),
             "cities": self.cities.checked(),
             "city_count": self.city_count,
             "company_age": self.company_age.get(),
             "min_rating": float(self.min_rating.get()),
             "min_reviews": self.min_reviews.value(),
+            "max_rating": float(self.max_rating.get()),
+            "max_reviews": self.max_reviews.value(),
             "max_results": self.max_results.value(),
-            "require_website": self.require_website.isChecked(),
+            "website": self.website.get(),
             "require_phone": self.require_phone.isChecked(),
+            "open_now": self.open_now.isChecked(),
+            "open_24h": self.open_24h.isChecked(),
+            "open_weekends": self.open_weekends.isChecked(),
+            "open_at": self.open_at.isChecked(),
+            "open_day": hours.DAYS.index(self.open_day.currentText()),
+            "open_time": self.open_time.currentText(),
             "skip_closed": self.skip_closed.isChecked(),
             "skip_known": self.skip_known.isChecked(),
             "find_emails": self.find_emails.isChecked(),
+            "find_owner": self.find_owner.isChecked(),
             "smart": self.smart.isChecked(),
             "fields": [key for key, box in self.detail_boxes.items() if box.isChecked()],
         }
@@ -345,6 +436,12 @@ class SearchPage(Page):
         """Fill the form from a saved search (Past searches: resume or run again)."""
         options = searches.options_with_defaults(options)
         self.niches.setText(", ".join(options["niches"]))
+        self.where.set(options["where"])
+        self.area_place.setText(options["area_place"])
+        self.area_km.setValue(int(options["area_km"]))
+        if options["area_lat"] is not None:
+            self.located = (options["area_place"], options["area_lat"], options["area_lng"])
+        self._where_changed()
         self.city_count = int(options["city_count"])
         countries = geo.expand(options["countries"])
         cities = searches.places_for(options)  # old saves: bare names, or none (biggest N)
@@ -355,11 +452,16 @@ class SearchPage(Page):
         self._rebuild_cities(tick=set(cities))
         self.company_age.set(options["company_age"])
         self.min_rating.set(str(options["min_rating"]).removesuffix(".0"))
+        self.max_rating.set(str(options["max_rating"]).removesuffix(".0"))
         self.min_reviews.setValue(int(options["min_reviews"]))
+        self.max_reviews.setValue(int(options["max_reviews"]))
         self.max_results.setValue(int(options["max_results"]))
-        for name in ("require_website", "require_phone", "skip_closed", "skip_known",
-                     "find_emails"):
+        self.website.set(options["website"])
+        for name in ("require_phone", "skip_closed", "skip_known", "find_emails", "find_owner",
+                     "open_now", "open_24h", "open_weekends", "open_at"):
             getattr(self, name).setChecked(bool(options[name]))
+        self.open_day.setCurrentText(hours.DAYS[int(options["open_day"])])
+        self.open_time.setCurrentText(options["open_time"])
         for key, box in self.detail_boxes.items():
             box.setChecked(key in options["fields"] or key == "name")
         self.on_show()  # Smart mode only stays ticked if it is still set up
@@ -368,8 +470,17 @@ class SearchPage(Page):
     def _validate(self, options: dict) -> str | None:
         if not options["niches"]:
             return "Type what kind of business you are looking for."
-        if not options["cities"]:
+        if options["where"] == "area":
+            if not options["area_place"]:
+                return "Type the place or address to search around."
+        elif not options["cities"]:
             return "Tick at least one country and one city."
+        if options["website"] == "no" and options["company_age"] != "any":
+            return "Company age comes from the website, so it can't be used with \"No website\"."
+        if options["max_rating"] and options["max_rating"] < options["min_rating"]:
+            return "The highest rating is below the lowest one."
+        if 0 <= options["max_reviews"] < options["min_reviews"]:
+            return "\"Reviews at most\" is below \"Reviews at least\"."
         return None
 
     # --- running ------------------------------------------------------------
@@ -379,8 +490,38 @@ class SearchPage(Page):
         if problem:
             self.notify(problem, "warn")
             return
+        if options["where"] == "area" and options["area_lat"] is None:
+            self._locate_then_start(options["area_place"])
+            return
         db.set_setting("last_options", options)
         self.run(searches.create(options))
+
+    def _locate_then_start(self, place: str) -> None:
+        """Find the typed place on Google Maps (a second or two), then start."""
+        def locate():
+            client = scraper.MapsClient()
+            try:
+                return scraper.locate(client, place)
+            finally:
+                client.close()
+
+        def found(point) -> None:
+            if point is None:
+                self.status.setText("Ready when you are.")
+                self.notify(f"Google Maps couldn't find \"{place}\". Try adding the city or "
+                            "country.", "warn", 6000)
+                return
+            self.located = (place, *point)
+            self.start()
+
+        def failed(message: str) -> None:
+            self.status.setText("Ready when you are.")
+            self.notify(f"Couldn't look up {place}: {message}", "error", 8000)
+
+        self.start_button.setEnabled(False)
+        self.status.setText(f"Finding {place} on the map...")
+        Task(locate).start(on_result=self.guard(found), on_error=self.guard(failed),
+                           on_done=self.guard(lambda: self.start_button.setEnabled(True)))
 
     def run(self, search_id: int) -> None:
         """Start (or resume) a saved search."""

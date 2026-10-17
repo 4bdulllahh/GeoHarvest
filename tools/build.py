@@ -39,7 +39,7 @@ EXCLUDE = ["tkinter", "unittest", "pydoc", "test", "PyQt6.QtQml", "PyQt6.QtQuick
            "urllib3", "markdown_it", "mdurl", "pyasn1", "pyasn1_modules", "rsa", "cachetools",
            "boto3", "botocore", "aiohttp", "aiodns", "aiohappyeyeballs", "aiosignal", "frozenlist",
            "multidict", "yarl", "propcache", "attr", "attrs", "trio", "brotli", "brotlicffi", "h2",
-           "hpack", "hyperframe", "socksio", "websockets"]
+           "hpack", "hyperframe", "websockets"]
 # Qt files a widgets-only app never loads (it needs PNG, ICO and SVG images only)
 QT = "PyQt6/Qt6/"
 DROP = [QT + "bin/opengl32sw.dll", QT + "bin/Qt6Pdf.dll", QT + "bin/Qt6Network.dll", QT + "translations",
