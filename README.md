@@ -121,11 +121,14 @@ subscription, nothing to pay: everything runs on your own computer.
 
 ## How it works
 
-1. **New search.** Type the kind of business. Choose **Countries and cities** or **Around a
-   place**. Pick a company age, any filters and the details you want. Press **Start search**.
-2. **Watch it work.** The tiles count leads, searches, websites checked, emails, phones and
-   (in Smart mode) AI scores. Press **Stop** whenever you like; **Resume** in Past searches
-   carries on later.
+1. **New search.** Click the business box and pick types from the list, or type your own.
+   Choose **Countries and cities** or **Around a place**. Pick a company age, any filters, how
+   many leads you want (**Stop after**) and the details to include. Press **Start search**.
+2. **Watch it work.** The search runs in three steps: searching Google, checking websites,
+   picking the best leads. The tiles count businesses found, searches, websites checked,
+   emails, phones, AI scores (in Smart mode) and the best leads picked. Press **Stop** whenever
+   you like; you keep the best found so far, and **Resume** in Past searches carries on later.
+   If there weren't enough businesses, it tells you why and offers to add more cities.
 3. **Leads.** The page opens on your latest search. Filter, sort, double-click a lead for its
    details, delete the ones you don't want, and use **Columns** to choose what shows.
 4. **Export.** **Export to Excel**, or **More exports** for CSV, your CRM or Google Sheets. The
@@ -229,23 +232,31 @@ places).
 
 - **Results per search.** Google shows about 200 businesses per city and business type. For
   more leads, choose more cities, use Around a place, or add business types (`dentist, dental
-  clinic, orthodontist`).
+  clinic, orthodontist`). Strict filters (Startups, must have a phone and a website) can leave
+  small cities with only a few; the summary after the search says what was left out and why.
 - **"Google asked GeoHarvest to slow down."** Very large searches from one internet connection
   can hit Google's limits. GeoHarvest pauses, keeps everything found, and you can resume from
   Past searches after about 15 minutes. **Gentle** speed in Settings, or proxies, make this
   less likely.
-- **Company age is an estimate** based on the website's domain. Some registries (`.pk`, `.de`)
-  don't publish dates; for those GeoHarvest uses the first time the site appeared in the
-  Internet Archive, which is slower, so it only does that when you filter by age.
-- **Owners' names** are found only when the website or the domain record states them, so
-  expect them for some businesses, not all.
+- **Company age is an estimate** based on the website's domain. Some registries (`.pk`, `.de`,
+  `.ae`) don't publish dates; for those GeoHarvest uses the first time the site appeared in the
+  Internet Archive, which is slower, so it only does that when you filter by age. If neither
+  has a date, the age shows as **Unknown**; those leads are kept and ranked after the rest.
+- **Owners' names and LinkedIn** are found only when the website or the domain record states
+  them, so expect them for some businesses, not all. **N/A** in a LinkedIn column means the
+  business's website doesn't link one.
+- **"Service area"** in the address means the business hides its address on Google (common
+  for agencies and trades that visit customers). Turn on **Must show its address** to leave
+  them out.
 - **Emails** come from the business's own website. Businesses with only a Facebook or
   Instagram page get that link but no email, because those sites block automated visits.
 
 ## Testing the beta
 
 The most useful feedback: what you searched for and what went wrong or looked odd, anything
-confusing, and what you wish it did. Post it as a
+confusing, and what you wish it did. New in 0.2.2 and worth trying: a search over several
+cities and business types with **Stop after** set, the business-type list, and the two
+buttons that widen a search that came up short. Post it as a
 [GitHub issue](https://github.com/4bdulllahh/GeoHarvest/issues/new). If the app crashed,
 attach `%APPDATA%\GeoHarvest\logs\crash.log`; if Setup failed, attach
 `%TEMP%\GeoHarvest-setup-log.txt` (Setup's **Open log file** button shows it).

@@ -5,31 +5,59 @@ is done, what is next, and the decisions already made so nobody re-asks them.
 
 ## Where things stand (start here)
 
-**Phase: beta testing (since 2026-10-16).** All 7 milestones are done, plus v0.1.1, v0.1.2,
-v0.1.3 (first tester feedback) and **v0.2.1** (the features the user picked from the question
-list, 2026-10-17; see the Log and the "Decided 2026-10-17" rows). **The user published the v0.1.3
-commit as GitHub release v0.2** (its app still calls itself "v0.1.3 beta", so those copies keep
-offering the v0.2 update until v0.2.1 is out). v0.2.1 is built and pushed but not yet published
-(the user publishes it, tag `v0.2.1`). Version numbers from now on follow the user's tags: keep
-`APP_VERSION` equal to the tag's numbers. Don't start new features unless the user asks. Ask the user questions
-with the AskUserQuestion form, not as a text list (their preference).
+**Phase: beta testing (since 2026-10-16). Current version: v0.2.2 beta (2026-10-17).**
+All 7 original milestones are done, then v0.1.1-v0.1.3, v0.2.1 and **v0.2.2**. Version numbers
+follow the user's GitHub tags: keep `APP_VERSION` (app/config.py) equal to the tag's numbers.
+Don't start new features unless the user asks. Ask the user questions with the
+AskUserQuestion form, not as a text list (their preference).
 
-**v0.2.2 beta (2026-10-17): built from three milestones the user agreed; pushed, not yet published (user publishes tag `v0.2.2`).**
-- [x] **A. Search pipeline**: three steps, candidates, quality score, balanced pick, shortfall
-  explanation with "Add 10 more cities" / "Allow any company age", hidden addresses (see the
-  "Three-step search" and "Hidden addresses" rows below)
+**State of v0.2.2 when the session ended (2026-10-17):**
+- Code, `docs/releases/v0.2.2-beta.md` and README pushed; the GitHub Actions run was green.
+- Built locally too: `dist/GeoHarvest-v0.2.2-beta-windows.zip` (32 MB, packaged self-test OK
+  with a real 20-lead search). `dist/` is not in git: it only changes when someone runs
+  `python tools/build.py`. Publishing the GitHub release makes the workflow attach its own
+  copy of the zip.
+- The user was going to publish release `v0.2.2` and **test it themselves**, then come back
+  with fixes and changes. Start by asking what they found (form), then follow the steps below.
+
+**What went into v0.2.2** (the user's requests and their form answers):
+- [x] **A. Search pipeline**: three steps one after another, candidates, quality score,
+  balanced pick, shortfall explanation with "Add 10 more cities" / "Allow any company age",
+  hidden addresses (see the "Three-step search" and "Hidden addresses" rows below)
 - [x] **B. New search UI**: business-type picker at the top of New search (typing filters a
   grouped list in columns; several can be picked; own types still allowed). "Details to include"
-  and Leads > Columns become select/unselect buttons (selected = highlighted like Settings'
+  and Leads > Columns are select/unselect buttons (selected = highlighted like Settings'
   Theme buttons, unselected = greyed) instead of switches. Switches stay everywhere else
   (country/city lists, must-have filters, hours)
 - [x] **C. LinkedIn**: people-search links dropped; company page and owner's profile come from
-  the business's website, else "N/A" (see the "Owner's name" row)
+  the business's website, else "N/A" (see the "Owner's name" row; a free web search was tested
+  and every engine blocked it)
 - Unknown company ages (many .ae sites: the registry hides dates and Wayback often has
-  nothing) are **kept** for Startups/Established since 2026-10-17 (user's choice), marked
-  "Unknown" and ranked after known ages (`pick()` key in `workers/scrape.py`)
+  nothing) are **kept** for Startups/Established (user's choice), marked "Unknown" and ranked
+  after known ages (`pick()` key in `workers/scrape.py`)
 - Licence: user keeps PyQt6 for now (no plan to sell closed source); PySide6 is the route if that
-  changes
+  changes (mostly renaming imports, `pyqtSignal` -> `Signal`)
+
+**What the user should test in v0.2.2** (nobody has done these yet):
+1. Install the zip over v0.2.1 (and Update now from v0.2.1 once the release is published).
+2. A multi-city, multi-type search with "Stop after" (e.g. 400): the three steps, the tiles
+   only counting up, the leads spread over the cities, and the summary if it comes up short.
+3. **Add 10 more cities** and **Allow any company age** after a short search.
+4. The business-type picker with a real mouse and keyboard (click, type to narrow, Enter for
+   an own type, Esc).
+5. Details to include and Leads > Columns: selected/greyed look in dark and light themes.
+6. Smart mode with a real AI key in the new flow (the AI now runs in step 3).
+7. Resume and Stop on a big search; resuming a search made before v0.2.2.
+
+**Known issues, candidates for the next version:**
+- `enrich.find_owner` returns junk names on some sites ("Middle East Golf", "Code Quality"
+  on 2 of 20 Dubai agencies). Tighten `OWNER_PATTERNS` / `NOT_NAME_WORDS` with a test.
+- Owner LinkedIn profiles are rare (1 of 20 in the live test) because only the website is used.
+  More would need a search API key from the user (Brave Search was the option offered).
+- Many .ae (and other) domains have no findable age, so Startups/Established rank lots of
+  "Unknown" leads.
+- Very large searches now run every city to its share before checking websites: watch how
+  long a 400-lead, 150-query search takes and whether Google rate-limits it.
 
 **When the user comes back with feedback:**
 
@@ -60,6 +88,10 @@ with the AskUserQuestion form, not as a text list (their preference).
 | Smart mode errors with Gemini or Claude | Never tested with a real key (only a fake OpenAI-style server). Check `app/core/ai.py` reply parsing. |
 | No emails for many leads | Normal for businesses with only Facebook or Instagram (those block plain requests), or with no website. |
 | Update now didn't work | 0.1.0 and 0.1.1 can't update to 0.1.2 by themselves. Install 0.1.2 by hand once. |
+| "I asked for 400 and got fewer" (0.2.2+) | Read the summary under the tiles: it lists why businesses were left out (`search.dropped_counts`). Usually the places are too small for the filters; the widen buttons help |
+| "LinkedIn says N/A" | Normal: the business's website doesn't link a LinkedIn page or profile. LinkedIn and free search engines block automatic lookups |
+| Address "Service area (address hidden on Google)" | Normal: the business hides its address on Google. "Must show its address" leaves these out |
+| Company age "Unknown" | The domain registry hides the date and the Internet Archive had nothing. Kept on purpose, ranked last |
 
 **Logs to ask testers for:**
 - app crashes: `%APPDATA%\GeoHarvest\logs\crash.log`
@@ -71,6 +103,7 @@ with the AskUserQuestion form, not as a text list (their preference).
 - Smart mode with real Gemini or Claude keys
 - Searches from an EU IP
 - Windows 10 (only built and run on Windows 11)
+- Everything in "What the user should test in v0.2.2" above
 
 ## The product
 
