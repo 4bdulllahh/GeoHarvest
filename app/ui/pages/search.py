@@ -4,7 +4,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QSpinBox, QWidget
 
-from app.core import db, geo, hours, scraper
+from app.core import db, enrich, geo, hours, scraper
 from app.core import search as searches
 from app.ui.pages.base import Page
 from app.core.places import FIELD_GROUPS, HEADERS
@@ -42,6 +42,8 @@ FROM_WEBSITE = {"emails", "facebook", "instagram", "linkedin", "twitter", "youtu
                 "owner_linkedin"}
 TIMES = [f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (0, 30)]
 RATINGS = [("3.5", "3.5"), ("4", "4"), ("4.5", "4.5")]
+STEPS = {1: "Searching Google", 2: "Checking websites", 3: "Picking the best leads"}
+MORE_CITIES = 10
 
 
 class ListCompleter(QCompleter):
@@ -200,8 +202,8 @@ class SearchPage(Page):
                 ("Reviews at least", self.min_reviews, ""),
                 ("Reviews at most", self.max_reviews, "Few reviews often means a business "
                                                       "that needs more customers"),
-                ("Stop after", self.max_results, "You get exactly this many, if Google has "
-                                                 "enough")):
+                ("Stop after", self.max_results, "The best this many, shared fairly between "
+                                                 "your cities and business types")):
             field = FormRow(label, note)
             field.add(box)
             limits_layout.addWidget(field, 0, Qt.AlignmentFlag.AlignTop)
@@ -217,10 +219,13 @@ class SearchPage(Page):
         which.add(website_row)
 
         self.require_phone = checkbox("Must have a phone number", last["require_phone"])
+        self.require_address = checkbox("Must show its address (some businesses hide it on "
+                                        "Google)", last["require_address"])
         self.skip_closed = checkbox("Leave out closed businesses", last["skip_closed"])
         self.skip_known = checkbox("Leave out businesses I found in earlier searches",
                                    last["skip_known"])
-        for box in (self.require_phone, self.skip_closed, self.skip_known):
+        for box in (self.require_phone, self.require_address, self.skip_closed,
+                    self.skip_known):
             which.add(box)
 
         hours_row = FormRow("Opening hours", "In each business's own time zone. Businesses "
@@ -285,14 +290,15 @@ class SearchPage(Page):
         bar = Card(padding=14)
         stats = QHBoxLayout()
         stats.setSpacing(10)
-        self.tile_leads = StatTile("Leads found", "0")
+        self.tile_found = StatTile("Businesses found", "0")
         self.tile_places = StatTile("Searches done", "0")
         self.tile_web = StatTile("Websites checked", "-")
-        self.tile_email = StatTile("With an email", "0")
+        self.tile_email = StatTile("With an email", "-")
         self.tile_phone = StatTile("With a phone", "0")
         self.tile_ai = StatTile("AI checked", "-")
-        for tile in (self.tile_leads, self.tile_places, self.tile_web, self.tile_email,
-                     self.tile_phone, self.tile_ai):
+        self.tile_best = StatTile("Best leads", "-")
+        for tile in (self.tile_found, self.tile_places, self.tile_web, self.tile_email,
+                     self.tile_phone, self.tile_ai, self.tile_best):
             stats.addWidget(tile)
         self.stats = QWidget()
         self.stats.setLayout(stats)
@@ -309,6 +315,16 @@ class SearchPage(Page):
         self.open_button = secondary_button("Open leads", self.open_leads)
         self.open_button.hide()
         bar.add(row(self.status, self.open_button, self.stop_button, self.start_button, stretch=0))
+        # When a search comes up short: why, and ways to widen it
+        self.summary = hint("")
+        self.summary.hide()
+        bar.add(self.summary)
+        self.more_cities_button = secondary_button(f"Add {MORE_CITIES} more cities",
+                                                   self._add_cities)
+        self.any_age_button = secondary_button("Allow any company age", self._any_age)
+        self.widen = row(self.more_cities_button, self.any_age_button, None)
+        self.widen.hide()
+        bar.add(self.widen)
         self.root.addWidget(bar)
         self.load_options(last)
 
@@ -418,6 +434,7 @@ class SearchPage(Page):
             "max_results": self.max_results.value(),
             "website": self.website.get(),
             "require_phone": self.require_phone.isChecked(),
+            "require_address": self.require_address.isChecked(),
             "open_now": self.open_now.isChecked(),
             "open_24h": self.open_24h.isChecked(),
             "open_weekends": self.open_weekends.isChecked(),
@@ -457,7 +474,7 @@ class SearchPage(Page):
         self.max_reviews.setValue(int(options["max_reviews"]))
         self.max_results.setValue(int(options["max_results"]))
         self.website.set(options["website"])
-        for name in ("require_phone", "skip_closed", "skip_known", "find_emails", "find_owner",
+        for name in ("require_phone", "require_address", "skip_closed", "skip_known", "find_emails", "find_owner",
                      "open_now", "open_24h", "open_weekends", "open_at"):
             getattr(self, name).setChecked(bool(options[name]))
         self.open_day.setCurrentText(hours.DAYS[int(options["open_day"])])
@@ -534,30 +551,25 @@ class SearchPage(Page):
         if leads_page is not None:  # the Leads page always shows the latest search
             leads_page.select_search(search_id)
         record = searches.get(search_id)
-        self.total_queries = len(searches.build_queries(record["options"]))
-        self.counts = {"leads": 0, "email": 0, "phone": 0}
-        self.known: dict[str, dict] = {}  # what each lead added to the tiles, to undo on removal
-        self.queries_done = len(record["progress"].get("done", []))
-        self.tile_web.update_value("-")
-        self.tile_ai.update_value("-")
+        self.title = record["title"]
+        limit = int(record["options"]["max_results"] or 0)
+        self.step = 0
+        for tile in (self.tile_web, self.tile_email, self.tile_ai):
+            tile.update_value("-")
+        self.tile_best.update_value(f"- of {limit:,}" if limit else "-")
         self.tile_ai.setVisible(bool(record["options"]["smart"]))
-        for lead in searches.leads(search_id):
-            self._count(lead)
-        self._show_counts()
 
         self.worker = ScrapeWorker(search_id)
-        self.worker.signals.leads.connect(self._on_leads)
-        self.worker.signals.updated.connect(self._on_updated)
-        self.worker.signals.removed.connect(self._on_removed)
+        self.worker.signals.step.connect(self._on_step)
+        self.worker.signals.found.connect(self._on_found)
         self.worker.signals.checked.connect(self._on_checked)
-        self.worker.signals.scored.connect(
-            lambda done, total: self.tile_ai.update_value(f"{done:,} of {total:,}"))
+        self.worker.signals.scored.connect(self._on_scored)
         self.worker.signals.progress.connect(self._on_progress)
         self.worker.signals.message.connect(lambda text, level: self.notify(text, level))
         self.worker.signals.finished.connect(self._on_finished)
         self.worker.signals.failed.connect(self._on_failed)
         self._set_running(True)
-        self.status.setText(f"Searching: {record['title']}")
+        self.status.setText(f"Starting: {self.title}")
         self.worker.start()
 
     def stop(self) -> None:
@@ -572,66 +584,52 @@ class SearchPage(Page):
         self.stop_button.setEnabled(True)
         self.stop_button.setText("Stop")
         self.open_button.setVisible(True)
+        self.summary.hide()
+        self.widen.hide()
         self.stats.show()
         self.progress.setVisible(running)
         if running:
             self.progress.set_busy()
         self.window_.set_status(left="Searching..." if running else "")
 
-    def _count(self, lead: dict) -> None:
-        added = {"email": bool(lead.get("emails")), "phone": bool(lead.get("phone"))}
-        self.known[lead["place_id"]] = added
-        self.counts["leads"] += 1
-        self.counts["email"] += added["email"]
-        self.counts["phone"] += added["phone"]
+    # Each step drives the bar while it runs; the tiles only ever count up
+    def _on_step(self, step: int) -> None:
+        self.step = step
+        self.progress.set_busy()
+        self.status.setText(f"Step {step} of 3: {STEPS[step]}"
+                            + (f" for {self.title}" if step == 1 else ""))
 
-    def _show_counts(self) -> None:
-        self.tile_leads.update_value(f"{self.counts['leads']:,}")
-        self.tile_places.update_value(f"{self.queries_done} of {self.total_queries}")
-        self.tile_email.update_value(f"{self.counts['email']:,}")
-        self.tile_phone.update_value(f"{self.counts['phone']:,}")
+    def _on_found(self, fits: int, phones: int) -> None:
+        self.tile_found.update_value(f"{fits:,}")
+        self.tile_phone.update_value(f"{phones:,}")
 
-    def _on_leads(self, leads: list) -> None:
-        for lead in leads:
-            self._count(lead)
-        self._show_counts()
-        self.window_.leads_added.emit(self.search_id, leads)
-        self.window_.refresh_status()
+    def _on_progress(self, done: int, total: int, _detail: str) -> None:
+        self.tile_places.update_value(f"{done:,} of {total:,}")
+        if self.step == 1:
+            self.progress.set_progress(done, total)
 
-    def _on_progress(self, done: int, total: int, detail: str) -> None:
-        self.progress.set_progress(done, total)
-        self.queries_done = done
-        self._show_counts()
-        if detail and detail != "Starting":
-            self.status.setText(f"Finished: {detail}")
-
-    def _on_updated(self, place_id: str, fields: dict) -> None:
-        added = self.known.get(place_id)
-        if fields.get("emails") and added is not None and not added["email"]:
-            added["email"] = True
-            self.counts["email"] += 1
-            self._show_counts()
-        self.window_.lead_updated.emit(self.search_id, place_id, fields)
-
-    def _on_removed(self, place_id: str) -> None:
-        added = self.known.pop(place_id, {"email": False, "phone": False})
-        self.counts["leads"] -= 1
-        self.counts["email"] -= added["email"]
-        self.counts["phone"] -= added["phone"]
-        self._show_counts()
-        self.window_.lead_removed.emit(self.search_id, place_id)
-
-    def _on_checked(self, done: int, total: int) -> None:
+    def _on_checked(self, done: int, total: int, emails: int) -> None:
         self.tile_web.update_value(f"{done:,} of {total:,}")
-        if self.queries_done == self.total_queries and done < total:
-            self.status.setText(f"Searching done. Checking websites: {done:,} of {total:,}")
+        self.tile_email.update_value(f"{emails:,}")
+        if self.step == 2:
+            self.progress.set_progress(done, total)
+
+    def _on_scored(self, done: int, total: int) -> None:
+        self.tile_ai.update_value(f"{done:,} of {total:,}")
+        if self.step == 3:
+            self.progress.set_progress(done, total)
 
     def _on_finished(self, result: dict) -> None:
         self.worker = None
         self._set_running(False)
-        found = self.counts["leads"]
+        found, wanted = result["found"], result["wanted"]
+        self.tile_best.update_value(f"{found:,} of {wanted:,}" if wanted else f"{found:,}")
+        leads_page = self.window_.page("leads")
+        if leads_page is not None:
+            leads_page.select_search(self.search_id)
         if result["blocked"]:
-            self.status.setText("Paused: Google is limiting requests from your connection.")
+            self.status.setText(f"Paused: Google is limiting requests. The best {found:,} so "
+                                "far are in Leads.")
             self.notify("Google asked GeoHarvest to slow down. Everything found so far is saved. "
                         "Wait about 15 minutes, then resume it from Past searches.", "warn", 10000)
         elif result.get("ai_error"):
@@ -640,14 +638,61 @@ class SearchPage(Page):
                         "saved; fix it on the Smart mode page, then resume from Past searches.",
                         "warn", 10000)
         elif result["status"] == "done":
-            self.queries_done = self.total_queries  # also true when "Stop after" ended it early
-            self._show_counts()
-            self.status.setText(f"Done. {found:,} leads found.")
-            self.notify(f"Search finished: {found:,} leads.", "success")
+            self.status.setText(f"Done: the best {found:,} of {result['listed']:,} businesses "
+                                "Google listed.")
+            if wanted and found < wanted:
+                self._explain_shortfall(result)
+            else:
+                self.notify(f"Search finished: {found:,} leads.", "success")
         else:
-            self.status.setText(f"Stopped. {found:,} leads saved; resume it from Past searches.")
+            self.status.setText(f"Stopped. The best {found:,} so far are in Leads; resume it "
+                                "from Past searches.")
         self.window_.search_finished.emit(self.search_id)
         self.window_.refresh_status()
+
+    def _explain_shortfall(self, result: dict) -> None:
+        """Why the places chosen did not have enough, and the ways to widen the search."""
+        reasons = ", ".join(f"{count:,} {reason}" for reason, count in
+                            list(result["dropped"].items())[:5])
+        self.summary.setText(
+            f"Only {result['found']:,} of the {result['wanted']:,} leads you asked for: Google "
+            f"listed {result['listed']:,} businesses in these places"
+            + (f", and left out were: {reasons}." if reasons else ".")
+            + " Widen the search below; it carries on from where it is.")
+        options = searches.get(self.search_id)["options"]
+        self.more_cities_button.setVisible(bool(self._spare_cities(options)))
+        self.any_age_button.setVisible(options["company_age"] != "any" and any(
+            reason in result["dropped"] for reason in enrich.AGE_REASONS))
+        self.summary.show()
+        self.widen.setVisible(self.more_cities_button.isVisibleTo(self.widen)
+                              or self.any_age_button.isVisibleTo(self.widen))
+        self.notify(f"Search finished with {result['found']:,} of {result['wanted']:,} leads. "
+                    "See why below.", "warn", 6000)
+
+    @staticmethod
+    def _spare_cities(options: dict) -> list[str]:
+        """The next-biggest cities not searched yet, taking turns between the countries."""
+        if options["where"] != "cities":
+            return []
+        chosen = set(searches.places_for(options))
+        ranked = sorted((rank, f"{city}, {country}") for country in geo.expand(options["countries"])
+                        for rank, city in enumerate(geo.cities(country)))
+        return [key for _rank, key in ranked if key not in chosen][:MORE_CITIES]
+
+    def _widen(self, change) -> None:
+        options = searches.get(self.search_id)["options"]
+        change(options)
+        searches.set_options(self.search_id, options)
+        self.load_options(options)
+        self.run(self.search_id)
+
+    def _add_cities(self) -> None:
+        self._widen(lambda options: options.update(
+            cities=searches.places_for(options) + self._spare_cities(options)))
+
+    def _any_age(self) -> None:
+        searches.undrop(self.search_id, enrich.AGE_REASONS)
+        self._widen(lambda options: options.update(company_age="any"))
 
     def _on_failed(self, message: str) -> None:
         self.worker = None

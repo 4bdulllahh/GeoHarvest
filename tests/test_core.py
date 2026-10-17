@@ -205,6 +205,67 @@ def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
     assert time.monotonic() - began < 2
 
 
+def test_best_leads_are_balanced_over_searches(fresh_db, monkeypatch):
+    """Dubai has far more and better businesses, yet Sharjah still gets its share."""
+    from app.workers import scrape
+
+    def fake_search(client, query, cancelled):
+        city = query.split(" in ")[1]
+        size = 100 if city.startswith("Dubai") else 6
+        yield [{"place_id": f"{city}-{n}", "status": "Open", "country_code": "AE",
+                "query": query, "phone": "1" if n % 3 else "", "reviews": 500 if
+                city.startswith("Dubai") else n} for n in range(size)]
+
+    monkeypatch.setattr(scrape.scraper, "search", fake_search)
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: type("C", (), {"close": lambda self: None})())
+    search_id = searches.create({
+        "niches": ["cafe"], "countries": ["United Arab Emirates"],
+        "cities": ["Dubai, United Arab Emirates", "Sharjah, United Arab Emirates"],
+        "find_emails": False, "require_phone": True, "max_results": 20})
+    result = scrape.ScrapeWorker(search_id).work()
+    cities = [lead["place_id"].split(",")[0] for lead in searches.leads(search_id)]
+    assert result["status"] == "done" and result["found"] == 20
+    assert cities.count("Sharjah") == 4  # every Sharjah cafe with a phone
+    assert result["dropped"] == {"no phone number": 36}  # 34 in Dubai, 2 in Sharjah
+    assert result["listed"] == 106
+
+    # Leads the user deletes are not picked again when the search is resumed
+    searches.delete_leads([searches.leads(search_id)[0]["place_id"]], search_id)
+    scrape.ScrapeWorker(search_id).work()
+    assert searches.count(search_id) == 20
+    assert searches.dropped_counts(search_id)[searches.REMOVED] == 1
+
+
+def test_quality_and_balanced_order():
+    bare = {"place_id": "a"}
+    full = {"phone": "1", "website": "x", "emails": "a@x", "rating": 4.6, "reviews": 1000,
+            "claimed": "Yes", "address": "1 Road", "hours": "Mon: 9-5", "facebook": "f",
+            "instagram": "i", "linkedin": "l"}
+    assert searches.quality(bare) == 0 and searches.quality(full) == 100
+    assert searches.quality({"address": places.SERVICE_AREA}) == 0
+    leads = [{"query": q, "quality": s} for q, s in
+             [("a", 90), ("a", 80), ("a", 70), ("b", 10), ("b", 5)]]
+    order = searches.balanced(leads, searches.score)
+    assert [(lead["query"], lead["quality"]) for lead in order] == [
+        ("a", 90), ("b", 10), ("a", 80), ("b", 5), ("a", 70)]
+    assert searches.score({"quality": 60, "ai_score": 80}) == 70
+
+
+def test_hidden_address_takes_the_searched_city():
+    view = [5000, 55.27, 25.2]  # Dubai, as Google centres the map: distance, lng, lat
+    near = {"address": places.SERVICE_AREA, "city": "", "country_code": "", "status": "Open",
+            "latitude": 25.1, "longitude": 55.2}
+    scraper.near_place(near, "cafe in Dubai, United Arab Emirates", view)
+    assert near["city"] == "Dubai" and near["country_code"] == "AE"
+    far = {**near, "city": "", "country_code": "", "latitude": 49.2}  # a pin in Europe
+    scraper.near_place(far, "cafe in Dubai, United Arab Emirates", view)
+    assert far["country_code"] == ""
+    options = searches.options_with_defaults({"countries": ["United Arab Emirates"]})
+    assert searches.why_not(near, options) is None
+    assert searches.why_not(far, options) == "outside the chosen countries"
+    assert searches.why_not(near, {**options, "require_address": True}) == "address hidden"
+
+
 # --- export -----------------------------------------------------------------
 def test_export_xlsx_and_csv(tmp_path):
     from openpyxl import load_workbook

@@ -226,6 +226,19 @@ def matches_age(lead: dict, wanted: str) -> bool:
     return years < STARTUP_YEARS if wanted == "startup" else years >= STARTUP_YEARS
 
 
+AGE_REASONS = ("company age unknown", f"older than {STARTUP_YEARS} years",
+               f"younger than {STARTUP_YEARS} years")
+
+
+def age_mismatch(lead: dict, wanted: str) -> str | None:
+    """Why the lead fails the company age filter (one of AGE_REASONS), or None if it passes."""
+    if matches_age(lead, wanted):
+        return None
+    if lead.get("age_years") is None:
+        return AGE_REASONS[0]
+    return AGE_REASONS[1] if wanted == "startup" else AGE_REASONS[2]
+
+
 # --- network ---------------------------------------------------------------------
 class Enricher:
     """Shared by many threads; one connection pool, one domain-age cache."""

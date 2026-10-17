@@ -15,6 +15,7 @@ from urllib.parse import quote_plus
 # from the start and stay blank until filled.
 FIELDS = [
     ("name", "Name"),
+    ("quality", "Quality score"),
     ("ai_score", "AI score"),
     ("ai_verdict", "AI verdict"),
     ("ai_reason", "AI reason"),
@@ -63,10 +64,11 @@ FIELDS = [
     ("query", "Found by search"),
 ]
 HEADERS = dict(FIELDS)
+SERVICE_AREA = "Service area (address hidden on Google)"
 # How the columns are grouped where the user picks them (New search, Leads > Columns).
 # Every key of FIELDS appears exactly once.
 FIELD_GROUPS = [
-    ("Business", ["name", "category", "categories", "description", "status", "hours", "price",
+    ("Business", ["name", "quality", "category", "categories", "description", "status", "hours", "price",
                   "attributes", "claimed", "local_name"]),
     ("Owner", ["owner_name", "owner_source", "owner_linkedin"]),
     ("Contact", ["phone", "phone_international", "emails", "website", "domain"]),
@@ -151,7 +153,9 @@ def parse(place: list, query: str = "") -> dict | None:
         "reviews": at(place, 4, 8) or 0,
         "price": price if isinstance(price, str) else "",
         "status": _status(place),
-        "address": at(place, 39) or at(place, 18) or "",
+        # Businesses that visit their customers may hide their address; Google then only
+        # gives a rough pin, which scraper.search checks against the place searched
+        "address": at(place, 39) or at(place, 18) or SERVICE_AREA,
         "street": at(parts, 1) or "",
         "neighborhood": at(parts, 0) or "",
         # [166] is "City, Country"; the only place the city appears in some countries (UAE)

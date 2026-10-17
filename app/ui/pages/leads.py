@@ -212,10 +212,7 @@ class LeadsPage(Page):
         self.column_timer.setInterval(800)
         self.column_timer.timeout.connect(self._hide_empty_columns)
 
-        window.leads_added.connect(self._on_leads_added)
         window.lead_updated.connect(self._on_lead_updated)
-        window.lead_removed.connect(
-            lambda sid, pid: self.model.remove(pid) if self.current_id in (0, sid) else None)
         window.search_finished.connect(lambda _id: self._refresh_picker())
         self._refresh_picker()
         self._load()
@@ -255,16 +252,6 @@ class LeadsPage(Page):
         self.score_button.setEnabled(bool(self.current_id) and self.score_worker is None)
         self.score_button.setToolTip("" if self.current_id else
                                      "Pick one search in the list first")
-
-    def _on_leads_added(self, search_id: int, leads: list) -> None:
-        if self.current_id == search_id:
-            self.model.append(leads)
-        elif self.current_id == 0:
-            known = self.model._row_of
-            self.model.append([lead for lead in leads if lead["place_id"] not in known])
-        else:
-            return
-        self.column_timer.start()
 
     def _on_lead_updated(self, search_id: int, place_id: str, fields: dict) -> None:
         if self.current_id in (0, search_id):

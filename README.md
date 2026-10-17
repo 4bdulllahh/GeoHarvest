@@ -63,7 +63,7 @@ subscription, nothing to pay: everything runs on your own computer.
   - **Opening hours**: open now, open 24 hours, open on weekends, or open on a day and time you
     pick, each in the business's own time zone.
   - Must have a phone number, leave out closed businesses, leave out businesses you found in
-    earlier searches, and stop after exactly as many leads as you want.
+    earlier searches, and keep the best as many leads as you want, shared fairly between your cities and business types.
 - **Only the details you need.** Switch off any column before a search (Details to include)
   or after it (Columns). Exports contain only the columns that are on.
 - **Smart mode (optional).** Connect an AI and describe your ideal customer in plain words. The
@@ -206,9 +206,19 @@ places).
   circle with map views at most 5 km across (up to 8 x 8), searches each one with the map put
   there, stops paging a view as soon as a page has nothing inside it, and keeps only the
   businesses inside the circle.
-- **Filters** that need only Google's data (rating, reviews, website, phone, opening hours,
-  closed businesses) are applied as results arrive. Website visits, company age and the AI
-  score run alongside, and "Stop after" counts only the leads that are kept.
+- **Three steps, one after the other.** 1: search Google and keep every business that passes
+  the filters that need only Google's data (rating, reviews, website, phone, address, opening
+  hours, closed businesses). 2: visit the websites of the most promising ones for emails,
+  social media, company age and the owner. 3: score each lead (phone, website, email, rating,
+  reviews, claimed listing, real address...; averaged with the AI score in Smart mode) and keep
+  the best "Stop after", taking turns between your cities and business types so every one gets
+  its share. Leads that a later check rules out are replaced from the businesses already found.
+- **If there aren't enough**, GeoHarvest says why ("71 company age unknown, 44 older than 3
+  years...") and offers to add more cities or allow any company age, carrying on from where it
+  stopped.
+- **Hidden addresses.** Some businesses hide their address on Google. GeoHarvest marks them
+  "Service area", takes the city from the search when Google's rough pin is near it, and
+  leaves out pins far away. "Must show its address" leaves them all out.
 - **Opening hours** are read from Google's text ("Monday: 9 AM-5 PM; Friday: 6 PM-2 AM...")
   and checked in the business's own time zone, including late nights that run past midnight.
 

@@ -165,6 +165,21 @@ def locate(client: MapsClient, place: str) -> tuple[float, float] | None:
     return view[2], view[1]
 
 
+SERVICE_AREA_KM = 50
+
+
+def near_place(lead: dict, query: str, view: list | None) -> None:
+    """A business that hides its address: if its rough pin is near the searched city, it is
+    in that city ("dentist in Dubai, United Arab Emirates"). A pin far away (some sit on
+    another continent) gets no country, which the country filter then leaves out."""
+    if not view or lead.get("latitude") is None or geo.distance_km(
+            view[2], view[1], lead["latitude"], lead["longitude"]) > SERVICE_AREA_KM:
+        return
+    city, _, country = query.rpartition(" in ")[2].rpartition(", ")
+    lead["city"] = lead["city"] or city
+    lead["country_code"] = lead["country_code"] or geo.country_code(geo.resolve(country) or "")
+
+
 def search(client: MapsClient, query: str,
            cancelled: Callable[[], bool] = lambda: False) -> Iterator[list[dict]]:
     """Yield the leads on each page of one search until Google runs out of new ones."""
@@ -186,6 +201,8 @@ def search(client: MapsClient, query: str,
             lead = places.parse(raw, label)
             if lead and lead["place_id"] not in seen:
                 seen.add(lead["place_id"])
+                if not area and lead["address"] == places.SERVICE_AREA:
+                    near_place(lead, label, view)
                 found.append(lead)
         return found
 

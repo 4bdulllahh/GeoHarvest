@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS leads (
     data      TEXT NOT NULL,          -- JSON: every field we know about the business
     UNIQUE (search_id, place_id)
 );
+-- Every business a search's Google results listed. `dropped` says why one was left out
+-- (NULL: it fits); the search's leads are the best of the rest (see workers/scrape.py)
+CREATE TABLE IF NOT EXISTS candidates (
+    search_id INTEGER NOT NULL REFERENCES searches(id) ON DELETE CASCADE,
+    place_id  TEXT NOT NULL,
+    data      TEXT NOT NULL,
+    dropped   TEXT,
+    PRIMARY KEY (search_id, place_id)
+);
 CREATE INDEX IF NOT EXISTS leads_search ON leads(search_id);
 CREATE INDEX IF NOT EXISTS leads_place ON leads(place_id);
 """
