@@ -32,10 +32,27 @@ EXCLUDE = ["tkinter", "unittest", "pydoc", "test", "PyQt6.QtQml", "PyQt6.QtQuick
            "PyQt6.QtTest", "PyQt6.QtDesigner", "PyQt6.QtHelp", "PyQt6.Qt3DCore",
            # optional extras other libraries try to import (openpyxl: PIL, lxml; and
            # cryptography is only the off-Windows fallback in credentials.py)
-           "numpy", "pandas", "PIL", "lxml", "cryptography"]
-# Qt files a widgets-only app never loads
-DROP = ["PyQt6/Qt6/bin/opengl32sw.dll", "PyQt6/Qt6/bin/Qt6Pdf.dll",
-        "PyQt6/Qt6/plugins/imageformats/qpdf.dll", "PyQt6/Qt6/translations"]
+           "numpy", "pandas", "PIL", "lxml", "cryptography",
+           # extras the anthropic SDK can use but GeoHarvest's calls never touch (Bedrock/Vertex
+           # auth, its CLI's pretty printing, async backends); the SDK still works without them
+           "pygments", "rich", "click", "google", "setuptools", "pkg_resources", "requests",
+           "urllib3", "markdown_it", "mdurl", "pyasn1", "pyasn1_modules", "rsa", "cachetools",
+           "boto3", "botocore", "aiohttp", "aiodns", "aiohappyeyeballs", "aiosignal", "frozenlist",
+           "multidict", "yarl", "propcache", "attr", "attrs", "trio", "brotli", "brotlicffi", "h2",
+           "hpack", "hyperframe", "socksio", "websockets"]
+# Qt files a widgets-only app never loads (it needs PNG, ICO and SVG images only)
+QT = "PyQt6/Qt6/"
+DROP = [QT + "bin/opengl32sw.dll", QT + "bin/Qt6Pdf.dll", QT + "bin/Qt6Network.dll", QT + "translations",
+        QT + "plugins/generic", QT + "plugins/styles", QT + "plugins/platforms/qminimal.dll",
+        QT + "plugins/platforms/qoffscreen.dll"] + [
+        QT + f"plugins/imageformats/q{name}.dll"
+        for name in ("pdf", "gif", "icns", "jpeg", "tga", "tiff", "wbmp", "webp")]
+# Parts of Setup's own Python/Tk it never uses: HTTPS, time zones, translations, demos
+SETUP_EXCLUDE = ["PyQt6", "numpy", "PIL", "httpx", "openpyxl", "anthropic", "ssl", "_ssl",
+                 "hashlib", "_hashlib", "unicodedata", "decimal", "_decimal", "bz2", "_bz2",
+                 "email", "http", "xml", "pydoc", "unittest", "asyncio", "multiprocessing"]
+SETUP_DROP = ["_tcl_data/tzdata", "_tcl_data/msgs", "_tk_data/msgs", "_tk_data/images",
+              "_tk_data/demos"]
 
 
 def tag() -> str:
@@ -88,9 +105,11 @@ def build_setup(app_folder: Path) -> Path:
         "--distpath", str(DIST), "--workpath", str(ROOT / "build" / "setup-work"),
         "--specpath", str(ROOT / "build"),
         # Setup needs only the standard library and Tk
-        "--exclude-module", "PyQt6", "--exclude-module", "numpy", "--exclude-module", "PIL",
-        "--exclude-module", "httpx", "--exclude-module", "openpyxl",
+        *[arg for module in SETUP_EXCLUDE for arg in ("--exclude-module", module)],
     ], cwd=ROOT, check=True)
+    runtime = DIST / "GeoHarvest-Setup" / "runtime"
+    for name in SETUP_DROP:
+        shutil.rmtree(runtime / name, ignore_errors=True)
     return DIST / "GeoHarvest-Setup"
 
 

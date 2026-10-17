@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 
 from app.core import db, geo
+from app.core.places import FIELDS
 
 DEFAULT_OPTIONS = {
     "niches": [],             # "dentist", "real estate agency"...
@@ -24,6 +25,7 @@ DEFAULT_OPTIONS = {
     "max_results": 0,         # 0: no limit
     "find_emails": True,      # visit websites for emails and social links
     "smart": False,           # score every lead with the user's AI
+    "fields": [key for key, _ in FIELDS],  # columns to show and export; leads keep everything
 }
 
 
@@ -190,6 +192,12 @@ def delete(search_id: int) -> None:
 
 def remove_lead(search_id: int, place_id: str) -> None:
     db.execute("DELETE FROM leads WHERE search_id = ? AND place_id = ?", (search_id, place_id))
+
+
+def delete_leads(place_ids: list[str], search_id: int = 0) -> None:
+    """Leads the user deleted: from one search, or with ``search_id`` 0 from every search."""
+    db.execute_many("DELETE FROM leads WHERE place_id = ? AND (? = 0 OR search_id = ?)",
+                    [(place_id, search_id, search_id) for place_id in place_ids])
 
 
 def recover_interrupted() -> None:

@@ -5,10 +5,11 @@ is done, what is next, and the decisions already made so nobody re-asks them.
 
 ## Where things stand (start here)
 
-**Phase: beta testing (since 2026-10-16).** All 7 milestones are done, plus the v0.1.1 and
-v0.1.2 fixes. The user has handed **v0.1.2 beta** to a group of testers and will come back
-with their feedback. The next work is changes based on that feedback. Don't start new
-features or the "ideas for later" unless the user asks.
+**Phase: beta testing (since 2026-10-16).** All 7 milestones are done, plus v0.1.1, v0.1.2
+and **v0.1.3** (2026-10-17: first batch of tester feedback, see the Log). v0.1.3 is built and
+pushed but **not yet published as a GitHub release** (the user publishes it). At the end of
+v0.1.3 the user was asked a list of questions about more search options and features; their
+answers decide the next batch. Don't start new features unless the user asks.
 
 **When the user comes back with feedback:**
 
@@ -30,6 +31,7 @@ features or the "ideas for later" unless the user asks.
 
 | They say | Likely cause |
 |---|---|
+| Setup failed at "Finish up" with "not enough space on the disk" (0.1.2 only) | 0.1.2's Setup copied the whole folder it ran from (often Downloads) as the uninstaller. Fixed in 0.1.3, whose Setup also deletes that bloated `uninstall` folder |
 | Setup won't open, or a "Failed to load Python DLL" error | They ran `GeoHarvest-Setup.exe` from inside the zip. Extract it first (READ ME FIRST.txt says so). |
 | "Windows protected your PC" | The app isn't code-signed. More info > Run anyway. |
 | Setup says files are missing, or the app vanished | Antivirus quarantined something. Ask which antivirus they use. |
@@ -79,8 +81,12 @@ theme module, sidebar, cards, status bar, worker pattern.
 | AI providers | All of them, user brings their own key: Gemini (plain HTTPS, JSON mode), Claude (official `anthropic` SDK: structured JSON output, effort `low`, server-side refusal fallbacks on Opus 5.5 / Opus 5 / Sonnet 5.5 / Fable 5.1; default model `claude-opus-5-5`, note suggests Haiku 5.5 as cheapest), and one OpenAI-compatible connector (plain HTTPS) with presets for Groq, OpenRouter, Mistral, OpenAI, DeepSeek, Ollama and LM Studio (local), plus a custom URL. Default model names for non-Claude providers may go stale: the "Load models" button lists the real ones. Keys are DPAPI-encrypted in `%APPDATA%/GeoHarvest/secrets.dat` (`app/core/credentials.py`, from HomingPigeon) |
 | Extras | Emails and social links from each business website; filters (min rating, min reviews, has website/phone, hide closed); history with resume; auto-updater from GitHub releases |
 | Cost | Nothing paid. No paid APIs, no proxies |
-| Release | GitHub Releases, `GeoHarvest-vX.Y.Z-windows.zip` holding `GeoHarvest-Setup.exe`, its `runtime/` folder and `READ ME FIRST.txt` (since 0.1.2; must be extracted first). **Own installer** `installer/setup_app.py`: Tkinter, standard library only, copied from HomingPigeon's (`Email-Sender/installer/setup_app.py`) for the look (welcome card, step list with ticks, progress bar, activity log, finish page with Start menu / Desktop / open-at-Windows-start (unticked) / open-now). PyInstaller one-folder with `--contents-directory runtime`, never one-file (HomingPigeon's one-file Setup was flagged by Defender as Wacatac). Carries the app folder as `payload.zip` (LZMA). Installs per user to `%LOCALAPPDATA%\Programs\GeoHarvest` (no admin), writes `version.txt`, keeps a copy of itself minus the payload in `<app>\uninstall\` as the uninstaller, registers HKCU `...\Uninstall\GeoHarvest`. The app's Update now runs `GeoHarvest-Setup.exe --update --target <app folder>` directly (no batch file, no console; `PYINSTALLER_RESET_ENVIRONMENT=1`); Setup waits for the app to close, updates, reopens it. Settings > Uninstall asks keep/delete data in the app, then runs `uninstall\GeoHarvest-Setup.exe --uninstall --confirmed [--delete-data]`. Setup also accepts 0.1.1's Inno-style `/SILENT /DIR=` and removes 0.1.1's Inno registry entry and `unins000.*`. Version check compares numbers only (tags are written with and without "beta"). No accounts, everything local |
+| Release | GitHub Releases, `GeoHarvest-vX.Y.Z-windows.zip` holding `GeoHarvest-Setup.exe`, its `runtime/` folder and `READ ME FIRST.txt` (since 0.1.2; must be extracted first). **Own installer** `installer/setup_app.py`: Tkinter, standard library only, copied from HomingPigeon's (`Email-Sender/installer/setup_app.py`) for the look (welcome card, step list with ticks, progress bar, activity log, finish page with Start menu / Desktop / open-at-Windows-start (unticked) / open-now). PyInstaller one-folder with `--contents-directory runtime`, never one-file (HomingPigeon's one-file Setup was flagged by Defender as Wacatac). Carries the app folder as `payload.zip` (LZMA), unpacked into `<install>.new` and swapped in only when complete (old files go to `<install>.old`, and are put back if the swap fails), so Cancel and a full disk never leave a half-install; Cancel is ignored once the swap starts. Installs per user to `%LOCALAPPDATA%\Programs\GeoHarvest` (no admin), writes `version.txt`, keeps a copy of itself (only `GeoHarvest-Setup.exe` and its `runtime` folder minus the payload, never the folder it was run from) in `<app>\uninstall\` as the uninstaller, registers HKCU `...\Uninstall\GeoHarvest`. The app's Update now runs `GeoHarvest-Setup.exe --update --target <app folder>` directly (no batch file, no console; `PYINSTALLER_RESET_ENVIRONMENT=1`); Setup waits for the app to close, updates, reopens it. Settings > Uninstall asks keep/delete data in the app, then runs `uninstall\GeoHarvest-Setup.exe --uninstall --confirmed [--delete-data]`. Setup also accepts 0.1.1's Inno-style `/SILENT /DIR=` and removes 0.1.1's Inno registry entry and `unins000.*`. Version check compares numbers only (tags are written with and without "beta"). No accounts, everything local |
 | Stop after N | Means N leads **kept** after the age filter and Smart mode's minimum score. Removals give the count back; query threads wait (`room()` in `workers/scrape.py`) while saved leads are still being checked, then continue if any were dropped. "Leave out businesses I found in earlier searches" is on by default since 0.1.1 |
+| Download size | 41 MB -> 32 MB in 0.1.3. `tools/build.py` leaves out the anthropic SDK's optional extras that PyInstaller pulled in (pygments, rich, click, aiohttp, Google auth, setuptools...: `EXCLUDE`), unused Qt DLLs and plugins (`DROP`; Qt6Svg and the svg plugins stay because the theme's tick and arrow icons are SVG), and Setup's unused SSL, Tcl time zones and translations (`SETUP_EXCLUDE`, `SETUP_DROP`). `run.py --self-test` sends a request through the SDK to prove it still works without them. What's left: Qt ~16 MB, Python twice (app + Setup) ~5 MB, the anthropic SDK ~5 MB (calling Claude over plain httpx would save that, but the claude-api guidance is to keep the SDK unless the user asks). HomingPigeon's 12 MB zip is not comparable: it ships source and downloads Python + PyQt6 during install |
+| Columns ("Details to include") | `fields` option: the columns a search shows and exports (default all). Leads always store everything; the Leads page hides columns not in the selected search's `fields`, and export writes only the columns on screen (`exporter.export(..., keys)`). Website-only details (emails, socials, age) are greyed out when "Visit each website" is off. Every `places.FIELDS` key must be listed in `DETAIL_GROUPS` in `pages/search.py` |
+| Cities | Since 0.1.3, ticking a country ticks **none** of its cities (user's request); the "ticks its biggest N" spin box is gone. `city_count` stays in options only for searches saved before city ticks |
+| Leads page | Opens on the newest search, and switches to a search when it starts. Double-click opens `LeadDialog` (every filled field, links, Copy all, Open in Google Maps). Delete key, right-click or "Delete selected" removes leads (`searches.delete_leads`): from the selected search, or from every search when "All searches" is picked. Past searches > **Load** selects the search on the Leads page and shows a toast without leaving the page |
 | Languages | English only for v0.1. `app/i18n.py` is a pass-through `t()` so HomingPigeon's translation system can drop in later |
 
 ## Milestones
@@ -189,6 +195,17 @@ python tools/make_icons.py    # after editing assets/logo.svg
   data), screenshots of welcome/progress/remove pages. Not tested: a real default-folder install
   over the user's 0.1.1, and 0.1.1's updater driving the new Setup (/SILENT path).
 - 2026-10-16: v0.1.2 beta handed to testers. Waiting for feedback; see "Where things stand".
+- 2026-10-17: v0.1.3 beta, first tester feedback. Setup root cause: it copied the whole folder it
+  ran from (a tester's Downloads, with an Office installer) into `uninstall\` -> slow "Finish up",
+  then disk full; and Cancel had already deleted the old `_internal`, so the app wouldn't start.
+  Fixed (staged install, own files only). Zip 41 -> 32 MB. Search page: suggestion written twice
+  (Qt writes the completion in on highlight; the trailing ", " made the click append it again),
+  cities start unticked, "At least"/"Stop after" aligned, "Details to include". Leads: detail
+  popup, delete leads, opens on the latest search; Past searches > Load with a toast. Tested:
+  Setup into a test folder from a folder holding a 300 MB unrelated file (3 s, uninstaller 16 MB),
+  cancel mid-copy keeps the previous version with no leftovers, packaged self-test and GUI start,
+  completer driven by keyboard and mouse (the old code reproduced the bug), UI smoke test with
+  demo data. Not tested: a real default-folder install over a broken 0.1.2.
 
 ## Releasing a new version
 

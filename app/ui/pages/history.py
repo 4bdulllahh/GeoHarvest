@@ -48,15 +48,15 @@ class SearchesModel(QAbstractTableModel):
 class HistoryPage(Page):
     def __init__(self, window):
         super().__init__(window)
-        self.add_header("Past searches", "Every search you have run. Open its leads, resume one "
+        self.add_header("Past searches", "Every search you have run. Load its leads, resume one "
                                          "that stopped (closing the app, pressing Stop, or Google "
                                          "asking to slow down), or run it again for new businesses.")
         self.model = SearchesModel(self)
         self.table = DataTable(self.model, "No searches yet. Start one on the New search page.")
-        self.table.double_clicked.connect(lambda _row: self.open_leads())
+        self.table.double_clicked.connect(lambda _row: self.load())
         self.table.selection_changed.connect(self._update_buttons)
 
-        self.open_button = primary_button("Open leads", self.open_leads)
+        self.open_button = primary_button("Load", self.load)
         self.resume_button = secondary_button("Resume", self.resume)
         self.again_button = secondary_button("Run again", self.run_again)
         self.delete_button = danger_button("Delete...", self.delete)
@@ -90,12 +90,13 @@ class HistoryPage(Page):
         self.resume_button.setEnabled(item is not None and item["status"] != "done" and not busy)
         self.again_button.setEnabled(item is not None and not busy)
 
-    def open_leads(self) -> None:
+    def load(self) -> None:
+        """Put this search's leads on the Leads page, staying here."""
         item = self._selected()
         if item is None:
             return
-        self.window_.show_page("leads")
-        self.window_.page("leads").select_search(item["id"])
+        self.window_.ensure_page("leads").select_search(item["id"])
+        self.notify(f"Search loaded ({item['leads']:,} leads). Check the Leads tab.", "success")
 
     def resume(self) -> None:
         item = self._selected()

@@ -19,9 +19,11 @@ _PHONE = re.compile(r"^[+-][\d\s().-]+$")
 EXCEL_CELL_LIMIT = 32767
 
 
-def columns_in_use(leads: list[dict]) -> list[tuple[str, str]]:
+def columns_in_use(leads: list[dict], keys: list[str] | None = None) -> list[tuple[str, str]]:
+    """Columns with a value somewhere, limited to ``keys`` (the ones on screen) if given."""
     return [(key, header) for key, header in FIELDS
-            if any(lead.get(key) not in (None, "", []) for lead in leads)]
+            if (keys is None or key in keys)
+            and any(lead.get(key) not in (None, "", []) for lead in leads)]
 
 
 def _text(value) -> str:
@@ -40,8 +42,8 @@ def safe_csv(value) -> str:
     return text
 
 
-def to_csv(leads: list[dict], path: Path) -> int:
-    columns = columns_in_use(leads)
+def to_csv(leads: list[dict], path: Path, keys: list[str] | None = None) -> int:
+    columns = columns_in_use(leads, keys)
     # utf-8-sig: the byte-order mark is what makes Excel read accents and Arabic correctly
     with open(path, "w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
@@ -51,12 +53,12 @@ def to_csv(leads: list[dict], path: Path) -> int:
     return len(leads)
 
 
-def to_xlsx(leads: list[dict], path: Path) -> int:
+def to_xlsx(leads: list[dict], path: Path, keys: list[str] | None = None) -> int:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
 
-    columns = columns_in_use(leads)
+    columns = columns_in_use(leads, keys)
     book = Workbook()
     sheet = book.active
     sheet.title = "Leads"
@@ -91,6 +93,6 @@ def to_xlsx(leads: list[dict], path: Path) -> int:
     return len(leads)
 
 
-def export(leads: list[dict], path: Path) -> int:
+def export(leads: list[dict], path: Path, keys: list[str] | None = None) -> int:
     path = Path(path)
-    return to_csv(leads, path) if path.suffix.lower() == ".csv" else to_xlsx(leads, path)
+    return (to_csv if path.suffix.lower() == ".csv" else to_xlsx)(leads, path, keys)

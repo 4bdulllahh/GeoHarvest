@@ -70,11 +70,22 @@ def self_test(out: str) -> int:
 
     result: dict = {"ok": False}
     try:
-        import anthropic  # noqa: F401 - bundled for Smart mode with Claude
+        import anthropic
         from PyQt6.QtWidgets import QApplication  # noqa: F401
 
         from app.core import ai, credentials, enrich, exporter, geo, scraper  # noqa: F401
         from app.services import updater  # noqa: F401
+
+        # The build leaves out the Claude SDK's optional extras: send a real request through
+        # it (to a closed local port) to prove it still builds and sends one without them
+        claude = anthropic.Anthropic(api_key="test", base_url="http://127.0.0.1:9", max_retries=0)
+        try:
+            claude.beta.messages.create(
+                model="claude-opus-5-5", max_tokens=16,
+                betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+                messages=[{"role": "user", "content": "test"}])
+        except anthropic.APIConnectionError:
+            pass
 
         # The live search is reported, not required: a build server's address may be one
         # Google refuses, and that says nothing about whether the build is sound

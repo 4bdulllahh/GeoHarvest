@@ -1,14 +1,15 @@
 """New search: what to look for, where, which businesses, and the run itself."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QCompleter, QHBoxLayout, QLineEdit, QSpinBox, QWidget
 
 from app.core import db, geo
 from app.core import search as searches
 from app.ui.pages.base import Page
+from app.core.places import HEADERS
 from app.ui.widgets.common import (Card, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
-                                   confirm_button, danger_button, hint, muted, row,
+                                   confirm_button, danger_button, flow_row, hint, muted, row,
                                    secondary_button)
 from app.ui.widgets.checklist import CheckList
 from app.ui.widgets.inputs import checkbox, line_edit
@@ -34,6 +35,23 @@ NICHES = [
     "yoga studio",
 ]
 
+# The tick boxes under "Details to include", every column of places.FIELDS once
+DETAIL_GROUPS = [
+    ("Business", ["name", "category", "categories", "description", "status", "hours", "price",
+                  "attributes", "claimed", "local_name"]),
+    ("Contact", ["phone", "phone_international", "emails", "website", "domain"]),
+    ("Social media", ["facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok"]),
+    ("Reviews", ["rating", "reviews", "reviews_url"]),
+    ("Location", ["address", "street", "neighborhood", "city", "postal_code", "state",
+                  "country_code", "latitude", "longitude", "timezone", "maps_url"]),
+    ("Company age", ["company_age", "domain_created", "age_source"]),
+    ("Smart mode", ["ai_score", "ai_verdict", "ai_reason"]),
+    ("Other", ["photo", "place_id", "query"]),
+]
+# Filled in only by visiting the business's website
+FROM_WEBSITE = {"emails", "facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok",
+                "company_age", "domain_created", "age_source"}
+
 
 class ListCompleter(QCompleter):
     """Completes the last entry of a comma-separated list, keeping the ones before it."""
@@ -42,14 +60,19 @@ class ListCompleter(QCompleter):
         return [path.split(",")[-1].strip()]
 
     def pathFromIndex(self, index) -> str:  # noqa: N802 - Qt naming
+        # Replaces only the last entry. No ", " here: Qt writes this in on highlight too, and
+        # a finished entry would make the click that follows add the choice a second time.
         typed = self.widget().text()
         before = typed.rsplit(",", 1)[0] + ", " if "," in typed else ""
-        return before + super().pathFromIndex(index) + ", "
+        return before + super().pathFromIndex(index)
 
 
 def list_input(placeholder: str, options: list[str]) -> QLineEdit:
     edit = line_edit(placeholder)
     completer = ListCompleter(options, edit)
+    # Ready for the next entry once a suggestion is picked (after Qt has written it in)
+    completer.activated.connect(lambda _text: QTimer.singleShot(
+        0, lambda: edit.setText(edit.text().rstrip(", ") + ", ")))
     completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
     completer.setFilterMode(Qt.MatchFlag.MatchContains)
     completer.setMaxVisibleItems(10)
@@ -93,8 +116,8 @@ class SearchPage(Page):
 
         # --- where ----------------------------------------------------------
         where = Section("Where?",
-                        "Tick the countries, then the cities in them. Google shows about 200 "
-                        "businesses per city, so more cities means more leads.")
+                        "Tick the countries, then the cities you want in them. Google shows "
+                        "about 200 businesses per city, so more cities means more leads.")
         self.countries = CheckList("Search countries")
         self.countries.set_items([(r, f"{r} (all its countries)") for r in geo.REGIONS]
                                  + [(c, c) for c in geo.countries()], set())
@@ -111,9 +134,7 @@ class SearchPage(Page):
         columns.addWidget(left, 1, Qt.AlignmentFlag.AlignTop)
         columns.addWidget(right, 1, Qt.AlignmentFlag.AlignTop)
         where.add_layout(columns)
-        self.city_count = spin(0, 60, int(last["city_count"]), " cities", "No cities")
-        where.add(row(muted("Ticking a country also ticks its biggest", wrap=False),
-                      self.city_count, None))
+        self.city_count = int(last["city_count"])  # only for searches saved before city ticks
         self.plan = hint("")
         where.add(self.plan)
         layout.addWidget(where)
@@ -152,7 +173,7 @@ class SearchPage(Page):
             field = FormRow(label, "You get exactly this many, if Google has enough" if box
                             is self.max_results else "")
             field.add(box)
-            limits_layout.addWidget(field)
+            limits_layout.addWidget(field, 0, Qt.AlignmentFlag.AlignTop)
         limits_layout.addStretch(1)
         which.add(limits)
 
@@ -177,6 +198,29 @@ class SearchPage(Page):
         self.smart_note = hint("")
         extra.add(self.smart_note)
         layout.addWidget(extra)
+
+        # --- details ----------------------------------------------------------
+        details = Section("Details to include",
+                          "Untick what you don't need. It is left out of the Leads table and "
+                          "the Excel file. Name is always included.")
+        self.detail_boxes: dict[str, object] = {}
+        for group, keys in DETAIL_GROUPS:
+            container, flow = flow_row(spacing=14)
+            for key in keys:
+                box = checkbox(HEADERS[key], key in last["fields"] or key == "name")
+                self.detail_boxes[key] = box
+                flow.addWidget(box)
+            group_row = FormRow(group)
+            group_row.add(container)
+            details.add(group_row)
+        self.detail_boxes["name"].setEnabled(False)
+        details.add(row(hint("Emails, social media and company age need \"Visit each "
+                             "website\" ticked above."),
+                        small_button("Tick all", lambda: self._tick_details(True)),
+                        small_button("Untick all", lambda: self._tick_details(False)), stretch=0))
+        layout.addWidget(details)
+        self.find_emails.toggled.connect(self._website_details)
+        self._website_details(self.find_emails.isChecked())
         layout.addStretch(1)
 
         # --- run bar (stays visible below the scrolling form) ---------------
@@ -221,23 +265,20 @@ class SearchPage(Page):
     def _rebuild_cities(self, tick: set[str] | None = None) -> None:
         """List the cities of the ticked countries, keeping what was ticked.
 
-        A country that just appeared gets its biggest `city_count` cities ticked,
-        unless ``tick`` says exactly what to tick (loading a saved search).
+        A country that just appeared starts with no cities ticked; ``tick`` says exactly
+        what to tick when loading a saved search.
         """
         # A region shows as ticked only while every one of its countries is
         chosen = set(self._chosen_countries())
         for region in geo.REGIONS:
             self.countries.set_checked({region}, set(geo.expand([region])) <= chosen)
-        shown_before = set(self.cities.keys())
         keep = set(self.cities.checked()) if tick is None else set(tick)
         items = []
         for country in self._chosen_countries():
             names = geo.cities(country) or [country]
-            for index, city in enumerate(names):
+            for city in names:
                 key = f"{city}, {country}" if city != country else country
                 items.append((key, key))
-                if tick is None and key not in shown_before and index < self.city_count.value():
-                    keep.add(key)
         items += [(place, place) for place in self.extra_places]
         self.cities.set_items(items, keep)
         self._update_plan()
@@ -257,12 +298,20 @@ class SearchPage(Page):
     def _update_plan(self) -> None:
         count = len(searches.build_queries({
             "niches": split_list(self.niches.text()), "countries": self._chosen_countries(),
-            "cities": self.cities.checked(), "city_count": self.city_count.value()}))
+            "cities": self.cities.checked()})) if self.cities.checked() else 0
         countries, cities = len(self._chosen_countries()), len(self.cities.checked())
         self.plan.setText(f"{countries} {'country' if countries == 1 else 'countries'}, "
                           f"{cities:,} {'city' if cities == 1 else 'cities'} ticked: "
                           f"{count:,} searches (one per city and business type)."
                           if count else "")
+
+    def _tick_details(self, on: bool) -> None:
+        for key, box in self.detail_boxes.items():
+            box.setChecked(on or key == "name")
+
+    def _website_details(self, on: bool) -> None:
+        for key in FROM_WEBSITE:
+            self.detail_boxes[key].setEnabled(on)
 
     def on_show(self) -> None:
         ready = bool(db.get_setting("ai_provider", ""))
@@ -278,7 +327,7 @@ class SearchPage(Page):
             "niches": split_list(self.niches.text()),
             "countries": self._chosen_countries(),
             "cities": self.cities.checked(),
-            "city_count": self.city_count.value(),
+            "city_count": self.city_count,
             "company_age": self.company_age.get(),
             "min_rating": float(self.min_rating.get()),
             "min_reviews": self.min_reviews.value(),
@@ -289,13 +338,14 @@ class SearchPage(Page):
             "skip_known": self.skip_known.isChecked(),
             "find_emails": self.find_emails.isChecked(),
             "smart": self.smart.isChecked(),
+            "fields": [key for key, box in self.detail_boxes.items() if box.isChecked()],
         }
 
     def load_options(self, options: dict) -> None:
         """Fill the form from a saved search (Past searches: resume or run again)."""
         options = searches.options_with_defaults(options)
         self.niches.setText(", ".join(options["niches"]))
-        self.city_count.setValue(int(options["city_count"]))
+        self.city_count = int(options["city_count"])
         countries = geo.expand(options["countries"])
         cities = searches.places_for(options)  # old saves: bare names, or none (biggest N)
         listed = {f"{c}, {country}" for country in countries for c in geo.cities(country)}
@@ -310,6 +360,8 @@ class SearchPage(Page):
         for name in ("require_website", "require_phone", "skip_closed", "skip_known",
                      "find_emails"):
             getattr(self, name).setChecked(bool(options[name]))
+        for key, box in self.detail_boxes.items():
+            box.setChecked(key in options["fields"] or key == "name")
         self.on_show()  # Smart mode only stays ticked if it is still set up
         self.smart.setChecked(bool(options["smart"]) and self.smart.isEnabled())
 
@@ -337,6 +389,9 @@ class SearchPage(Page):
         if self.worker is not None:
             return
         self.search_id = search_id
+        leads_page = self.window_.page("leads")
+        if leads_page is not None:  # the Leads page always shows the latest search
+            leads_page.select_search(search_id)
         record = searches.get(search_id)
         self.total_queries = len(searches.build_queries(record["options"]))
         self.counts = {"leads": 0, "email": 0, "phone": 0}

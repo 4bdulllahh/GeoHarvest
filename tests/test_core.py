@@ -232,6 +232,24 @@ def test_export_xlsx_and_csv(tmp_path):
     assert "'=HYPERLINK" in text and ",+92 300 1234567," in text
     assert exporter.safe_csv("-cmd|' /C calc'!A0").startswith("'")
 
+    # Only the columns the user kept on screen
+    exporter.export(leads, tmp_path / "some.csv", keys=["name", "rating", "email"])
+    assert (tmp_path / "some.csv").read_text("utf-8-sig").splitlines()[0] == "Name,Rating"
+
+
+def test_delete_leads_from_one_search_or_all(fresh_db):
+    first, second = searches.create({"niches": ["cafe"]}), searches.create({"niches": ["cafe"]})
+    for search_id in (first, second):
+        searches.save_leads(search_id, [{"place_id": "a", "name": "A"},
+                                        {"place_id": "b", "name": "B"}])
+    searches.delete_leads(["a"], first)
+    assert [lead["place_id"] for lead in searches.leads(first)] == ["b"]
+    assert len(searches.leads(second)) == 2
+    searches.delete_leads(["b"])
+    assert [lead["place_id"] for lead in searches.leads(second)] == ["a"]
+    assert searches.leads(first) == []
+    assert searches.get(first)["options"]["fields"][0] == "name"  # default: every column
+
 
 # --- enrichment -------------------------------------------------------------
 def test_find_emails_handles_obfuscation_and_junk():

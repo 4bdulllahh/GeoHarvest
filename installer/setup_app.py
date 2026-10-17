@@ -206,6 +206,7 @@ class Job:
         self.events = events
         self.install_dir = install_dir
         self.cancel_event = threading.Event()
+        self.committed = False  # True once stopping would leave things half-done
         self.log_path = Path(tempfile.gettempdir()) / f"{APP_NAME}-setup-log.txt"
         self._log_file = open(self.log_path, "w", encoding="utf-8")
         self._total_weight = sum(w for _, _, w in self.steps)
@@ -225,7 +226,7 @@ class Job:
         self.events.put(("progress", overall, detail))
 
     def check_cancel(self) -> None:
-        if self.cancel_event.is_set():
+        if self.cancel_event.is_set() and not self.committed:
             raise Cancelled()
 
     def cancel(self) -> None:
@@ -298,24 +299,48 @@ class InstallJob(Job):
         return super().step_close()
 
     def step_copy(self) -> str:
+        # Unpack beside the install folder and swap it in only when complete, so Cancel, a full
+        # disk or antivirus halfway through leave the previous version (or nothing) untouched.
+        staging = self.install_dir.with_name(self.install_dir.name + ".new")
+        trash = self.install_dir.with_name(self.install_dir.name + ".old")
+        for leftover in (staging, trash):
+            shutil.rmtree(leftover, ignore_errors=True)
+        try:
+            with zipfile.ZipFile(payload()) as archive:
+                members = archive.infolist()
+                self.log(f"Unpacking {len(members)} files")
+                for index, member in enumerate(members):
+                    if index % 25 == 0:
+                        self.check_cancel()
+                        self.progress(index / len(members), f"{index} of {len(members)} files")
+                    archive.extract(member, staging)
+            shutil.copy2(bundle_dir() / "version.txt", staging / "version.txt")
+            self.check_cancel()
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+
+        self.committed = True  # from here on, finish rather than stop halfway
         self.install_dir.mkdir(parents=True, exist_ok=True)
-        old = self.install_dir / "_internal"
-        if old.exists():
-            self.log("Removing the previous version's files.")
-            shutil.rmtree(old, ignore_errors=True)
-        with zipfile.ZipFile(payload()) as archive:
-            members = archive.infolist()
-            self.log(f"Unpacking {len(members)} files")
-            for index, member in enumerate(members):
-                if index % 25 == 0:
-                    self.check_cancel()
-                    self.progress(index / len(members), f"{index} of {len(members)} files")
-                try:
-                    archive.extract(member, self.install_dir)
-                except PermissionError:
-                    raise StepFailed(f"Windows wouldn't let Setup replace {member.filename}.",
-                                     "Close GeoHarvest if it is open, then click Try again.") from None
-        shutil.copy2(bundle_dir() / "version.txt", self.install_dir / "version.txt")
+        trash.mkdir()
+        moved: list[Path] = []
+        try:
+            for item in staging.iterdir():
+                target = self.install_dir / item.name
+                if target.exists():
+                    target.rename(trash / item.name)
+                    moved.append(target)
+        except OSError:
+            for target in moved:  # put the previous version back exactly as it was
+                (trash / target.name).rename(target)
+            shutil.rmtree(staging, ignore_errors=True)
+            self.committed = False
+            raise StepFailed("Windows wouldn't let Setup replace GeoHarvest's files.",
+                             "Close GeoHarvest if it is open, then click Try again.") from None
+        for item in staging.iterdir():
+            item.rename(self.install_dir / item.name)
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(trash, ignore_errors=True)
         return f"{len(members)} files"
 
     def step_check(self) -> str:
@@ -330,11 +355,16 @@ class InstallJob(Job):
         # A copy of Setup (without the payload) stays behind as the uninstaller
         target = self.install_dir / UNINSTALL_DIR
         if getattr(sys, "frozen", False):
-            source = Path(sys.executable).resolve().parent
-            if source != target.resolve():
+            exe = Path(sys.executable).resolve()
+            if exe.parent != target.resolve():
+                # Only Setup's own files: the folder it runs from may be the user's Downloads
                 self.log("Saving the uninstaller.")
                 shutil.rmtree(target, ignore_errors=True)
-                shutil.copytree(source, target, ignore=shutil.ignore_patterns("payload.zip"))
+                target.mkdir(parents=True)
+                shutil.copy2(exe, target / exe.name)
+                runtime = Path(sys._MEIPASS)
+                shutil.copytree(runtime, target / runtime.name,
+                                ignore=shutil.ignore_patterns("payload.zip"))
         for leftover in ("unins000.exe", "unins000.dat"):  # from the 0.1.1 installer
             (self.install_dir / leftover).unlink(missing_ok=True)
         self.progress(0.3)
@@ -1058,6 +1088,9 @@ class SetupWindow:
     # -- closing -------------------------------------------------------------------
     def on_close(self) -> None:
         if self.busy and self.job:
+            if self.job.committed:
+                self._status("Almost done. Finishing so nothing is left half-installed...")
+                return
             if messagebox.askyesno("Cancel?", "Stop now? Nothing will be broken, and you can run "
                                               "Setup again later.", parent=self.root):
                 self._status("Stopping...")

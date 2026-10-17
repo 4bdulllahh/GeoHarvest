@@ -2,13 +2,19 @@
 from __future__ import annotations
 
 from datetime import date
+from html import escape
 from pathlib import Path
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QFileDialog, QMenu
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtWidgets import (QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMenu,
+                             QScrollArea, QVBoxLayout, QWidget)
 
 from app.core import exporter
 from app.core import search as searches
+from app.core.exporter import LINK_COLUMNS
+from app.core.places import FIELDS
+from app.ui import theme
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (Card, copy_to_clipboard, danger_button, hint, muted, open_url,
                                    primary_button, row, secondary_button)
@@ -22,6 +28,71 @@ from app.workers.base import Task
 ALL = "All searches"
 
 
+def text_label(text: str, role: str = "") -> QLabel:
+    label = QLabel(text)
+    if role:
+        label.setProperty("role", role)
+    label.setWordWrap(True)
+    label.setTextFormat(Qt.TextFormat.PlainText)  # business names come from Google: never HTML
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    return label
+
+
+def as_text(value) -> str:
+    return ", ".join(map(str, value)) if isinstance(value, list) else str(value)
+
+
+class LeadDialog(QDialog):
+    """Everything known about one business, opened by double-clicking its row."""
+
+    def __init__(self, parent: QWidget, lead: dict):
+        super().__init__(parent)
+        scale = theme.text_scale()
+        self.setWindowTitle(lead.get("name") or "Lead")
+        self.resize(round(600 * scale), round(640 * scale))
+        pad = round(22 * scale)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(pad, pad, pad, pad)
+        layout.setSpacing(round(8 * scale))
+        layout.addWidget(text_label(lead.get("name") or "", "heading"))
+        if lead.get("category"):
+            layout.addWidget(text_label(lead["category"], "muted"))
+
+        filled = [(key, header, as_text(lead[key])) for key, header in FIELDS
+                  if lead.get(key) not in (None, "", [])]
+        content = QWidget()
+        content.setProperty("role", "plain")
+        form = QFormLayout(content)
+        form.setContentsMargins(0, round(6 * scale), round(8 * scale), 0)
+        form.setHorizontalSpacing(round(16 * scale))
+        form.setVerticalSpacing(round(8 * scale))
+        for key, header, text in filled:
+            if key in ("name", "category"):
+                continue
+            if key in LINK_COLUMNS and text.startswith(("http://", "https://")):
+                value = QLabel(f'<a href="{escape(text, quote=True)}">{escape(text)}</a>')
+                value.setWordWrap(True)
+                value.setOpenExternalLinks(True)
+            else:
+                value = text_label(text)
+            form.addRow(text_label(header, "muted"), value)
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QScrollArea.Shape.NoFrame)
+        area.setWidget(content)
+        layout.addWidget(area, 1)
+
+        summary = "\n".join(f"{header}: {text}" for _key, header, text in filled)
+        buttons = QHBoxLayout()
+        buttons.addWidget(secondary_button("Copy all", lambda: copy_to_clipboard(summary)))
+        if lead.get("maps_url"):
+            buttons.addWidget(secondary_button("Open in Google Maps",
+                                               lambda: open_url(lead["maps_url"])))
+        buttons.addStretch(1)
+        buttons.addWidget(primary_button("Close", self.accept, width=120))
+        layout.addLayout(buttons)
+
+
 class LeadsPage(Page):
     def __init__(self, window):
         super().__init__(window)
@@ -29,6 +100,9 @@ class LeadsPage(Page):
                                  "heading to sort, then export to Excel.")
         self.search_ids: dict[str, int] = {}
         self.current_id = 0  # 0: all searches
+        newest = searches.all_searches()[:1]
+        if newest:  # open on the search the user ran last
+            self.current_id = newest[0]["id"]
 
         self.picker = combo([ALL], ALL, on_change=lambda _text: self._load(), translate={ALL})
         self.picker.setMinimumWidth(360)
@@ -37,6 +111,7 @@ class LeadsPage(Page):
         self.excel_button = primary_button("Export to Excel", lambda: self.export("xlsx"))
         self.csv_button = secondary_button("Export CSV", lambda: self.export("csv"))
         self.delete_button = danger_button("Delete search...", self.delete_search)
+        self.delete_leads_button = secondary_button("Delete selected", self.delete_selected)
         self.score_button = secondary_button("Score with AI", self.score_with_ai)
         self.score_worker = None
         self.root.addWidget(row(self.picker, self.filter, self.score_button, self.excel_button,
@@ -44,7 +119,7 @@ class LeadsPage(Page):
 
         card = Card(padding=12)
         self.count_label = muted("", wrap=False)
-        card.add(self.count_label)
+        card.add(row(self.count_label, self.delete_leads_button, stretch=0))
         self.model = LeadsModel(self)
         self.proxy = LeadsProxy(self.model, self)
         self.table = DataTable(self.proxy, "No leads yet. Start a search on the New search page.",
@@ -53,9 +128,12 @@ class LeadsPage(Page):
         self.table.view.sortByColumn(-1, self.table.view.horizontalHeader().sortIndicatorOrder())
         self.table.double_clicked.connect(self._open_row)
         self.table.set_context_menu(self._menu)
+        self.table.selection_changed.connect(self._update_count)
+        QShortcut(QKeySequence.StandardKey.Delete, self.table.view, self.delete_selected,
+                  context=Qt.ShortcutContext.WidgetShortcut)
         card.add(self.table, 1)
-        card.add(hint("Double-click a row to open it in Google Maps. Right-click for more. "
-                      "Export saves exactly the rows shown, in this order."))
+        card.add(hint("Double-click a row to see everything about that business. Right-click "
+                      "for more. Export saves exactly the rows and columns shown, in this order."))
         self.root.addWidget(card, 1)
 
         self.debounce = Debouncer(200, self)
@@ -105,6 +183,8 @@ class LeadsPage(Page):
     def _load(self) -> None:
         self.current_id = self.search_ids.get(self.picker.currentText(), 0)
         leads = searches.leads(self.current_id) if self.current_id else searches.all_leads()
+        record = searches.get(self.current_id) if self.current_id else None
+        self.fields = set(record["options"]["fields"] if record else [k for k, _ in FIELDS])
         self.model.set_leads(leads)
         self._hide_empty_columns()
         self.delete_button.setEnabled(bool(self.current_id))
@@ -128,9 +208,14 @@ class LeadsPage(Page):
             self.column_timer.start()
 
     def _hide_empty_columns(self) -> None:
+        """Columns the search left out, or empty in every row, stay hidden."""
         empty = set(self.model.empty_columns())
-        for column in range(self.model.columnCount()):
-            self.table.view.setColumnHidden(column, column in empty)
+        for column, key in enumerate(self.model.keys):
+            self.table.view.setColumnHidden(column, column in empty or key not in self.fields)
+
+    def _shown_keys(self) -> list[str]:
+        return [key for column, key in enumerate(self.model.keys)
+                if not self.table.view.isColumnHidden(column)]
 
     def _apply_filter(self) -> None:
         self.proxy.set_filter(self.filter.text())
@@ -143,6 +228,7 @@ class LeadsPage(Page):
         has_rows = shown > 0
         self.excel_button.setEnabled(has_rows)
         self.csv_button.setEnabled(has_rows)
+        self.delete_leads_button.setEnabled(bool(self.table.selected_rows()))
 
     # --- rows ---------------------------------------------------------------
     def _lead_at(self, proxy_row: int) -> dict | None:
@@ -152,14 +238,15 @@ class LeadsPage(Page):
 
     def _open_row(self, proxy_row: int) -> None:
         lead = self._lead_at(proxy_row)
-        if lead and lead.get("maps_url"):
-            open_url(lead["maps_url"])
+        if lead:
+            LeadDialog(self.window(), lead).exec()
 
     def _menu(self, proxy_row: int):
         lead = self._lead_at(proxy_row)
         if lead is None:
             return None
         menu = QMenu(self)
+        menu.addAction("Show details", lambda: self._open_row(proxy_row))
         menu.addAction("Open in Google Maps", lambda: open_url(lead["maps_url"]))
         if lead.get("website"):
             menu.addAction("Open website", lambda: open_url(lead["website"]))
@@ -170,6 +257,8 @@ class LeadsPage(Page):
                 value = lead[key]
                 menu.addAction(label, lambda v=value: copy_to_clipboard(
                     ", ".join(v) if isinstance(v, list) else str(v)))
+        menu.addSeparator()
+        menu.addAction("Delete selected", self.delete_selected)
         return menu
 
     # --- actions ------------------------------------------------------------
@@ -193,7 +282,7 @@ class LeadsPage(Page):
         def failed(message: str) -> None:
             self.notify(f"Could not save the file: {message}. Is it open in Excel?", "error", 8000)
 
-        Task(exporter.export, leads, Path(path)).start(
+        Task(exporter.export, leads, Path(path), self._shown_keys()).start(
             on_result=self.guard(done), on_error=self.guard(failed),
             on_done=self.guard(self._update_count))
 
@@ -237,6 +326,26 @@ class LeadsPage(Page):
     def stop(self) -> None:
         if self.score_worker is not None:
             self.score_worker.cancel()
+
+    def delete_selected(self) -> None:
+        leads = [lead for row in self.table.selected_rows() if (lead := self._lead_at(row))]
+        if not leads:
+            return
+        many = len(leads) > 1
+        where = "this search" if self.current_id else "every search that found it"
+        if not ConfirmDialog.ask(
+                self, f"Delete {len(leads):,} leads?" if many else
+                f"Delete {leads[0].get('name') or 'this lead'}?",
+                f"{'They are' if many else 'It is'} removed from {where}. Files you already "
+                "exported are not touched.", confirm_text="Delete", danger=True):
+            return
+        place_ids = [lead["place_id"] for lead in leads]
+        searches.delete_leads(place_ids, self.current_id)
+        for place_id in place_ids:
+            self.model.remove(place_id)
+        self.notify(f"Deleted {len(leads):,} {'leads' if many else 'lead'}.", "success")
+        self._refresh_picker()  # lead counts in the search list
+        self.window_.refresh_status()
 
     def delete_search(self) -> None:
         if not self.current_id:
