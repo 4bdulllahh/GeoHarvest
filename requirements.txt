@@ -3,3 +3,4 @@ PyQt6>=6.6.0
 httpx[socks]>=0.27    # Google Maps search (also through SOCKS5 proxies), website visits, domain age, AI providers
 openpyxl>=3.1.0       # Excel export
 anthropic>=1.0        # Smart mode with Claude (the other AI providers use plain httpx)
+tzdata>=2024.1        # time zones for the "Open now" filter: Windows has no time-zone database Python can read
