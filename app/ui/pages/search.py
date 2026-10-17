@@ -259,7 +259,7 @@ class SearchPage(Page):
 
         # --- details ----------------------------------------------------------
         details = Section("Details to include",
-                          "Untick what you don't need. It is left out of the Leads table and "
+                          "Switch off what you don't need. It is left out of the Leads table and "
                           "the Excel file. Name is always included.")
         self.detail_boxes: dict[str, object] = {}
         for group, keys in FIELD_GROUPS:
@@ -274,8 +274,8 @@ class SearchPage(Page):
         self.detail_boxes["name"].setEnabled(False)
         details.add(row(hint("Emails, social media, company age and the owner need \"Visit "
                              "each website\" switched on above."),
-                        small_button("Tick all", lambda: self._tick_details(True)),
-                        small_button("Untick all", lambda: self._tick_details(False)), stretch=0))
+                        small_button("All on", lambda: self._tick_details(True)),
+                        small_button("All off", lambda: self._tick_details(False)), stretch=0))
         layout.addWidget(details)
         self.find_emails.toggled.connect(self._website_details)
         self._website_details(self.find_emails.isChecked())
@@ -373,7 +373,7 @@ class SearchPage(Page):
             "cities": self.cities.checked()})) if self.cities.checked() else 0
         countries, cities = len(self._chosen_countries()), len(self.cities.checked())
         self.plan.setText(f"{countries} {'country' if countries == 1 else 'countries'}, "
-                          f"{cities:,} {'city' if cities == 1 else 'cities'} ticked: "
+                          f"{cities:,} {'city' if cities == 1 else 'cities'} chosen: "
                           f"{count:,} searches (one per city and business type)."
                           if count else "")
 
@@ -474,7 +474,7 @@ class SearchPage(Page):
             if not options["area_place"]:
                 return "Type the place or address to search around."
         elif not options["cities"]:
-            return "Tick at least one country and one city."
+            return "Choose at least one country and one city."
         if options["website"] == "no" and options["company_age"] != "any":
             return "Company age comes from the website, so it can't be used with \"No website\"."
         if options["max_rating"] and options["max_rating"] < options["min_rating"]:

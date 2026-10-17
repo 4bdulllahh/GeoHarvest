@@ -137,7 +137,7 @@ class SmartPage(Page):
             self.status.setText("Smart mode is off. Set it up above, then press Save and test.")
         else:
             self.status.setText(f"Smart mode is on: {ai.BY_KEY[cfg['provider']].name}, "
-                                f"model {cfg['model']}. Tick 'Smart mode' on the New search page "
+                                f"model {cfg['model']}. Switch on 'Smart mode' on the New search page "
                                 "to use it.")
 
     # --- actions ------------------------------------------------------------

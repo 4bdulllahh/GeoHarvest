@@ -80,7 +80,62 @@ def build_app() -> Path:
     for name in DROP:
         path = folder / "_internal" / name
         shutil.rmtree(path, ignore_errors=True) if path.is_dir() else path.unlink(missing_ok=True)
+    add_legal_files(folder)  # installed with the app
     return folder
+
+
+def bundled_distributions() -> dict:
+    """requirements.txt and everything it pulls in, as installed here: what the app ships."""
+    from importlib import metadata
+
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    todo = [Requirement(line.split("#")[0].strip()) for line in
+            (ROOT / "requirements.txt").read_text("utf-8").splitlines() if line.split("#")[0].strip()]
+    found: dict = {}
+    while todo:
+        wanted = todo.pop()
+        name = canonicalize_name(wanted.name)
+        if name in found:
+            continue
+        try:
+            found[name] = dist = metadata.distribution(wanted.name)
+        except metadata.PackageNotFoundError:
+            continue  # an optional dependency for another platform or Python
+        for text in dist.requires or []:
+            child = Requirement(text)
+            if child.marker is None or any(child.marker.evaluate({"extra": extra})
+                                           for extra in (wanted.extras or {""})):
+                todo.append(child)
+    return found
+
+
+def add_legal_files(folder: Path) -> None:
+    """LICENSE, THIRD-PARTY-NOTICES.md and every bundled library's own license in licenses/.
+
+    PyQt6 is GPL v3, so the Windows download has to carry the license texts with it.
+    """
+    shutil.copy2(ROOT / "LICENSE", folder / "LICENSE.txt")
+    shutil.copy2(ROOT / "THIRD-PARTY-NOTICES.md", folder / "THIRD-PARTY-NOTICES.md")
+    licenses = folder / "licenses"
+    shutil.rmtree(licenses, ignore_errors=True)
+    (licenses / "python").mkdir(parents=True)
+    # Python's license also covers what it bundles: OpenSSL, SQLite, Tcl/Tk, libffi, zlib...
+    shutil.copy2(Path(sys.base_prefix) / "LICENSE.txt", licenses / "python" / "LICENSE.txt")
+    for name, dist in sorted(bundled_distributions().items()):
+        target = licenses / name
+        target.mkdir()
+        files = [f for f in dist.files or [] if any(word in f.name.upper() for word in
+                                                     ("LICENSE", "LICENCE", "COPYING", "NOTICE"))]
+        for file in files:
+            shutil.copy2(dist.locate_file(file), target / file.name)
+        if not files:  # some packages only state their license in their metadata
+            meta = dist.metadata
+            (target / "LICENSE.txt").write_text(
+                f"{meta['Name']} {meta['Version']}\nLicense: "
+                f"{meta.get('License-Expression') or meta.get('License') or 'see the project'}\n"
+                f"Project: {meta.get('Home-page') or meta.get('Project-URL') or ''}\n", "utf-8")
 
 
 def build_setup(app_folder: Path) -> Path:
@@ -126,6 +181,11 @@ def main() -> Path:
                 bundle.write(path, path.relative_to(setup), zipfile.ZIP_STORED
                              if path.name == "payload.zip" else zipfile.ZIP_DEFLATED)
         bundle.writestr("READ ME FIRST.txt", readme.replace("\n", "\r\n"))
+        # The license texts, readable without installing
+        legal = [folder / "LICENSE.txt", folder / "THIRD-PARTY-NOTICES.md",
+                 *sorted(p for p in (folder / "licenses").rglob("*") if p.is_file())]
+        for path in legal:
+            bundle.write(path, path.relative_to(folder))
     size = archive.stat().st_size / 1_048_576
     print(f"Built {archive.name} ({size:.0f} MB)")
 

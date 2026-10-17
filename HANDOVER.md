@@ -98,6 +98,8 @@ theme module, sidebar, cards, status bar, worker pattern.
 | Proxies (0.2.1) | Settings > Proxies: one per line (host:port, user:pass@host:port, host:port:user:pass, http/https/socks5/socks5h://), saved encrypted (`credentials`, name "proxies"), "Test them" checks each against google.com/generate_204. Only Google Maps searches use them (`MapsClient` keeps one httpx client per proxy and takes turns; a proxy that is limited or doesn't answer is skipped; `Blocked` only when none worked and at least one was limited). Website visits and AI go direct. Needs `httpx[socks]` (socksio, bundled); the self-test checks it. Tested live through local HTTP and SOCKS5 proxies |
 | Switches | Every QCheckBox and checklist item is drawn as an on/off switch by the stylesheet (`theme.switch_knob` SVGs), so pages still use `checkbox()` |
 | Columns after a search | Leads page "Columns..." opens `ColumnsDialog` (switches grouped like New search, `places.FIELD_GROUPS`; every FIELDS key in exactly one group, tested). Saves to the search's `fields` (`searches.set_fields`) or, for All searches, setting `all_searches_fields` |
+| License and legal (2026-10-17) | Code is **MIT** (`LICENSE`, "Copyright (c) 2026 Abdullah", same as typencut). **PyQt6 is GPL v3**, so the Windows download as a whole is distributed under GPL v3: `tools/build.py` `add_legal_files()` puts `LICENSE.txt`, `THIRD-PARTY-NOTICES.md` and every bundled library's own license (`licenses/<package>/`, found by walking requirements.txt's dependencies, plus Python's `LICENSE.txt`, which covers OpenSSL, SQLite and Tcl/Tk) in the app folder and the zip root; Settings > About shows the notice GPL v3 asks interactive programs to show, with "Open the licenses". `PRIVACY.md` (what is stored and sent where: keep it true when adding a network call), `DISCLAIMER.md` (acceptable use, GDPR/CAN-SPAM, estimates, no warranty, not affiliated with Google), `SECURITY.md` (private reporting via GitHub's Security tab). GeoNames data needs its CC BY 4.0 credit (in the notices). If the user ever wants the whole download permissive, the route is PySide6 (LGPL) instead of PyQt6 |
+| README | Laid out like the user's typencut README (centred logo, pitch, badges, hero shot, long Features list, 2-up screenshot tables, Privacy, Principles, Tech stack, How a search works, Roadmap, Legal, License). Screenshots come from `python tools/screenshot.py` (fictional demo data in a throwaway data folder; documentation-only proxy addresses); refresh them whenever a page changes |
 | Languages | English only for v0.1. `app/i18n.py` is a pass-through `t()` so HomingPigeon's translation system can drop in later |
 
 ## Milestones
@@ -227,6 +229,9 @@ python tools/make_icons.py    # after editing assets/logo.svg
   SOCKS5 proxies; UI smoke tests with screenshots; packaged self-test (now also SOCKS + time
   zones) and GUI start. Not tested: real paid proxies, the CRM files imported into the real CRMs,
   and Open now across many time zones.
+- 2026-10-17: README rewritten in typencut's style with 10 new screenshots, MIT LICENSE, third-party
+  notices and license files bundled in the download (PyQt6 is GPL v3), PRIVACY, DISCLAIMER and
+  SECURITY pages, Settings > About. On-screen "tick" wording changed to match the switches.
 
 ## Releasing a new version
 

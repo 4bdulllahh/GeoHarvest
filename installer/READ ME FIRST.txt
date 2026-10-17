@@ -17,4 +17,7 @@ and settings stay on this computer, in %APPDATA%\GeoHarvest.
 To remove GeoHarvest: Settings > Uninstall GeoHarvest inside the app, or
 Windows Settings > Apps.
 
+Free software with no warranty. GeoHarvest's code is MIT licensed (LICENSE.txt);
+this download includes PyQt6 and is distributed under the GNU GPL v3. See
+THIRD-PARTY-NOTICES.md and the licenses folder. Source code:
 https://github.com/4bdulllahh/GeoHarvest

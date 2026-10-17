@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from app import config
 from app.core import credentials, db, prefs, scraper
@@ -95,7 +97,24 @@ class SettingsPage(Page):
                        "and they are, such as GDPR in the EU and UK, CAN-SPAM in the US and the "
                        "UAE's data protection law, and Google's terms of service."))
         layout.addWidget(fair)
+
+        about = Section("About")
+        about.add(muted(f"GeoHarvest {config.APP_VERSION}, © 2026 Abdullah. Free software: "
+                        "GeoHarvest's code is MIT licensed, and this download, which includes "
+                        "PyQt6, is distributed under the GNU GPL v3. It comes with no warranty. "
+                        "Not affiliated with Google."))
+        about.add(row(secondary_button("Open the licenses", self.open_licenses),
+                      secondary_button("Source code", lambda: open_url(config.REPO_URL)), None))
+        layout.addWidget(about)
         layout.addStretch(1)
+
+    def open_licenses(self) -> None:
+        """The licenses folder beside the installed app, or the notices page from source."""
+        folder = Path(sys.executable).parent / "licenses"
+        if getattr(sys, "frozen", False) and folder.is_dir():
+            os.startfile(folder)  # noqa: S606
+        else:
+            open_url(f"{config.REPO_URL}/blob/main/THIRD-PARTY-NOTICES.md")
 
     def save_proxies(self) -> None:
         good, bad = scraper.parse_proxies(self.proxies.toPlainText())
