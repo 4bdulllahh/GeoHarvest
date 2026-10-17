@@ -10,7 +10,7 @@ import csv
 import re
 from pathlib import Path
 
-from app.core.places import FIELDS
+from app.core.places import FIELDS, NOT_FOUND
 
 LINK_COLUMNS = {"website", "maps_url", "reviews_url", "facebook", "instagram", "linkedin",
                 "twitter", "youtube", "tiktok", "photo", "owner_linkedin"}
@@ -128,7 +128,7 @@ def _crm_value(lead: dict, key: str):
         return (str(lead.get("emails") or "").split(",")[0]).strip()
     if key == "street" and not lead.get("street"):
         return lead.get("address")  # some countries' addresses have no street part
-    return lead.get(key)
+    return None if lead.get(key) == NOT_FOUND else lead.get(key)  # CRMs expect a link there
 
 
 def to_crm(leads: list[dict], path: Path, crm: str) -> int:

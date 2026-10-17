@@ -20,7 +20,6 @@ from PyQt6.QtCore import QPoint, Qt, QTimer  # noqa: E402
 from PyQt6.QtGui import QPainter  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
-from app.core.enrich import linkedin_search  # noqa: E402
 
 FIRST = ["Bright", "Harbour", "Cedar", "Palm", "Summit", "Blue Lagoon", "Golden", "Oakwood",
          "Marina", "Desert Rose", "Northside", "Riverside", "Crescent", "Lakeview", "Parkside",
@@ -80,7 +79,9 @@ def demo_leads(count: int = 60) -> list[dict]:
         if i % 3 != 2:
             owner = OWNERS[i % len(OWNERS)]
             leads[-1].update(owner_name=owner, owner_source="Website" if i % 4 else
-                             "Domain record", owner_linkedin=linkedin_search(name, owner))
+                             "Domain record", owner_linkedin="https://www.linkedin.com/in/"
+                             + owner.removeprefix("Dr. ").lower().replace(" ", "-") + "-example"
+                             if i % 4 else "N/A")
     return leads
 
 

@@ -209,8 +209,8 @@ class SearchPage(Page):
             "LinkedIn...) and estimate company age", last["find_emails"])
         extra.add(self.find_emails)
         self.find_owner = checkbox(
-            "Look for the owner's name (on the website and in the domain record) and add a "
-            "LinkedIn search link", last["find_owner"])
+            "Look for the owner: their name (on the website or in the domain record) and their "
+            "LinkedIn profile, if the website links it", last["find_owner"])
         extra.add(self.find_owner)
         self.smart = checkbox("Smart mode: let AI check every lead against your ideal customer",
                               last["smart"])

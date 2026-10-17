@@ -52,7 +52,8 @@ subscription, nothing to pay: everything runs on your own computer.
   addresses first and throws away template ones such as `you@example.com`.
 - **The owner's name (optional).** It looks for the owner or founder on the website ("Founder:
   Jane Smith", "Jane Smith, Owner", the page's business data) and in the domain's registration
-  record, and adds a ready-made **LinkedIn search link** for every lead so you can check.
+  record, plus the owner's **LinkedIn profile** when the website links it. The company's
+  LinkedIn page comes from its website too; "N/A" means the website doesn't link one.
 - **Startup or established.** Google Maps doesn't record when a company was founded, so
   GeoHarvest estimates it from when the business's website was registered or first appeared
   online. Filter for **startups** (under 3 years) or **established** companies.
@@ -108,7 +109,7 @@ subscription, nothing to pay: everything runs on your own computer.
 
 | Everything about one business | Columns: select the details to show |
 | --- | --- |
-| <img src="docs/screenshots/lead.png" alt="The details window for a dental clinic: AI score and reason, owner and where it was found, a LinkedIn search link, phone, email, website, rating, company age, opening hours and address" width="380" /> | <img src="docs/screenshots/columns.png" alt="The Columns window: select buttons grouped into Business, Owner, Contact, Social media, Reviews, Location, Company age, Smart mode and Other" width="440" /> |
+| <img src="docs/screenshots/lead.png" alt="The details window for a dental clinic: AI score and reason, owner and where it was found, the owner's LinkedIn profile, phone, email, website, rating, company age, opening hours and address" width="380" /> | <img src="docs/screenshots/columns.png" alt="The Columns window: select buttons grouped into Business, Owner, Contact, Social media, Reviews, Location, Company age, Smart mode and Other" width="440" /> |
 
 <p align="center"><img src="docs/screenshots/exports.png" alt="The More exports menu: CSV file, CSV for HubSpot, Pipedrive, Zoho CRM and Salesforce, and Copy for Google Sheets" width="860" /></p>
 

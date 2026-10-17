@@ -22,7 +22,7 @@ FIELDS = [
     ("category", "Category"),
     ("owner_name", "Owner"),
     ("owner_source", "Owner found in"),
-    ("owner_linkedin", "Owner on LinkedIn (search)"),
+    ("owner_linkedin", "Owner on LinkedIn"),
     ("phone", "Phone"),
     ("phone_international", "Phone (international)"),
     ("emails", "Emails"),
@@ -65,6 +65,7 @@ FIELDS = [
 ]
 HEADERS = dict(FIELDS)
 SERVICE_AREA = "Service area (address hidden on Google)"
+NOT_FOUND = "N/A"  # looked for on the business's website and not there (LinkedIn columns)
 # How the columns are grouped where the user picks them (New search, Leads > Columns).
 # Every key of FIELDS appears exactly once.
 FIELD_GROUPS = [

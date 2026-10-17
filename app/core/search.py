@@ -152,7 +152,7 @@ def why_not(lead: dict, options: dict) -> str | None:
 # --- picking the best -------------------------------------------------------
 def quality(lead: dict) -> int:
     """0-100 from the facts alone: how reachable and established the business looks."""
-    socials = sum(bool(lead.get(k)) for k in
+    socials = sum(str(lead.get(k) or "").startswith("http") for k in
                   ("facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok"))
     rating, reviews = lead.get("rating") or 0, lead.get("reviews") or 0
     points = (15 * bool(lead.get("phone")) + 15 * bool(lead.get("website"))

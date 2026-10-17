@@ -18,10 +18,11 @@ import html
 import re
 import threading
 from datetime import date, datetime
-from urllib.parse import quote, unquote, urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 
+from app.core.places import NOT_FOUND
 from app.core.scraper import USER_AGENT
 
 STARTUP_YEARS = 3
@@ -35,7 +36,7 @@ SOCIAL = {
         r"(?!sharer|share|plugins|dialog|tr[/?]|login|groups/?$)[\w.\-/?=%]+", re.I),
     "instagram": re.compile(r"(?:https?:)?//(?:www\.)?instagram\.com/(?!p/|explore|accounts)[\w.]+",
                             re.I),
-    "linkedin": re.compile(r"(?:https?:)?//(?:[a-z]{2,3}\.)?linkedin\.com/(?:company|in|school)/"
+    "linkedin": re.compile(r"(?:https?:)?//(?:[a-z]{2,3}\.)?linkedin\.com/(?:company|school)/"
                            r"[\w\-%.]+", re.I),
     "twitter": re.compile(r"(?:https?:)?//(?:www\.)?(?:twitter|x)\.com/"
                           r"(?!intent|share|home|search|hashtag)\w+", re.I),
@@ -43,6 +44,8 @@ SOCIAL = {
                           re.I),
     "tiktok": re.compile(r"(?:https?:)?//(?:www\.)?tiktok\.com/@[\w.]+", re.I),
 }
+# A person's profile, as a small business often links its owner's or its team's
+PROFILE = re.compile(r"(?:https?:)?//(?:[a-z]{2,3}\.)?linkedin\.com/in/[\w\-%.]+", re.I)
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}")
 CFEMAIL = re.compile(r'data-cfemail="([0-9a-fA-F]+)"')
 HREF = re.compile(r'href\s*=\s*["\']([^"\'#]+)', re.I)
@@ -161,10 +164,24 @@ def registrant(rdap: dict) -> str | None:
     return None
 
 
-def linkedin_search(business: str, owner: str | None) -> str:
-    """A LinkedIn people search to check by hand (LinkedIn blocks automatic reading)."""
-    words = f"{owner} {business}" if owner else f"{business} owner"
-    return "https://www.linkedin.com/search/results/people/?keywords=" + quote(words)
+def find_profiles(page: str) -> list[str]:
+    """The LinkedIn profiles of people a page links to, in page order."""
+    links = (match.group(0).rstrip("/.\\") for match in PROFILE.finditer(page))
+    return list(dict.fromkeys("https:" + link if link.startswith("//") else link
+                              for link in links))
+
+
+def owner_profile(profiles: list[str], owner: str | None) -> str:
+    """The owner's profile among those the website links: the one whose address has the
+    owner's surname, or the only one there is. LinkedIn blocks automatic reading and free
+    search engines block automatic searching (tested 2026-10-17), so the website is the
+    only source; anything else is NOT_FOUND."""
+    if owner:
+        surname = owner.split()[-1].lower()
+        named = [link for link in profiles if surname in unquote(link).lower()]
+        if named:
+            return named[0]
+    return profiles[0] if len(profiles) == 1 else NOT_FOUND
 
 
 def social_network(url: str) -> str | None:
@@ -274,6 +291,7 @@ class Enricher:
     def crawl(self, url: str) -> dict:
         emails: list[str] = []
         socials: dict[str, str] = {}
+        profiles: list[str] = []
         owner = None
         queue, seen = [url], set()
         while queue and len(seen) < MAX_PAGES:
@@ -286,10 +304,11 @@ class Enricher:
             emails += [e for e in find_emails(page) if e not in emails]
             for network, link in find_socials(page).items():
                 socials.setdefault(network, link)
+            profiles += [link for link in find_profiles(page) if link not in profiles]
             owner = owner or find_owner(page)
             if page_url == url:
                 queue += contact_links(page, url)
-        return {"emails": emails, "socials": socials, "owner": owner}
+        return {"emails": emails, "socials": socials, "profiles": profiles, "owner": owner}
 
     def domain_created(self, domain: str) -> tuple[date | None, str]:
         """When the domain was registered, else first archived; and which of the two."""
@@ -334,6 +353,8 @@ class Enricher:
         """The new fields for one lead (does not modify it)."""
         fields: dict = {"enriched": True}
         website = lead.get("website") or ""
+        if PROFILE.match(website):  # a freelancer's own profile given as the website
+            return {**fields, "owner_linkedin": website} if find_owner else fields
         network = social_network(website)
         if network:
             # A Facebook or Instagram page given as the website: file it under that
@@ -342,7 +363,7 @@ class Enricher:
             return fields
         if not website:
             return fields
-        found = {"owner": None}
+        found = {"owner": None, "profiles": []}
         if find_contacts:
             found = self.crawl(website)
             domain = (lead.get("domain") or urlsplit(website).netloc).lower()
@@ -350,7 +371,7 @@ class Enricher:
             emails = own + [e for e in found["emails"] if e not in own]
             if emails:
                 fields["emails"] = ", ".join(emails[:MAX_EMAILS])
-            fields.update(found["socials"])
+            fields.update({"linkedin": NOT_FOUND, **found["socials"]})
         domain = lead.get("domain") or urlsplit(website).netloc
         if domain:
             fields.update(age_fields(*self.domain_created(domain)) or {"company_age": "Unknown"})
@@ -359,6 +380,5 @@ class Enricher:
                 fields.update(owner_name=found["owner"], owner_source="Website")
             elif self._registrants.get(domain):
                 fields.update(owner_name=self._registrants[domain], owner_source="Domain record")
-            fields["owner_linkedin"] = linkedin_search(lead.get("name") or domain,
-                                                       fields.get("owner_name"))
+            fields["owner_linkedin"] = owner_profile(found["profiles"], fields.get("owner_name"))
         return fields

@@ -239,9 +239,10 @@ def test_best_leads_are_balanced_over_searches(fresh_db, monkeypatch):
 def test_quality_and_balanced_order():
     bare = {"place_id": "a"}
     full = {"phone": "1", "website": "x", "emails": "a@x", "rating": 4.6, "reviews": 1000,
-            "claimed": "Yes", "address": "1 Road", "hours": "Mon: 9-5", "facebook": "f",
-            "instagram": "i", "linkedin": "l"}
+            "claimed": "Yes", "address": "1 Road", "hours": "Mon: 9-5", "facebook": "https://f",
+            "instagram": "https://i", "linkedin": "https://l"}
     assert searches.quality(bare) == 0 and searches.quality(full) == 100
+    assert searches.quality({**full, "linkedin": places.NOT_FOUND}) == 99
     assert searches.quality({"address": places.SERVICE_AREA}) == 0
     leads = [{"query": q, "quality": s} for q, s in
              [("a", 90), ("a", 80), ("a", 70), ("b", 10), ("b", 5)]]
@@ -337,6 +338,22 @@ def test_find_socials_skips_share_buttons():
         "linkedin": "https://www.linkedin.com/company/acme-dental",
         "twitter": "https://x.com/acme",
     }
+
+
+def test_linkedin_from_the_website():
+    from app.core import enrich
+
+    page = ('<a href="https://ae.linkedin.com/in/omar-farsi-123/">Omar</a>'
+            '<a href="//www.linkedin.com/in/jane-doe">Jane</a>'
+            '<a href="https://www.linkedin.com/company/acme">Acme</a>')
+    profiles = enrich.find_profiles(page)
+    assert profiles == ["https://ae.linkedin.com/in/omar-farsi-123",
+                        "https://www.linkedin.com/in/jane-doe"]
+    assert enrich.find_socials(page)["linkedin"] == "https://www.linkedin.com/company/acme"
+    assert enrich.owner_profile(profiles, "Omar Farsi") == profiles[0]
+    assert enrich.owner_profile(profiles, None) == "N/A"  # two people, no name to tell them apart
+    assert enrich.owner_profile(profiles[1:], None) == profiles[1]
+    assert enrich.owner_profile([], "Omar Farsi") == "N/A"
 
 
 def test_company_age():
