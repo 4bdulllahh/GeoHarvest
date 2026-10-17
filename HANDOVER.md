@@ -14,7 +14,7 @@ offering the v0.2 update until v0.2.1 is out). v0.2.1 is built and pushed but no
 `APP_VERSION` equal to the tag's numbers. Don't start new features unless the user asks. Ask the user questions
 with the AskUserQuestion form, not as a text list (their preference).
 
-**In progress (2026-10-17): the next version, in three milestones the user agreed.**
+**v0.2.2 beta (2026-10-17): built from three milestones the user agreed; pushed, not yet published (user publishes tag `v0.2.2`).**
 - [x] **A. Search pipeline**: three steps, candidates, quality score, balanced pick, shortfall
   explanation with "Add 10 more cities" / "Allow any company age", hidden addresses (see the
   "Three-step search" and "Hidden addresses" rows below)
@@ -270,6 +270,8 @@ python tools/make_icons.py    # after editing assets/logo.svg
   tests; 20 live Dubai agencies (16 company pages, 1 owner profile, the right person). Seen
   but not fixed (older code): `find_owner` gave "Middle East Golf" and "Code Quality" as owner
   names on 2 of those 20 sites.
+- 2026-10-17: v0.2.2 beta: milestones A-C released as one version (`APP_VERSION`, notes in
+  `docs/releases/v0.2.2-beta.md`).
 - 2026-10-17: README rewritten in typencut's style with 10 new screenshots, MIT LICENSE, third-party
   notices and license files bundled in the download (PyQt6 is GPL v3), PRIVACY, DISCLAIMER and
   SECURITY pages, Settings > About. On-screen "tick" wording changed to match the switches.

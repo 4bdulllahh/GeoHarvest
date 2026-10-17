@@ -13,7 +13,7 @@ customer. Export to Excel, to your CRM, or straight into Google Sheets. No accou
 subscription, nothing to pay: everything runs on your own computer.
 
 **Download:** [latest release](https://github.com/4bdulllahh/GeoHarvest/releases/latest) ·
-**Version:** 0.2.1 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
+**Version:** 0.2.2 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
 
 [![Build](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml/badge.svg)](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/4bdulllahh/GeoHarvest?label=download&color=3b86dd)](https://github.com/4bdulllahh/GeoHarvest/releases/latest)
@@ -280,6 +280,9 @@ decisions behind it, and where each feature lives.
   choosing columns, Load from Past searches
 - [x] **v0.2.1**: search around a place, rating and reviews at most, website any/has/none,
   opening hours, owners' names, Columns, CRM exports, Copy for Google Sheets, proxies, switches
+- [x] **v0.2.2**: searches in three steps, the best leads shared fairly between cities and
+  business types, reasons when a search comes up short, a business-type list, LinkedIn
+  from websites, hidden addresses fixed
 - [ ] **Ideas for later**: more languages in the app, emails from Facebook pages, a map view of
   results, and a Mac version
 
