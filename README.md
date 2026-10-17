@@ -63,7 +63,8 @@ subscription, nothing to pay: everything runs on your own computer.
   - **Opening hours**: open now, open 24 hours, open on weekends, or open on a day and time you
     pick, each in the business's own time zone.
   - Must have a phone number, leave out closed businesses, leave out businesses you found in
-    earlier searches, and keep the best as many leads as you want, shared fairly between your cities and business types.
+    earlier searches, and keep only the best N leads,
+    shared fairly between your cities and business types.
 - **Only the details you need.** Switch off any column before a search (Details to include)
   or after it (Columns). Exports contain only the columns that are on.
 - **Smart mode (optional).** Connect an AI and describe your ideal customer in plain words. The
