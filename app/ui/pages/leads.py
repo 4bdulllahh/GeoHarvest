@@ -10,7 +10,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMenu,
                              QScrollArea, QVBoxLayout, QWidget)
 
-from app.core import db, exporter
+from app.core import db, exporter, prefs
 from app.core import search as searches
 from app.core.exporter import LINK_COLUMNS
 from app.core.places import FIELD_GROUPS, FIELDS, HEADERS
@@ -269,7 +269,8 @@ class LeadsPage(Page):
         self.search_ids = {}
         labels = [ALL]
         for item in searches.all_searches():
-            label = f"{item['title']}  ({item['leads']:,} leads, {item['created'][:10]})"
+            label = f"{item['title']}  ({item['leads']:,} leads, " \
+                    f"{prefs.format_date(item['created'])})"
             self.search_ids[label] = item["id"]
             labels.append(label)
         current = next((lab for lab, sid in self.search_ids.items() if sid == self.current_id), ALL)

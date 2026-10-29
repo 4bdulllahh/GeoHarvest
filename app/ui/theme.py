@@ -405,6 +405,7 @@ ICONS = {
     "search": ("", "⌕"),
     "leads": ("", "☰"),
     "history": ("", "↺"),
+    "guide": ("", "?"),
     "smart": ("", "✦"),
     "settings": ("", "⚙"),
     "refresh": ("", "↻"),

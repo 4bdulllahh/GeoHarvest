@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -12,7 +13,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QAbstractItemView, QFileDialog, QListWidget, QListWidgetItem,
                              QVBoxLayout, QWidget)
 
-from app.core import credentials, db, prefs, scraper, themes
+from app.core import backup, credentials, db, prefs, scraper, themes
 from app.i18n import t
 from app.services import updater
 from app.ui import scrolling, theme
@@ -34,6 +35,7 @@ class SettingsPage(Page):
         layout = body.body_layout
 
         layout.addWidget(self._appearance_section())
+        layout.addWidget(self._everyday_section())
 
         speed = Section("Search speed",
                         "How many cities GeoHarvest searches at the same time.")
@@ -72,13 +74,7 @@ class SettingsPage(Page):
                                          lambda: open_url(config.REPO_URL)), None))
         layout.addWidget(updates)
 
-        data = Section("Your data",
-                       "Searches, leads, settings and your encrypted AI key are kept on this "
-                       "computer only, in your user folder. Updating GeoHarvest never touches them.")
-        data.add(row(secondary_button("Open the data folder",
-                                      lambda: os.startfile(config.DATA_DIR)),  # noqa: S606
-                     danger_button("Delete all searches and leads...", self.delete_all), None))
-        layout.addWidget(data)
+        layout.addWidget(self._data_section())
 
         if updater.uninstaller():
             remove = Section("Uninstall", "Remove GeoHarvest from this computer.")
@@ -97,10 +93,132 @@ class SettingsPage(Page):
                         "GeoHarvest's code is MIT licensed, and this download, which includes "
                         "PyQt6, is distributed under the GNU GPL v3. It comes with no warranty. "
                         "Not affiliated with Google."))
-        about.add(row(secondary_button("Open the licenses", self.open_licenses),
-                      secondary_button("Source code", lambda: open_url(config.REPO_URL)), None))
+        about.add(wrap_row(
+            secondary_button("Report a problem or suggest an idea",
+                             lambda: open_url(f"{config.REPO_URL}/issues/new")),
+            secondary_button("Open the licenses", self.open_licenses),
+            secondary_button("Source code", lambda: open_url(config.REPO_URL))))
         layout.addWidget(about)
         layout.addStretch(1)
+
+    # --- everyday ------------------------------------------------------------
+    def _everyday_section(self) -> Section:
+        section = Section("Everyday use")
+        start = FormRow("First page when GeoHarvest opens")
+        start.add(ChoiceButtons(prefs.START_PAGES, prefs.get("start_page"),
+                                on_change=lambda key: db.set_setting("start_page", key)))
+        section.add(start)
+        dates = FormRow("Dates", "How dates look in the lists. Excel files keep the full date.")
+        dates.add(ChoiceButtons([(key, label) for key, (label, _) in prefs.DATE_FORMATS.items()],
+                                prefs.get("date_format"),
+                                on_change=lambda key: db.set_setting("date_format", key)))
+        section.add(dates)
+        times = FormRow("Times")
+        times.add(ChoiceButtons(list(prefs.TIME_FORMATS.items()), prefs.get("time_format"),
+                                on_change=lambda key: db.set_setting("time_format", key)))
+        section.add(times)
+        tell = FormRow("When a search finishes", "Only while you are in another window, so a "
+                                                 "long search can run in the background.")
+        tell.add(checkbox("Show a Windows notification and flash the taskbar button",
+                          bool(prefs.get("notify_done")),
+                          on_change=lambda on: db.set_setting("notify_done", bool(on))))
+        section.add(tell)
+        return section
+
+    # --- your data ------------------------------------------------------------
+    def _data_section(self) -> Section:
+        data = Section("Your data",
+                       "Searches, leads, presets, settings and your encrypted AI key are kept on "
+                       "this computer only, in your user folder. Updating GeoHarvest never "
+                       "touches them.")
+        saves = FormRow("Backups", "A backup holds your searches, leads, presets and settings, "
+                                   "to keep somewhere safe or move to another computer. Your AI "
+                                   "key and proxies aren't in it: they are encrypted for this "
+                                   "Windows account only, so you type them in again there.")
+        saves.add(wrap_row(primary_button("Back up...", self._backup),
+                           secondary_button("Restore from a backup...", self._restore),
+                           secondary_button("Open the backups folder", self._open_backups)))
+        saves.add(checkbox("Back up by itself once a week (keeps the last 4)",
+                           bool(db.get_setting("auto_backup", True)),
+                           on_change=lambda on: db.set_setting("auto_backup", bool(on))))
+        last = backup.last_backup()
+        saves.add(hint(t("Last backup: {when}", when=prefs.format_datetime(last)) if last
+                       else t("No backup yet.")))
+        data.add(saves)
+        data.add(wrap_row(
+            secondary_button("Open the data folder",
+                             lambda: os.startfile(config.DATA_DIR)),  # noqa: S606
+            secondary_button("Forget saved keys...", self._forget_keys),
+            danger_button("Delete all searches and leads...", self.delete_all)))
+        return data
+
+    def _backup(self) -> None:
+        target, _filter = QFileDialog.getSaveFileName(
+            self, t("Save a backup of GeoHarvest"),
+            str(Path.home() / "Documents" / backup.default_name()),
+            t("GeoHarvest backup (*.ghbackup)"))
+        if not target:
+            return
+
+        def done(path: Path) -> None:
+            db.set_setting("last_backup", db.now())
+            self.notify(t("Backup saved: {name}", name=path.name), "success", 6000)
+
+        Task(backup.write_backup, target).start(
+            on_result=self.guard(done),
+            on_error=self.guard(lambda message: self.notify(
+                t("The backup couldn't be saved: {message}", message=message), "error", 8000)))
+
+    def _open_backups(self) -> None:
+        backup.folder().mkdir(parents=True, exist_ok=True)
+        os.startfile(backup.folder())  # noqa: S606
+
+    def _restore(self) -> None:
+        reason = self.window_.busy_page_reason()
+        if reason:
+            self.notify(t("Wait until {reason} has finished, then restore.", reason=reason),
+                        "warn", 6000)
+            return
+        source, _filter = QFileDialog.getOpenFileName(
+            self, t("Choose a GeoHarvest backup"), str(backup.folder()),
+            t("GeoHarvest backup (*.ghbackup);;All files (*.*)"))
+        if not source:
+            return
+        if not backup.is_backup(source):
+            self.notify("That file isn't a GeoHarvest backup.", "error", 6000)
+            return
+        if not ConfirmDialog.ask(
+                self, "Restore this backup?",
+                "Everything in GeoHarvest is replaced with what is in the backup: searches, "
+                "leads, presets and settings. What is there now is saved as a backup first, in "
+                "the backups folder, so you can go back.", "Restore", danger=True):
+            return
+        try:
+            backup.restore_backup(source)
+        except (OSError, sqlite3.Error) as error:
+            self.notify(t("The backup couldn't be restored: {error}", error=error), "error", 8000)
+            return
+        window = self.window_
+        theme.apply_preferences()  # the backup's theme, text size and menu
+        scrolling.set_smooth(bool(prefs.get("smooth_scroll")))
+        window._rebuild()  # this page goes too: nothing below may touch self
+        window.apply_nav_order()
+        window.refresh_status()
+        window.notify("Backup restored.", "success", 6000)
+
+    def _forget_keys(self) -> None:
+        if not ConfirmDialog.ask(
+                self, "Forget saved keys?",
+                "Your AI keys (for every AI) and your proxies are deleted from this computer. "
+                "Smart mode needs a key again before it can score leads.", "Forget them",
+                danger=True):
+            return
+        credentials.clear_all()
+        self.proxies.clear()
+        smart = self.window_.page("smart")
+        if smart is not None:
+            smart.key.clear()
+        self.notify("Saved keys and proxies forgotten.", "success")
 
     # --- appearance (from HomingPigeon) --------------------------------------
     def _appearance_section(self) -> Section:

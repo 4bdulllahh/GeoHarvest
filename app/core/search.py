@@ -54,6 +54,47 @@ DEFAULT_OPTIONS = {
 }
 
 
+# What a saved preset leaves out: the business types and places are the search itself
+PRESET_SKIPS = ("niches", "where", "area_place", "area_km", "area_lat", "area_lng", "countries",
+                "cities", "city_count")
+
+
+def presets() -> dict[str, dict]:
+    """The user's own requirement presets, by name, in the order they were saved."""
+    return dict(db.get_setting("requirement_presets", {}) or {})
+
+
+def save_preset(name: str, options: dict) -> None:
+    saved = presets()
+    saved.pop(name, None)  # saving over one moves it to the end
+    saved[name] = {k: v for k, v in options.items() if k not in PRESET_SKIPS}
+    db.set_setting("requirement_presets", saved)
+
+
+def delete_preset(name: str) -> None:
+    saved = presets()
+    saved.pop(name, None)
+    db.set_setting("requirement_presets", saved)
+
+
+# For the estimate on the form: Google lists up to 120 businesses per search (6 pages of 20),
+# often fewer; one page takes about a second; a website visit about 4 s, 16 at a time
+LISTED_PER_SEARCH = 120
+SECONDS_PER_SEARCH = 6
+SECONDS_PER_VISIT = 4
+VISITS_AT_ONCE = 16
+
+
+def estimate(searches: int, parallel: int, visit_websites: bool) -> tuple[int, int, int]:
+    """(up to how many businesses, fewest minutes, most minutes): a rough guide only."""
+    listed = searches * LISTED_PER_SEARCH
+    seconds = searches * SECONDS_PER_SEARCH / max(1, parallel)
+    if visit_websites:  # about half the businesses listed have a website worth visiting
+        seconds += listed / 2 * SECONDS_PER_VISIT / VISITS_AT_ONCE
+    minutes = seconds / 60
+    return listed, max(1, round(minutes / 2)), max(1, round(minutes * 1.5))
+
+
 def options_with_defaults(options: dict) -> dict:
     merged = {**DEFAULT_OPTIONS, **options}
     if merged.pop("country", None) and not options.get("countries"):  # saved before 0.1

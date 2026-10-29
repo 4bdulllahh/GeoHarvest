@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHBoxLayout, QSpinBox, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QInputDialog, QMenu, QSpinBox, QVBoxLayout, QWidget
 
 from app.core import db, geo, hours, scraper
 from app.core import search as searches
@@ -11,7 +11,8 @@ from app.ui.pages.base import Page
 from app.core.places import FIELD_GROUPS, HEADERS, RECORD_FIELDS
 from app.ui.widgets.common import (Card, Columns, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
                                    confirm_button, danger_button, flow_row, hint, muted, row,
-                                   secondary_button, select_button)
+                                   secondary_button, select_button, clear_layout, wrap_row)
+from app.ui.widgets.dialogs import ConfirmDialog
 from app.ui.widgets.checklist import CheckList
 from app.ui.widgets.inputs import combo, line_edit
 from app.ui.widgets.range_slider import RangeSlider
@@ -142,9 +143,13 @@ class SearchPage(Page):
                         "Click a requirement to switch it on (highlighted) or off (greyed out). "
                         "Only businesses that meet every one you switch on become leads.")
         self.use_case_row = FormRow("Quick setup", "Sets the requirements below for a common "
-                                                   "job. Change anything afterwards.")
-        self.use_case_row.add(row(*[small_button(label, lambda _c=False, k=key: self._use_case(k))
-                                    for key, label in searches.USE_CASE_NAMES], None))
+                                                   "job, or to one of your own presets. Change "
+                                                   "anything afterwards.")
+        self.quick_holder = QWidget()
+        self.quick_holder.setProperty("role", "plain")
+        QVBoxLayout(self.quick_holder).setContentsMargins(0, 0, 0, 0)
+        self.use_case_row.add(self.quick_holder)
+        self._fill_quick_setup()
         which.add(self.use_case_row)
 
         age_row = FormRow("Company age",
@@ -289,6 +294,8 @@ class SearchPage(Page):
                         stretch=0))
         layout.addWidget(details)
         self.find_emails.toggled.connect(self._website_details)
+        self.find_emails.toggled.connect(lambda _on: self._update_plan())
+        self.min_leads.valueChanged.connect(lambda _value: self._update_plan())
         self._website_details(self.find_emails.isChecked())
         layout.addStretch(1)
 
@@ -385,17 +392,32 @@ class SearchPage(Page):
             count = len(searches.build_queries({
                 "niches": niches, "where": "area", "area_place": self.area_place.text(),
                 "area_km": self.area_km.value()}))
-            self.plan.setText(f"{count:,} searches (the area is covered in small map views, one "
-                              "search per view and business type)." if count else "")
-            return
-        count = len(searches.build_queries({
-            "niches": niches, "countries": self._chosen_countries(),
-            "cities": self.cities.checked()})) if self.cities.checked() else 0
-        countries, cities = len(self._chosen_countries()), len(self.cities.checked())
-        self.plan.setText(f"{countries} {'country' if countries == 1 else 'countries'}, "
-                          f"{cities:,} {'city' if cities == 1 else 'cities'} chosen: "
-                          f"{count:,} searches (one per city and business type)."
-                          if count else "")
+            text = (f"{count:,} searches (the area is covered in small map views, one "
+                    "search per view and business type).")
+        else:
+            count = len(searches.build_queries({
+                "niches": niches, "countries": self._chosen_countries(),
+                "cities": self.cities.checked()})) if self.cities.checked() else 0
+            countries, cities = len(self._chosen_countries()), len(self.cities.checked())
+            text = (f"{countries} {'country' if countries == 1 else 'countries'}, "
+                    f"{cities:,} {'city' if cities == 1 else 'cities'} chosen: "
+                    f"{count:,} searches (one per city and business type).")
+        self.plan.setText(f"{text} {self._estimate(count)}" if count else "")
+
+    def _estimate(self, count: int) -> str:
+        """The live estimate under the places: a rough guide to size and time."""
+        if not hasattr(self, "find_emails"):  # still building the form
+            return ""
+        visits = self.find_emails.isChecked()
+        listed, low, high = searches.estimate(count, int(db.get_setting("parallel_searches", 4)),
+                                              visits)
+        span = t("about {low} minutes", low=low) if low == high else \
+            t("{low} to {high} minutes", low=low, high=high)
+        text = t("Rough estimate: up to {listed:,} businesses, {span}", listed=listed, span=span)
+        text += t(" with the website visits.") if visits else "."
+        if self.min_leads.value():
+            text += " " + t("Asking for a minimum can make it search deeper and take longer.")
+        return text
 
     def _tick_details(self, on: bool) -> None:
         for box in self.detail_boxes.values():
@@ -434,6 +456,60 @@ class SearchPage(Page):
         self.load_options({**self.options(), **searches.USE_CASES[key]})
         self.notify(t("Requirements set for {job}. Change anything you like.",
                       job=t(dict(searches.USE_CASE_NAMES)[key]).lower()), "success")
+
+    # --- presets -------------------------------------------------------------
+    def _fill_quick_setup(self) -> None:
+        layout = self.quick_holder.layout()
+        clear_layout(layout)
+        buttons = [small_button(label, lambda _c=False, k=key: self._use_case(k))
+                   for key, label in searches.USE_CASE_NAMES]
+        for name in searches.presets():
+            button = small_button(name, lambda _c=False, n=name: self._use_preset(n))
+            button.setToolTip(t("Your preset. Right-click to delete it."))
+            button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            button.customContextMenuRequested.connect(
+                lambda _pos, n=name, b=button: self._preset_menu(n, b))
+            buttons.append(button)
+        save = small_button("Save as a preset...", self._save_preset)
+        save.setToolTip(t("Keep everything on this form except the business types and places, "
+                          "to use again with one click"))
+        layout.addWidget(wrap_row(*buttons, save))
+
+    def _use_preset(self, name: str) -> None:
+        preset = searches.presets().get(name)
+        if preset is None:
+            return
+        self.load_options({**self.options(), **preset})
+        self.notify(t("Requirements set from your preset {name}.", name=name), "success")
+
+    def _save_preset(self) -> None:
+        name, ok = QInputDialog.getText(
+            self, t("Save as a preset"),
+            t("A name for these requirements and details. The business types and places "
+              "aren't saved, so the preset works for any search."))
+        name = " ".join(name.split())[:40]
+        if not ok or not name:
+            return
+        if name in searches.presets() and not ConfirmDialog.ask(
+                self, "Replace the preset?",
+                t("You already have a preset called {name}. Replace it?", name=name), "Replace"):
+            return
+        searches.save_preset(name, self.options())
+        self._fill_quick_setup()
+        self.notify(t("Saved the preset {name}. It is under Quick setup.", name=name), "success")
+
+    def _preset_menu(self, name: str, button) -> None:
+        menu = QMenu(self)
+        menu.addAction(t("Use it"), lambda: self._use_preset(name))
+        menu.addAction(t("Delete this preset"), lambda: self._delete_preset(name))
+        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def _delete_preset(self, name: str) -> None:
+        if ConfirmDialog.ask(self, "Delete this preset?",
+                             t("Delete {name}? Searches you ran with it are not affected.",
+                               name=name), "Delete", danger=True):
+            searches.delete_preset(name)
+            self._fill_quick_setup()
 
     def on_show(self) -> None:
         ready = bool(db.get_setting("ai_provider", ""))
@@ -658,6 +734,11 @@ class SearchPage(Page):
         leads_page = self.window_.page("leads")
         if leads_page is not None:
             leads_page.select_search(self.search_id)
+        if result["blocked"] or result.get("ai_error") or result["status"] == "done":
+            self.window_.tell_user(t("Search finished") if result["status"] == "done" else
+                                   t("Search paused"),
+                                   t("{found:,} leads for {title}.", found=found,
+                                     title=searches.title(searches.get(self.search_id)["options"])))
         if result["blocked"]:
             self.status.setText(f"Paused: Google is limiting requests. The {found:,} leads so "
                                 "far are in Leads.")

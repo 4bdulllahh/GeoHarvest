@@ -635,6 +635,46 @@ def test_crm_and_sheets_export(tmp_path):
                                  "'=Acme\t'+971 4 555 0100\tline one two"]
 
 
+def test_backup_restore_and_weekly(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from app import config
+    from app.core import backup
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "data")
+    first = searches.create({"niches": ["cafe"]})
+    saved = backup.write_backup(tmp_path / "mine.ghbackup")
+    assert backup.is_backup(saved) and not backup.is_backup(tmp_path / "nothing.ghbackup")
+    searches.delete(first)
+    safety = backup.restore_backup(saved)
+    assert searches.get(first)["options"]["niches"] == ["cafe"]  # back again
+    assert backup.is_backup(safety)  # what was there before is kept
+    # Weekly: once per 7 days, the newest 4 kept
+    start = datetime(2026, 1, 1)
+    made = [backup.auto_backup(start + timedelta(days=day)) for day in range(0, 60, 3)]
+    assert sum(1 for path in made if path) == 7  # days 0, 9, 18 ... 54
+    assert len(list(backup.folder().glob(f"{backup.AUTO_NAME} *"))) == backup.AUTO_KEEP
+    db.set_setting("auto_backup", False)
+    assert backup.auto_backup(start + timedelta(days=400)) is None
+
+
+def test_presets_and_estimate():
+    options = searches.options_with_defaults({"niches": ["gym"], "cities": ["Oslo, Norway"],
+                                              "require_email": True, "min_leads": 50})
+    searches.save_preset("Cold email", options)
+    preset = searches.presets()["Cold email"]
+    assert preset["require_email"] and preset["min_leads"] == 50
+    assert not set(searches.PRESET_SKIPS) & set(preset)  # never the types or places
+    searches.save_preset("Calls", options)
+    searches.save_preset("Cold email", options)  # saving again moves it to the end
+    assert list(searches.presets()) == ["Calls", "Cold email"]
+    searches.delete_preset("Calls")
+    assert list(searches.presets()) == ["Cold email"]
+    listed, low, high = searches.estimate(10, 4, visit_websites=True)
+    assert listed == 1200 and 1 <= low <= high
+    assert searches.estimate(10, 4, False)[2] < high  # website visits take longer
+
+
 def test_found_exported_and_show_filters():
     from app.ui.widgets.leads_model import SHOW_MENU, SHOWS, SORT_MENU, SORTS
 

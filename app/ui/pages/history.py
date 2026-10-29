@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
+from app.core import prefs
 from app.core import search as searches
 from app.ui.pages.base import Page
 from app.ui.widgets.common import Card, danger_button, hint, primary_button, row, secondary_button
@@ -36,8 +37,8 @@ class SearchesModel(QAbstractTableModel):
             return None
         item = self.rows[index.row()]
         return [item["title"], f"{item['leads']:,}", STATUS.get(item["status"], item["status"]),
-                item["created"].replace("T", "  ")[:17],
-                item["updated"].replace("T", "  ")[:17]][index.column()]
+                prefs.format_datetime(item["created"]),
+                prefs.format_datetime(item["updated"])][index.column()]
 
     def load(self, rows: list[dict]) -> None:
         self.beginResetModel()

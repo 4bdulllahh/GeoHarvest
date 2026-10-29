@@ -12,7 +12,8 @@ from typing import Callable
 from PyQt6.QtCore import QByteArray, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton,
-                             QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget)
+                             QScrollArea, QSizePolicy, QStackedWidget, QSystemTrayIcon,
+                             QVBoxLayout, QWidget)
 
 from app import config
 from app.core import db, prefs
@@ -26,6 +27,7 @@ NAV_ITEMS = [
     ("leads", "leads", "Leads", "Everything found", "leads", "LeadsPage"),
     ("history", "history", "Past searches", "Reopen or resume", "history", "HistoryPage"),
     ("smart", "smart", "Smart mode", "AI checks each lead", "smart", "SmartPage"),
+    ("guide", "guide", "Start here", "How it all works", "guide", "GuidePage"),
 ]
 MIN_WIDTH = 760       # the narrowest the window goes (pages stack and wrap to fit)
 COMPACT_BELOW = 1000  # narrower than this, the menu shows icons only...
@@ -141,12 +143,51 @@ class MainWindow(QMainWindow):
         self._size_to_screen()
         self._restore_geometry()
         self._register_pages()
-        self.show_page("search")
+        self.show_page(self._first_page())
 
         for sequence in (QKeySequence(Qt.Key.Key_F5), QKeySequence("Ctrl+R")):
             QShortcut(sequence, self).activated.connect(self.refresh_app)
 
         QTimer.singleShot(200, self.refresh_status)
+        QTimer.singleShot(20_000, self._auto_backup)  # well after startup, off the UI thread
+
+    def _first_page(self) -> str:
+        start = db.get_setting("start_page", None)
+        if start is None:  # never chosen: a newcomer starts with the guide
+            from app.core import search as searches
+
+            start = "search" if searches.all_searches() else "guide"
+        if start == "last":
+            start = db.get_setting("last_page", "search")
+        return start if start in self._builders else "search"
+
+    def _auto_backup(self) -> None:
+        from app.core import backup
+        from app.workers.base import Task
+
+        Task(backup.auto_backup).start()  # a failed weekly backup is retried next time
+
+    def tell_user(self, title: str, message: str) -> None:
+        """When the user is in another window: a Windows notification and a flashing taskbar
+        button, so a long search can run in the background."""
+        if self.isActiveWindow() or not prefs.get("notify_done"):
+            return
+        QApplication.alert(self)
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        tray = getattr(self, "_tray", None)
+        if tray is None:
+            tray = self._tray = QSystemTrayIcon(self.windowIcon(), self)
+            tray.messageClicked.connect(self._bring_to_front)
+            tray.activated.connect(lambda _reason: self._bring_to_front())
+        tray.show()  # Windows shows notifications from a tray icon; it goes once seen
+        tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 10_000)
+        QTimer.singleShot(30_000, tray.hide)
+
+    def _bring_to_front(self) -> None:
+        self.showNormal() if self.isMinimized() else self.show()
+        self.raise_()
+        self.activateWindow()
 
     # --- chrome -------------------------------------------------------------
     def showEvent(self, event):  # noqa: N802 - Qt naming
@@ -374,6 +415,7 @@ class MainWindow(QMainWindow):
         self.current = key
         self._nav[key].set_active(True)
         self.stack.setCurrentWidget(page)
+        db.set_setting_soft("last_page", key)
         on_show = getattr(page, "on_show", None)
         if callable(on_show):
             try:

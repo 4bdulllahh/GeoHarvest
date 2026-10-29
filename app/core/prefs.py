@@ -16,6 +16,10 @@ TEXT_SIZES = [
     ("xlarge", "Extra large", 1.3),
 ]
 
+# The first page when GeoHarvest opens ("last": wherever the user was when they closed it)
+START_PAGES = [("search", "New search"), ("leads", "Leads"), ("guide", "Start here"),
+               ("last", "The page I used last")]
+
 # (what the user sees, strftime pattern); the same as HomingPigeon's
 DATE_FORMATS = {
     "dmy": ("DD/MM/YYYY", "%d/%m/%Y"),
@@ -35,6 +39,8 @@ DEFAULTS = {
     "smooth_scroll": True,
     "date_format": DEFAULT_DATE_FORMAT,
     "time_format": DEFAULT_TIME_FORMAT,
+    "start_page": "search",
+    "notify_done": True,      # a Windows notification when a search ends in the background
     "nav_order": [],          # sidebar page keys in the user's order; [] is the original order
     "nav_hidden": [],         # sidebar pages the user switched off
 }
