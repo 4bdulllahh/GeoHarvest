@@ -667,3 +667,23 @@ def test_proxies_parse_and_rotate(page):
 def test_every_column_has_a_group():
     keys = [key for _group, group_keys in places.FIELD_GROUPS for key in group_keys]
     assert sorted(keys) == sorted(key for key, _ in places.FIELDS) and len(keys) == len(set(keys))
+
+
+# --- 0.3 appearance ---------------------------------------------------------
+def test_theme_files_and_menu_order(fresh_db, tmp_path):
+    from app.core import prefs, themes
+
+    spec = themes.save_custom({**themes.PRESETS["ocean"], "name": "Mine"})
+    saved = themes.write_file(tmp_path / "mine.txt", spec)
+    assert saved.suffix == ".ghtheme" and themes.read_file(saved) == spec
+    # HomingPigeon's theme files load too
+    other = tmp_path / "hp.hptheme"
+    other.write_text(json.dumps({"homingpigeon_theme": 1, **spec}), encoding="utf-8")
+    assert themes.read_file(other)["name"] == "Mine"
+    other.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError):
+        themes.read_file(other)
+    assert themes.find(themes.custom_key("mine"))["accent"] == spec["accent"]
+    assert prefs.ordered(["a", "b", "c"], ["c", "gone", "a"]) == ["c", "a", "b"]
+    db.set_setting("nav_hidden", ["search", "smart"])
+    assert prefs.hidden_pages() == {"smart"}  # New search can never be hidden

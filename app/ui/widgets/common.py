@@ -150,6 +150,14 @@ def flow_row(spacing: int = 8) -> tuple[QWidget, FlowLayout]:
     return container, layout
 
 
+def wrap_row(*widgets: QWidget, spacing: int = 8) -> QWidget:
+    """A row of buttons that carries on onto a second line in a narrow window."""
+    container, layout = flow_row(spacing)
+    for widget in widgets:
+        layout.addWidget(widget)
+    return container
+
+
 class Card(QFrame):
     """A padded panel. ``kind`` picks the border: plain, danger or tinted."""
 

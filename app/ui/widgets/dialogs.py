@@ -10,6 +10,12 @@ from app.ui import theme
 from app.ui.widgets.common import danger_button, primary_button, secondary_button
 
 
+def resizable(dialog: QDialog) -> None:
+    """Let a popup be dragged bigger from its corner, or maximised, like any window."""
+    dialog.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+    dialog.setSizeGripEnabled(True)
+
+
 class ConfirmDialog(QDialog):
     def __init__(self, parent: QWidget | None, title: str, message: str,
                  confirm_text: str = "Continue", cancel_text: str = "Cancel",

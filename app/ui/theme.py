@@ -144,10 +144,61 @@ DARK_HC = dict(DARK, **{
 })
 
 
+# --- Themes from app.core.themes ---------------------------------------------
+_GRADIENT_ENDS = {"across": (1, 0), "down": (0, 1), "diagonal": (1, 1)}
+
+
+def _fill(spec: dict, place: str, solid: str) -> str:
+    """A gradient for the places the theme asks for one, else the plain colour."""
+    gradient = spec.get("gradient") or []
+    if len(gradient) != 2 or place not in spec.get("where", []):
+        return solid
+    x2, y2 = _GRADIENT_ENDS.get(spec.get("direction"), (0, 1))
+    return (f"qlineargradient(x1:0, y1:0, x2:{x2}, y2:{y2}, "
+            f"stop:0 {gradient[0]}, stop:1 {gradient[1]})")
+
+
+def derive(spec: dict) -> dict[str, str]:
+    """Every colour token, worked out from the few colours a theme names."""
+    from app.core.themes import is_dark, mix, on_colour
+
+    dark = is_dark(spec)
+    bg, side, panel, fg = spec["background"], spec["sidebar"], spec["cards"], spec["text"]
+    accent, second = spec["accent"], spec["secondary"]
+    lift = "#ffffff" if dark else "#000000"
+    return dict(
+        DARK if dark else LIGHT,
+        bg=bg, bg_sidebar=side, bg_panel=panel,
+        bg_input=mix(panel, fg, 0.07) if dark else mix(panel, "#ffffff", 0.6),
+        bg_hover=mix(panel, fg, 0.07),
+        bg_selected=mix(panel, accent, 0.2),
+        bg_console=mix(bg, "#000000", 0.18) if dark else mix(bg, fg, 0.03),
+        bg_header=mix(panel, fg, 0.05),
+        border=mix(panel, fg, 0.13),
+        border_strong=mix(panel, fg, 0.24),
+        fg=fg, fg_bright=mix(fg, lift, 0.6), fg_muted=mix(fg, panel, 0.38),
+        fg_on_accent=on_colour(accent),
+        accent=accent, accent_hover=mix(accent, lift, 0.12),
+        accent_soft=mix(panel, accent, 0.2 if dark else 0.12),
+        focus=mix(accent, lift, 0.2),
+        status_bar=mix(accent, "#000000", 0.35 if dark else 0.12),
+        info=mix(accent, lift, 0.2),
+        row_alt=mix(panel, fg, 0.03),
+        row_selected=mix(panel, accent, 0.4 if dark else 0.3),
+        row_selected_edge=accent,
+        secondary=second, secondary_hover=mix(second, fg, 0.1),
+        fill_sidebar=_fill(spec, "sidebar", side),
+        fill_page=_fill(spec, "page", bg),
+        fill_primary=_fill(spec, "buttons", accent),
+    )
+
+
 # --- Current state ----------------------------------------------------------
 # Read by widgets that paint themselves (the range slider, status icons) and by
 # anything that needs a colour as a value rather than as a stylesheet rule.
 _state = {
+    "spec": None,           # the chosen theme from app.core.themes; None for Dark and Light
+    "derived": None,        # its tokens, worked out once when it is chosen
     "appearance": "Dark",   # 'Dark', 'Light' or 'System'
     "dark": True,
     "high_contrast": False,
@@ -180,8 +231,29 @@ def system_prefers_dark() -> bool:
 
 
 def set_appearance(mode: str) -> None:
+    from app.core import themes
+
     _state["appearance"] = mode
-    _state["dark"] = system_prefers_dark() if mode == "System" else (mode == "Dark")
+    spec = themes.find(mode)
+    if spec is not None:
+        use_theme(spec)
+        return
+    _state["spec"] = _state["derived"] = None
+    # Anything not Light, such as a home-made theme that has since gone, falls back to Dark
+    _state["dark"] = system_prefers_dark() if mode == "System" else (mode != "Light")
+
+
+def use_theme(spec: dict) -> None:
+    """Paint with this theme. Also how the theme maker shows a theme while it is being made."""
+    from app.core import themes
+
+    _state["spec"] = spec
+    _state["derived"] = derive(spec)
+    _state["dark"] = themes.is_dark(spec)
+
+
+def current_spec() -> dict | None:
+    return _state["spec"]
 
 
 def set_high_contrast(enabled: bool) -> None:
@@ -211,6 +283,8 @@ def bold_text() -> bool:
 def tokens() -> dict[str, str]:
     if _state["high_contrast"]:
         return DARK_HC if _state["dark"] else LIGHT_HC
+    if _state["derived"]:
+        return _state["derived"]
     return DARK if _state["dark"] else LIGHT
 
 
@@ -234,8 +308,21 @@ def apply_preferences() -> None:
 
 
 # --- Fonts ------------------------------------------------------------------
-@lru_cache(maxsize=1)
 def ui_family() -> str:
+    """The theme's font when it has one and this computer has it, else the standard one."""
+    font = (_state["spec"] or {}).get("font")
+    if font and font in _installed_families():
+        return font
+    return _standard_family()
+
+
+@lru_cache(maxsize=1)
+def _installed_families() -> frozenset[str]:
+    return frozenset(QFontDatabase.families())
+
+
+@lru_cache(maxsize=1)
+def _standard_family() -> str:
     families = set(QFontDatabase.families())
     for name in ("Segoe UI Variable Text", "Segoe UI", "Inter", "Helvetica Neue", "Noto Sans"):
         if name in families:
@@ -383,7 +470,7 @@ QWidget {{
     font-size: {base}px;
     font-weight: {weight};
 }}
-QMainWindow, QDialog {{ background-color: {t['bg']}; }}
+QMainWindow, QDialog {{ background-color: {t.get('fill_page', t['bg'])}; }}
 QToolTip {{
     background-color: {t['bg_panel']};
     color: {t['fg']};
@@ -512,12 +599,12 @@ QPushButton {{
     font-size: {base}px;
     font-weight: {weight};
 }}
-QPushButton:hover  {{ background-color: {t['bg_hover']}; }}
+QPushButton:hover  {{ background-color: {t.get('secondary_hover', t['bg_hover'])}; }}
 QPushButton:pressed {{ background-color: {t['bg_selected']}; }}
 QPushButton:disabled {{ color: {t['fg_muted']}; border-color: {t['border']}; background: transparent; }}
 
 QPushButton[kind="primary"] {{
-    background-color: {t['accent']};
+    background-color: {t.get('fill_primary', t['accent'])};
     color: {t['fg_on_accent']};
     border: 1px solid {t['accent']};
     font-weight: {heavy};
@@ -566,7 +653,7 @@ QPushButton[choice="off"] {{
 }}
 QPushButton[choice="off"]:hover {{ background-color: {t['bg_hover']}; }}
 QPushButton[choice="on"] {{
-    background-color: {t['accent']};
+    background-color: {t.get('fill_primary', t['accent'])};
     color: {t['fg_on_accent']};
     border: 1px solid {t['accent']};
     font-weight: {heavy};
@@ -581,7 +668,7 @@ QPushButton[pick="off"] {{
 }}
 QPushButton[pick="off"]:hover {{ background-color: {t['bg_hover']}; color: {t['fg']}; }}
 QPushButton[pick="on"] {{
-    background-color: {t['accent']};
+    background-color: {t.get('fill_primary', t['accent'])};
     color: {t['fg_on_accent']};
     border: 1px solid {t['accent']};
     font-weight: {heavy};
@@ -594,7 +681,7 @@ QPushButton[pick="on"]:disabled {{  /* selected and locked (Name), not greyed ou
 }}
 
 /* ---------- sidebar ---------- */
-QFrame#Sidebar {{ background-color: {t['bg_sidebar']}; border-right: 1px solid {t['border']}; }}
+QFrame#Sidebar {{ background-color: {t.get('fill_sidebar', t['bg_sidebar'])}; border-right: 1px solid {t['border']}; }}
 QFrame#Sidebar QLabel {{ background: transparent; }}
 /* Both states carry the same 3px left edge, transparent when the entry is not
    the current one, so the icons stay on one vertical line as the highlight moves. */
@@ -678,19 +765,21 @@ QScrollBar:vertical {{
 }}
 QScrollBar::handle:vertical {{
     background: {t['border_strong']};
-    border-radius: {px(5)}px;
+    border-radius: {px(2)}px;
+    margin: 0 {px(2)}px 0 {px(5)}px;
     min-height: {px(28)}px;
 }}
-QScrollBar::handle:vertical:hover {{ background: {t['fg_muted']}; }}
+QScrollBar[hot="true"]::handle:vertical {{ background: {t['fg_muted']}; }}
 QScrollBar:horizontal {{
     background: transparent; height: {px(11)}px; margin: 0;
 }}
 QScrollBar::handle:horizontal {{
     background: {t['border_strong']};
-    border-radius: {px(5)}px;
+    border-radius: {px(2)}px;
+    margin: {px(5)}px 0 {px(2)}px 0;
     min-width: {px(28)}px;
 }}
-QScrollBar::handle:horizontal:hover {{ background: {t['fg_muted']}; }}
+QScrollBar[hot="true"]::handle:horizontal {{ background: {t['fg_muted']}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 

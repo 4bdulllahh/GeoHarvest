@@ -154,6 +154,10 @@ def main() -> int:
 
     theme.apply_preferences()
     app.setStyleSheet(theme.stylesheet())
+    from app.core import prefs
+    from app.ui import scrolling
+
+    scrolling.install(app, smooth=bool(prefs.get("smooth_scroll")))
 
     from app.ui.main_window import MainWindow
 
