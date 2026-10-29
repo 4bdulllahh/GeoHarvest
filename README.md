@@ -297,7 +297,7 @@ python tools/screenshot.py         # these README screenshots, from made-up demo
 ```
 
 Publishing a release on GitHub builds the zip and attaches it automatically
-(`.github/workflows/build.yml`). [HANDOVER.md](HANDOVER.md) explains how everything works, the
+(`.github/workflows/build.yml`). [docs/handover](docs/handover/README.md) explains how everything works, the
 decisions behind it, and where each feature lives.
 
 ## Roadmap
