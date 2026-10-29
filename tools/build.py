@@ -68,10 +68,11 @@ def build_app() -> Path:
         "--name", "GeoHarvest", "--icon", str(ROOT / "assets" / "icon.ico"),
         "--distpath", str(DIST), "--workpath", str(ROOT / "build"), "--specpath", str(ROOT / "build"),
         "--add-data", f"{ROOT / 'app' / 'data'};app/data",
+        "--add-data", f"{ROOT / 'app' / 'i18n' / 'locales'};app/i18n/locales",
         "--add-data", f"{ROOT / 'assets'};assets",
         "--hidden-import", "app.ui.pages.search", "--hidden-import", "app.ui.pages.leads",
         "--hidden-import", "app.ui.pages.history", "--hidden-import", "app.ui.pages.smart",
-        "--hidden-import", "app.ui.pages.settings",
+        "--hidden-import", "app.ui.pages.settings", "--hidden-import", "app.ui.pages.guide",
     ]
     for module in EXCLUDE:
         command += ["--exclude-module", module]

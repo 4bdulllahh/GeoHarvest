@@ -5,6 +5,7 @@ from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
 from app.core import prefs
 from app.core import search as searches
+from app.i18n import t
 from app.ui.pages.base import Page
 from app.ui.widgets.common import Card, danger_button, hint, primary_button, row, secondary_button
 from app.ui.widgets.dialogs import ConfirmDialog
@@ -28,7 +29,7 @@ class SearchesModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):  # noqa: N802
         if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            return HEADERS[section]
+            return t(HEADERS[section])
         return None
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
@@ -36,7 +37,7 @@ class SearchesModel(QAbstractTableModel):
                                                Qt.ItemDataRole.ToolTipRole):
             return None
         item = self.rows[index.row()]
-        return [item["title"], f"{item['leads']:,}", STATUS.get(item["status"], item["status"]),
+        return [item["title"], f"{item['leads']:,}", t(STATUS.get(item["status"], item["status"])),
                 prefs.format_datetime(item["created"]),
                 prefs.format_datetime(item["updated"])][index.column()]
 
@@ -97,7 +98,8 @@ class HistoryPage(Page):
         if item is None:
             return
         self.window_.ensure_page("leads").select_search(item["id"])
-        self.notify(f"Search loaded ({item['leads']:,} leads). Check the Leads tab.", "success")
+        self.notify(t("Search loaded ({leads:,} leads). Check the Leads tab.",
+                      leads=item['leads']), "success")
 
     def resume(self) -> None:
         item = self._selected()
@@ -126,8 +128,9 @@ class HistoryPage(Page):
             self.notify("That search is running. Stop it first.", "warn")
             return
         if not ConfirmDialog.ask(self, "Delete this search?",
-                                 f"'{item['title']}' and its {item['leads']:,} leads are removed "
-                                 "from GeoHarvest. Files you already exported are not touched.",
+                                 t("'{title}' and its {leads:,} leads are removed from "
+                                   "GeoHarvest. Files you already exported are not touched.",
+                                   title=item['title'], leads=item['leads']),
                                  confirm_text="Delete", danger=True):
             return
         searches.delete(item["id"])

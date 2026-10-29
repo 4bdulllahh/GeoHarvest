@@ -97,7 +97,7 @@ class SearchPage(Page):
                                    on_change=lambda _key: self._where_changed())
         where.add(self.where)
         self.countries = CheckList("Search countries")
-        self.countries.set_items([(r, f"{r} (all its countries)") for r in geo.REGIONS]
+        self.countries.set_items([(r, t("{r} (all its countries)", r=r)) for r in geo.REGIONS]
                                  + [(c, c) for c in geo.countries()], set())
         self.cities = CheckList("Search cities")
         self.extra_places: list[str] = []
@@ -329,7 +329,8 @@ class SearchPage(Page):
         self.summary = hint("")
         self.summary.hide()
         bar.add(self.summary)
-        self.more_cities_button = secondary_button(f"Add {MORE_CITIES} more cities",
+        self.more_cities_button = secondary_button(t("Add {more_cities} more cities",
+                                                     more_cities=MORE_CITIES),
                                                    self._add_cities)
         self.related_button = secondary_button("Add related business types", self._add_related)
         self.any_age_button = secondary_button("Allow any company age", self._any_age)
@@ -392,16 +393,15 @@ class SearchPage(Page):
             count = len(searches.build_queries({
                 "niches": niches, "where": "area", "area_place": self.area_place.text(),
                 "area_km": self.area_km.value()}))
-            text = (f"{count:,} searches (the area is covered in small map views, one "
-                    "search per view and business type).")
+            text = (t("{count:,} searches (the area is covered in small map views, one "
+                      "search per view and business type).", count=count))
         else:
             count = len(searches.build_queries({
                 "niches": niches, "countries": self._chosen_countries(),
                 "cities": self.cities.checked()})) if self.cities.checked() else 0
             countries, cities = len(self._chosen_countries()), len(self.cities.checked())
-            text = (f"{countries} {'country' if countries == 1 else 'countries'}, "
-                    f"{cities:,} {'city' if cities == 1 else 'cities'} chosen: "
-                    f"{count:,} searches (one per city and business type).")
+            text = t("Countries: {countries}, cities: {cities:,}. {count:,} searches (one per "
+                     "city and business type).", countries=countries, cities=cities, count=count)
         self.plan.setText(f"{text} {self._estimate(count)}" if count else "")
 
     def _estimate(self, count: int) -> str:
@@ -517,8 +517,8 @@ class SearchPage(Page):
         if not ready:
             self.smart.setChecked(False)
         self.smart_note.setText("" if ready else
-                                "Set up Smart mode first: open Smart mode in the menu and add a "
-                                "free AI key or a local model.")
+                                t("Set up Smart mode first: open Smart mode in the menu and add a "
+                                "free AI key or a local model."))
 
     def options(self) -> dict:
         place = self.area_place.text().strip()
@@ -626,19 +626,20 @@ class SearchPage(Page):
 
         def found(point) -> None:
             if point is None:
-                self.status.setText("Ready when you are.")
-                self.notify(f"Google Maps couldn't find \"{place}\". Try adding the city or "
-                            "country.", "warn", 6000)
+                self.status.setText(t("Ready when you are."))
+                self.notify(t("Google Maps couldn't find \"{place}\". Try adding the city or "
+                              "country.", place=place), "warn", 6000)
                 return
             self.located = (place, *point)
             self.start()
 
         def failed(message: str) -> None:
-            self.status.setText("Ready when you are.")
-            self.notify(f"Couldn't look up {place}: {message}", "error", 8000)
+            self.status.setText(t("Ready when you are."))
+            self.notify(t("Couldn't look up {place}: {message}",
+                          place=place, message=message), "error", 8000)
 
         self.start_button.setEnabled(False)
-        self.status.setText(f"Finding {place} on the map...")
+        self.status.setText(t("Finding {place} on the map...", place=place))
         Task(locate).start(on_result=self.guard(found), on_error=self.guard(failed),
                            on_done=self.guard(lambda: self.start_button.setEnabled(True)))
 
@@ -659,7 +660,7 @@ class SearchPage(Page):
         for tile in (self.tile_web, self.tile_email, self.tile_ai):
             tile.update_value("-")
         self.limit = limit
-        self.tile_best.update_value(f"- of {limit:,}" if limit else "-")
+        self.tile_best.update_value(t("- of {limit:,}", limit=limit) if limit else "-")
         self.tile_ai.setVisible(bool(record["options"]["smart"]))
 
         self.worker = ScrapeWorker(search_id)
@@ -673,20 +674,20 @@ class SearchPage(Page):
         self.worker.signals.finished.connect(self._on_finished)
         self.worker.signals.failed.connect(self._on_failed)
         self._set_running(True)
-        self.status.setText(f"Starting: {self.title}")
+        self.status.setText(t("Starting: {title}", title=self.title))
         self.worker.start()
 
     def stop(self) -> None:
         if self.worker is not None:
             self.worker.stop()
             self.stop_button.setEnabled(False)
-            self.stop_button.setText("Stopping...")
+            self.stop_button.setText(t("Stopping..."))
 
     def _set_running(self, running: bool) -> None:
         self.start_button.setVisible(not running)
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(True)
-        self.stop_button.setText("Stop")
+        self.stop_button.setText(t("Stop"))
         self.open_button.setVisible(True)
         self.summary.hide()
         self.widen.hide()
@@ -694,43 +695,47 @@ class SearchPage(Page):
         self.progress.setVisible(running)
         if running:
             self.progress.set_busy()
-        self.window_.set_status(left="Searching..." if running else "")
+        self.window_.set_status(left=t("Searching...") if running else "")
 
     # Each step drives the bar while it runs; the tiles only ever count up
     def _on_step(self, step: int) -> None:
         self.step = step
         self.progress.set_busy()
-        self.status.setText(f"Step {step} of 3: {STEPS[step]}"
-                            + (f" for {self.title}" if step == 1 else ""))
+        self.status.setText(t("Step {step} of 3: {doing} for {title}", step=step,
+                              doing=STEPS[step], title=self.title) if step == 1 else
+                            t("Step {step} of 3: {doing}", step=step, doing=STEPS[step]))
 
     def _on_found(self, fits: int, phones: int) -> None:
         self.tile_found.update_value(f"{fits:,}")
         self.tile_phone.update_value(f"{phones:,}")
 
     def _on_progress(self, done: int, total: int, _detail: str) -> None:
-        self.tile_places.update_value(f"{done:,} of {total:,}")
+        self.tile_places.update_value(t("{done:,} of {total:,}", done=done, total=total))
         if self.step == 1:
             self.progress.set_progress(done, total)
 
     def _on_checked(self, done: int, total: int, emails: int) -> None:
-        self.tile_web.update_value(f"{done:,} of {total:,}")
+        self.tile_web.update_value(t("{done:,} of {total:,}", done=done, total=total))
         self.tile_email.update_value(f"{emails:,}")
         if self.step == 2:
             self.progress.set_progress(done, total)
 
     def _on_scored(self, done: int, total: int) -> None:
-        self.tile_ai.update_value(f"{done:,} of {total:,}")
+        self.tile_ai.update_value(t("{done:,} of {total:,}", done=done, total=total))
         if self.step == 3:
             self.progress.set_progress(done, total)
 
     def _on_leads(self, count: int) -> None:
-        self.tile_best.update_value(f"{count:,} of {self.limit:,}" if self.limit else f"{count:,}")
+        self.tile_best.update_value(t("{count:,} of {limit:,}",
+                                      count=count,
+                                      limit=self.limit) if self.limit else f"{count:,}")
 
     def _on_finished(self, result: dict) -> None:
         self.worker = None
         self._set_running(False)
         found, wanted = result["found"], result["wanted"]
-        self.tile_best.update_value(f"{found:,} of {wanted:,}" if wanted else f"{found:,}")
+        self.tile_best.update_value(t("{found:,} of {wanted:,}",
+                                      found=found, wanted=wanted) if wanted else f"{found:,}")
         leads_page = self.window_.page("leads")
         if leads_page is not None:
             leads_page.select_search(self.search_id)
@@ -740,25 +745,27 @@ class SearchPage(Page):
                                    t("{found:,} leads for {title}.", found=found,
                                      title=searches.title(searches.get(self.search_id)["options"])))
         if result["blocked"]:
-            self.status.setText(f"Paused: Google is limiting requests. The {found:,} leads so "
-                                "far are in Leads.")
+            self.status.setText(t("Paused: Google is limiting requests. The {found:,} leads "
+                                  "so far are in Leads.", found=found))
             self.notify("Google asked GeoHarvest to slow down. Everything found so far is saved. "
                         "Wait about 15 minutes, then resume it from Past searches.", "warn", 10000)
         elif result.get("ai_error"):
-            self.status.setText("Smart mode stopped: " + result["ai_error"])
-            self.notify(f"Smart mode stopped: {result['ai_error']} Leads found so far are "
-                        "saved; fix it on the Smart mode page, then resume from Past searches.",
+            self.status.setText(t("Smart mode stopped: {error}", error=result["ai_error"]))
+            self.notify(t("Smart mode stopped: {ai_error} Leads found so far are saved; fix "
+                          "it on the Smart mode page, then resume from Past searches.",
+                          ai_error=result['ai_error']),
                         "warn", 10000)
         elif result["status"] == "done":
-            self.status.setText(f"Done: {found:,} leads meet your requirements, out of "
-                                f"{result['listed']:,} businesses Google listed.")
+            self.status.setText(t("Done: {found:,} leads meet your requirements, out of "
+                                  "{listed:,} businesses Google listed.",
+                                  found=found, listed=result['listed']))
             if wanted and found < wanted:
                 self._explain_shortfall(result)
             else:
-                self.notify(f"Search finished: {found:,} leads.", "success")
+                self.notify(t("Search finished: {found:,} leads.", found=found), "success")
         else:
-            self.status.setText(f"Stopped. The {found:,} leads so far are in Leads; resume it "
-                                "from Past searches.")
+            self.status.setText(t("Stopped. The {found:,} leads so far are in Leads; resume "
+                                  "it from Past searches.", found=found))
         self.window_.search_finished.emit(self.search_id)
         self.window_.refresh_status()
 
@@ -767,11 +774,11 @@ class SearchPage(Page):
         reasons = ", ".join(f"{count:,} {reason}" for reason, count in
                             list(result["dropped"].items())[:5])
         self.summary.setText(
-            f"Only {result['found']:,} of the {result['wanted']:,} leads you asked for, after "
-            f"searching deeper inside every city: Google listed {result['listed']:,} businesses "
-            "in these places"
-            + (f", and left out were: {reasons}." if reasons else ".")
-            + " Widen the search below; it carries on from where it is.")
+            t("Only {found:,} of the {wanted:,} leads you asked for, after searching deeper "
+              "inside every city: Google listed {listed:,} businesses in these places",
+              found=result['found'], wanted=result['wanted'], listed=result['listed'])
+            + (t(", and left out were: {reasons}.", reasons=reasons) if reasons else ".")
+            + " " + t("Widen the search below; it carries on from where it is."))
         options = searches.get(self.search_id)["options"]
         self.more_cities_button.setVisible(bool(self._spare_cities(options)))
         self.related_button.setVisible(bool(searches.related_types(options["niches"])))
@@ -780,8 +787,8 @@ class SearchPage(Page):
         self.summary.show()
         self.widen.setVisible(any(button.isVisibleTo(self.widen) for button in (
             self.more_cities_button, self.related_button, self.any_age_button)))
-        self.notify(f"Search finished with {result['found']:,} of {result['wanted']:,} leads. "
-                    "See why below.", "warn", 6000)
+        self.notify(t("Search finished with {found:,} of {wanted:,} leads. See why below.",
+                      found=result['found'], wanted=result['wanted']), "warn", 6000)
 
     @staticmethod
     def _spare_cities(options: dict) -> list[str]:
@@ -819,8 +826,8 @@ class SearchPage(Page):
         self._set_running(False)
         if self.search_id is not None:
             searches.set_status(self.search_id, "stopped")
-        self.status.setText("The search stopped because of an error.")
-        self.notify(f"The search stopped: {message}", "error", 8000)
+        self.status.setText(t("The search stopped because of an error."))
+        self.notify(t("The search stopped: {message}", message=message), "error", 8000)
 
     def open_leads(self) -> None:
         self.window_.show_page("leads")

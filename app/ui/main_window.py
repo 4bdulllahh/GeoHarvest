@@ -461,9 +461,9 @@ class MainWindow(QMainWindow):
     def set_status(self, left: str | None = None, middle: str | None = None) -> None:
         """Pages report what is going on (a scrape running, say) through here."""
         if left is not None:
-            self.status_left.setText(left)
+            self.status_left.setText(t(left))
         if middle is not None:
-            self.status_middle.setText(middle)
+            self.status_middle.setText(t(middle))
 
     def refresh_status(self) -> None:
         row = db.query_one("SELECT COUNT(*) AS n FROM leads")
@@ -520,6 +520,28 @@ class MainWindow(QMainWindow):
         db.set_setting("bold_text", enabled)
         theme.set_bold_text(enabled)
         self.apply_theme()
+
+    def change_language(self, code: str) -> None:
+        """Switch every word in the app, and the reading direction for Arabic.
+
+        Text is translated as widgets are built, so the window is rebuilt the
+        same way a text size change rebuilds it. Nothing typed and saved is lost.
+        """
+        from app import i18n
+
+        reason = self.busy_page_reason()
+        if reason:
+            toast(self, t("The language can be changed once {reason} has finished.",
+                          reason=reason), "warn", 6000)
+            return
+        db.set_setting("language", code)
+        i18n.set_language(code)
+        direction = (Qt.LayoutDirection.RightToLeft if i18n.is_rtl()
+                     else Qt.LayoutDirection.LeftToRight)
+        QApplication.instance().setLayoutDirection(direction)
+        self.setLayoutDirection(direction)
+        self.setWindowTitle(f"{config.APP_TITLE} {config.APP_VERSION}  ·  {t(config.APP_TAGLINE)}")
+        self._rebuild()
 
     def change_text_size(self, key: str) -> None:
         """Text size changes metrics, so built pages are discarded and rebuilt."""

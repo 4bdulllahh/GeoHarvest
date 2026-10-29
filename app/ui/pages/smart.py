@@ -4,6 +4,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QLineEdit, QSpinBox
 
 from app.core import ai, credentials, db
+from app.i18n import t
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (ChoiceButtons, FormRow, Section, danger_button, ghost_button,
                                    hint, muted, open_url, primary_button, row, secondary_button)
@@ -99,7 +100,7 @@ class SmartPage(Page):
         provider = ai.BY_KEY[key]
         self.note.setText(provider.note)
         self.key_link.setVisible(bool(provider.key_url))
-        self.key_link.setText("Get a free key" if "Free" in provider.note and provider.needs_key
+        self.key_link.setText(t("Get a free key") if "Free" in provider.note and provider.needs_key
                               else "Get a key" if provider.needs_key else "Download")
         self.key_row.setVisible(provider.kind != "openai" or provider.needs_key
                                 or key == "custom")
@@ -116,7 +117,7 @@ class SmartPage(Page):
     def _toggle_key(self) -> None:
         hidden = self.key.echoMode() == QLineEdit.EchoMode.Password
         self.key.setEchoMode(QLineEdit.EchoMode.Normal if hidden else QLineEdit.EchoMode.Password)
-        self.show_key.setText("Hide" if hidden else "Show")
+        self.show_key.setText(t("Hide") if hidden else t("Show"))
 
     def _form_config(self) -> dict:
         provider = self._current()
@@ -134,30 +135,30 @@ class SmartPage(Page):
         cfg = ai.settings()
         self.off_button.setEnabled(cfg is not None)
         if cfg is None:
-            self.status.setText("Smart mode is off. Set it up above, then press Save and test.")
+            self.status.setText(t("Smart mode is off. Set it up above, then press Save and test."))
         else:
-            self.status.setText(f"Smart mode is on: {ai.BY_KEY[cfg['provider']].name}, "
-                                f"model {cfg['model']}. Switch on 'Smart mode' on the New search page "
-                                "to use it.")
+            self.status.setText(t("Smart mode is on: {name}, model {model}. Switch on 'Smart "
+                                  "mode' on the New search page to use it.",
+                                  name=ai.BY_KEY[cfg['provider']].name, model=cfg['model']))
 
     # --- actions ------------------------------------------------------------
     def load_models(self) -> None:
         cfg = self._form_config()
         self.load_button.setEnabled(False)
-        self.load_button.setText("Loading...")
+        self.load_button.setText(t("Loading..."))
 
         def done(models: list) -> None:
             typed = self.model.lineEdit().text()
             self.model.clear()
             self.model.addItems(models)
             self.model.lineEdit().setText(typed if typed in models or not models else models[0])
-            self.notify(f"{len(models)} models available." if models else
+            self.notify(t("{count} models available.", count=len(models)) if models else
                         "No models found. Is a model downloaded and loaded?",
                         "success" if models else "warn")
 
         def finish() -> None:
             self.load_button.setEnabled(True)
-            self.load_button.setText("Load models")
+            self.load_button.setText(t("Load models"))
 
         Task(ai.list_models, cfg).start(on_result=self.guard(done),
                                         on_error=self.guard(lambda m: self.notify(m, "error", 8000)),
@@ -178,16 +179,17 @@ class SmartPage(Page):
     def save_and_test(self) -> None:
         cfg = self.save()
         self.save_button.setEnabled(False)
-        self.status.setText("Testing: asking the AI to score a sample business...")
+        self.status.setText(t("Testing: asking the AI to score a sample business..."))
 
         def done(result: dict) -> None:
-            self.status.setText(f"Working. The AI scored a sample dental clinic "
-                                f"{result['ai_score']} ({result['ai_verdict']}): "
-                                f"{result['ai_reason']}")
+            self.status.setText(t("Working. The AI scored a sample dental clinic {ai_score} "
+                                  "({ai_verdict}): {ai_reason}",
+                                  ai_score=result['ai_score'], ai_verdict=result['ai_verdict'],
+                                  ai_reason=result['ai_reason']))
             self.notify("Smart mode is working.", "success")
 
         def failed(message: str) -> None:
-            self.status.setText(f"Saved, but the test failed: {message}")
+            self.status.setText(t("Saved, but the test failed: {message}", message=message))
             self.notify(message, "error", 8000)
 
         Task(ai.test, cfg).start(on_result=self.guard(done), on_error=self.guard(failed),

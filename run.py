@@ -150,11 +150,19 @@ def main() -> int:
             app.setWindowIcon(QIcon(str(path)))
             break
 
+    from PyQt6.QtCore import QLocale
+
+    from app import i18n
+    from app.core import prefs
+
+    i18n.set_language(prefs.language(QLocale.system().name()))
+    app.setLayoutDirection(Qt.LayoutDirection.RightToLeft if i18n.is_rtl()
+                           else Qt.LayoutDirection.LeftToRight)
+
     from app.ui import theme
 
     theme.apply_preferences()
     app.setStyleSheet(theme.stylesheet())
-    from app.core import prefs
     from app.ui import scrolling
 
     scrolling.install(app, smooth=bool(prefs.get("smooth_scroll")))

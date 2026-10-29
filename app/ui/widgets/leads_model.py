@@ -12,6 +12,7 @@ from app.core import prefs
 from app.core.enrich import STARTUP_YEARS
 from app.core.places import FIELDS
 from app.core.search import SOCIALS, has_link
+from app.i18n import t
 from app.ui import theme
 
 NUMERIC = {"quality", "rating", "reviews", "latitude", "longitude", "ai_score"}
@@ -91,7 +92,7 @@ class LeadsModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):  # noqa: N802
         if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            return self.headers[section]
+            return t(self.headers[section])
         return None
 
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
@@ -203,14 +204,16 @@ class LeadsProxy(QSortFilterProxyModel):
             return False
         if self._rating:
             rating = lead.get("rating")
-            if not isinstance(rating, (int, float)) or                     not self._rating[0] <= rating <= self._rating[1]:
+            if not isinstance(rating, (int, float)) or \
+                    not self._rating[0] <= rating <= self._rating[1]:
                 return False
         if self._reviews:
             count = lead.get("reviews") or 0
             if count < self._reviews[0] or (self._reviews[1] is not None
                                             and count > self._reviews[1]):
                 return False
-        if self._dates and not self._dates[0] <= str(lead.get("found") or "")[:10]                 <= self._dates[1]:
+        found = str(lead.get("found") or "")[:10]
+        if self._dates and not self._dates[0] <= found <= self._dates[1]:
             return False
         if not self._needle:
             return True

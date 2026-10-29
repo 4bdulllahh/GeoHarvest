@@ -54,7 +54,7 @@ class ColumnsDialog(QDialog):
     def __init__(self, parent: QWidget, chosen: set[str], empty: set[str], apply):
         super().__init__(parent)
         scale = theme.text_scale()
-        self.setWindowTitle("Columns")
+        self.setWindowTitle(t("Columns"))
         self.resize(round(760 * scale), round(640 * scale))
         pad = round(22 * scale)
         layout = QVBoxLayout(self)
@@ -73,7 +73,8 @@ class ColumnsDialog(QDialog):
         for group, keys in FIELD_GROUPS:
             container, flow = flow_row(spacing=14)
             for key in keys:
-                label = HEADERS[key] + (" (no data)" if key in empty else "")
+                label = t("{column} (no data)", column=t(HEADERS[key])) if key in empty \
+                    else HEADERS[key]
                 box = select_button(label, key in chosen or key == "name",
                                     on_change=lambda _on: apply(self.chosen()))
                 self.boxes[key] = box
@@ -179,15 +180,15 @@ class LeadsPage(Page):
         self.excel_button = primary_button("Export to Excel", lambda: self.export("xlsx"))
         self.csv_button = secondary_button("More exports")
         exports = QMenu(self.csv_button)
-        exports.addAction("CSV file", lambda: self.export("csv"))
+        exports.addAction(t("CSV file"), lambda: self.export("csv"))
         exports.addSeparator()
         for crm, (name, _columns) in exporter.CRMS.items():
-            exports.addAction(f"CSV for {name}", lambda c=crm: self.export(c))
+            exports.addAction(t("CSV for {name}", name=name), lambda c=crm: self.export(c))
         exports.addSeparator()
-        exports.addAction("Copy for Google Sheets", self.copy_for_sheets)
-        exports.addAction("Copy the emails shown",
+        exports.addAction(t("Copy for Google Sheets"), self.copy_for_sheets)
+        exports.addAction(t("Copy the emails shown"),
                           lambda: self._copy_contacts(self.proxy.visible_leads(), "emails"))
-        exports.addAction("Copy the phone numbers shown",
+        exports.addAction(t("Copy the phone numbers shown"),
                           lambda: self._copy_contacts(self.proxy.visible_leads(), "phones"))
         self.csv_button.setMenu(exports)
         self.columns_button = secondary_button("Columns...", self.choose_columns)
@@ -197,13 +198,13 @@ class LeadsPage(Page):
         self.score_worker = None
         self.show_button = MenuButton(SHOW_MENU, "all", prefix="Show: ",
                                       on_change=self._change_show)
-        self.show_button.setToolTip("Show only some leads, such as the ones with an email, or "
-                                    "the ones not exported yet")
+        self.show_button.setToolTip(t("Show only some leads, such as the ones with an email, or "
+                                    "the ones not exported yet"))
         self.sort_button = MenuButton(SORT_MENU, "rank", prefix="Sort: ",
                                       on_change=self._change_sort)
         self.dates = DateRange(on_change=self._change_dates,
                                labels=("Found: any date", "Found: {start} to {end}"))
-        self.dates.button.setToolTip("Show only the leads found between two dates")
+        self.dates.button.setToolTip(t("Show only the leads found between two dates"))
         self.ranges_button = select_button("Rating and reviews", on_change=self._toggle_ranges)
         self.root.addWidget(row(self.picker, self.filter, stretch=1))
         self.root.addWidget(wrap_row(self.show_button, self.sort_button, self.dates,
@@ -269,8 +270,8 @@ class LeadsPage(Page):
         self.search_ids = {}
         labels = [ALL]
         for item in searches.all_searches():
-            label = f"{item['title']}  ({item['leads']:,} leads, " \
-                    f"{prefs.format_date(item['created'])})"
+            label = t("{title}  ({leads:,} leads, {date})", title=item["title"],
+                      leads=item["leads"], date=prefs.format_date(item["created"]))
             self.search_ids[label] = item["id"]
             labels.append(label)
         current = next((lab for lab, sid in self.search_ids.items() if sid == self.current_id), ALL)
@@ -296,7 +297,7 @@ class LeadsPage(Page):
         self.delete_button.setEnabled(bool(self.current_id))
         self.score_button.setEnabled(bool(self.current_id) and self.score_worker is None)
         self.score_button.setToolTip("" if self.current_id else
-                                     "Pick one search in the list first")
+                                     t("Pick one search in the list first"))
 
     def _on_lead_updated(self, search_id: int, place_id: str, fields: dict) -> None:
         if self.current_id in (0, search_id):
@@ -332,8 +333,9 @@ class LeadsPage(Page):
 
     def _update_count(self, *_args) -> None:
         shown, total = self.proxy.rowCount(), self.model.rowCount()
-        self.count_label.setText(f"{total:,} leads" if shown == total
-                                 else f"{shown:,} of {total:,} leads shown")
+        self.count_label.setText(t("{total:,} leads", total=total) if shown == total
+                                 else t("{shown:,} of {total:,} leads shown",
+                                        shown=shown, total=total))
         has_rows = shown > 0
         self.excel_button.setEnabled(has_rows)
         self.csv_button.setEnabled(has_rows)
@@ -355,10 +357,10 @@ class LeadsPage(Page):
         if lead is None:
             return None
         menu = QMenu(self)
-        menu.addAction("Show details", lambda: self._open_row(proxy_row))
-        menu.addAction("Open in Google Maps", lambda: open_url(lead["maps_url"]))
+        menu.addAction(t("Show details"), lambda: self._open_row(proxy_row))
+        menu.addAction(t("Open in Google Maps"), lambda: open_url(lead["maps_url"]))
         if lead.get("website"):
-            menu.addAction("Open website", lambda: open_url(lead["website"]))
+            menu.addAction(t("Open website"), lambda: open_url(lead["website"]))
         menu.addSeparator()
         for key, label in (("phone", "Copy phone"), ("emails", "Copy emails"),
                            ("website", "Copy website"), ("address", "Copy address")):
@@ -369,12 +371,12 @@ class LeadsPage(Page):
         chosen = [lead for row in self.table.selected_rows() if (lead := self._lead_at(row))]
         if len(chosen) > 1:
             menu.addSeparator()
-            menu.addAction(f"Copy the emails of the {len(chosen):,} selected",
+            menu.addAction(t("Copy the emails of the {count:,} selected", count=len(chosen)),
                            lambda: self._copy_contacts(chosen, "emails"))
-            menu.addAction(f"Copy the phone numbers of the {len(chosen):,} selected",
+            menu.addAction(t("Copy the phone numbers of the {count:,} selected", count=len(chosen)),
                            lambda: self._copy_contacts(chosen, "phones"))
         menu.addSeparator()
-        menu.addAction("Delete selected", self.delete_selected)
+        menu.addAction(t("Delete selected"), self.delete_selected)
         return menu
 
     # --- show, sort, dates, rating and reviews -------------------------------
@@ -429,12 +431,15 @@ class LeadsPage(Page):
             values = [phone for lead in leads
                       if (phone := lead.get("phone_international") or lead.get("phone"))]
         values = list(dict.fromkeys(values))
-        what = "emails" if kind == "emails" else "phone numbers"
+        emails = kind == "emails"
         if not values:
-            self.notify(f"None of these leads has {what}.", "warn")
+            self.notify("None of these leads has an email." if emails else
+                        "None of these leads has a phone number.", "warn")
             return
         copy_to_clipboard("\n".join(values))
-        self.notify(f"Copied {len(values):,} {what}, one per line.", "success")
+        self.notify(t("Copied {count:,} emails, one per line." if emails else
+                      "Copied {count:,} phone numbers, one per line.", count=len(values)),
+                    "success")
 
     def _mark_exported(self, leads: list[dict]) -> None:
         today = date.today().isoformat()
@@ -451,8 +456,9 @@ class LeadsPage(Page):
         copy_to_clipboard(exporter.to_tsv(leads, self._shown_keys()))
         self._mark_exported(leads)
         open_url("https://sheets.new")
-        self.notify(f"Copied {len(leads):,} leads. A new Google Sheet is opening in your "
-                    "browser: click cell A1 and press Ctrl+V.", "success", 10000)
+        self.notify(t("Copied {count:,} leads. A new Google Sheet is opening in your "
+                      "browser: click cell A1 and press Ctrl+V.",
+                      count=len(leads)), "success", 10000)
 
     def export(self, kind: str) -> None:
         """kind: xlsx, csv, or a CRM from exporter.CRMS (a CSV in that CRM's columns)."""
@@ -463,7 +469,7 @@ class LeadsPage(Page):
         per_email = kind in exporter.ONE_ROW_PER_EMAIL
         if per_email and not any(lead.get("emails") for lead in leads):
             self.notify("None of the leads shown has an email. Pick Show: With an email, or "
-                        "search with Find emails on.", "warn", 8000)
+                        "search with Visit each website on.", "warn", 8000)
             return
         suffix = "xlsx" if kind == "xlsx" else "csv"
         title = self.picker.currentText().split("  (")[0] if self.current_id else "All leads"
@@ -471,19 +477,21 @@ class LeadsPage(Page):
         name = f"GeoHarvest - {safe}{f' - {crm[0]}' if crm else ''} - {date.today()}.{suffix}"
         default = Path.home() / "Documents" / name
         wanted = "Excel workbook (*.xlsx)" if kind == "xlsx" else "CSV file (*.csv)"
-        path, _ = QFileDialog.getSaveFileName(self, "Export leads", str(default), wanted)
+        path, _ = QFileDialog.getSaveFileName(self, t("Export leads"), str(default), wanted)
         if not path:
             return
         self.excel_button.setEnabled(False)
-        self.notify(f"Exporting {len(leads):,} leads...", "info", 2000)
+        self.notify(t("Exporting {count:,} leads...", count=len(leads)), "info", 2000)
 
         def done(count: int) -> None:
             self._mark_exported(leads)
-            self.notify(f"Saved {count:,} {'emails' if per_email else 'leads'} to "
-                        f"{Path(path).name}", "success", 6000)
+            self.notify(t("Saved {count:,} emails to {name}" if per_email else
+                          "Saved {count:,} leads to {name}", count=count, name=Path(path).name),
+                        "success", 6000)
 
         def failed(message: str) -> None:
-            self.notify(f"Could not save the file: {message}. Is it open in Excel?", "error", 8000)
+            self.notify(t("Could not save the file: {message}. Is it open in Excel?",
+                          message=message), "error", 8000)
 
         job = Task(exporter.to_crm, leads, Path(path), kind) if crm else \
             Task(exporter.export, leads, Path(path), self._shown_keys())
@@ -500,8 +508,8 @@ class LeadsPage(Page):
         leads = self.proxy.visible_leads()
         if not leads or not ConfirmDialog.ask(
                 self, "Score these leads with AI?",
-                f"The AI will read and score the {len(leads):,} leads shown, using your ideal "
-                "customer description. Leads already scored are scored again.",
+                t("The AI will read and score the {count:,} leads shown, using your ideal "
+                  "customer description. Leads already scored are scored again.", count=len(leads)),
                 confirm_text="Score them"):
             return
         search_id = self.current_id
@@ -509,20 +517,23 @@ class LeadsPage(Page):
         worker.signals.updated.connect(
             lambda pid, fields: self.window_.lead_updated.emit(search_id, pid, fields))
         worker.signals.progress.connect(
-            lambda done, total, _detail: self.score_button.setText(f"Scoring {done} of {total}"))
+            lambda done, total, _detail: self.score_button.setText(t("Scoring {done} of "
+                                                                     "{total}",
+                                                                     done=done, total=total)))
         worker.signals.message.connect(lambda text, level: self.notify(text, level))
         worker.signals.finished.connect(
-            lambda result: self.notify(f"Scored {result['scored']:,} leads.", "success"))
+            lambda result: self.notify(t("Scored {scored:,} leads.",
+                                         scored=result['scored']), "success"))
         worker.signals.failed.connect(lambda message: self.notify(message, "error", 8000))
         worker.signals.done.connect(self._scoring_done)
         self.score_worker = worker
         self.score_button.setEnabled(False)
-        self.score_button.setText("Starting...")
+        self.score_button.setText(t("Starting..."))
         worker.start()
 
     def _scoring_done(self) -> None:
         self.score_worker = None
-        self.score_button.setText("Score with AI")
+        self.score_button.setText(t("Score with AI"))
         self.score_button.setEnabled(bool(self.current_id))
 
     def busy_reason(self) -> str | None:
@@ -539,16 +550,19 @@ class LeadsPage(Page):
         many = len(leads) > 1
         where = "this search" if self.current_id else "every search that found it"
         if not ConfirmDialog.ask(
-                self, f"Delete {len(leads):,} leads?" if many else
-                f"Delete {leads[0].get('name') or 'this lead'}?",
-                f"{'They are' if many else 'It is'} removed from {where}. Files you already "
-                "exported are not touched.", confirm_text="Delete", danger=True):
+                self, t("Delete {count:,} leads?", count=len(leads)) if many else
+                t("Delete {value}?", value=leads[0].get('name') or 'this lead'),
+                t("They are removed from {where}. Files you already exported are not touched."
+                  if many else
+                  "It is removed from {where}. Files you already exported are not touched.",
+                  where=where), confirm_text="Delete", danger=True):
             return
         place_ids = [lead["place_id"] for lead in leads]
         searches.delete_leads(place_ids, self.current_id)
         for place_id in place_ids:
             self.model.remove(place_id)
-        self.notify(f"Deleted {len(leads):,} {'leads' if many else 'lead'}.", "success")
+        self.notify(t("Deleted {count:,} leads.", count=len(leads)) if many else
+                    t("Deleted 1 lead."), "success")
         self._refresh_picker()  # lead counts in the search list
         self.window_.refresh_status()
 

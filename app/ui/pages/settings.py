@@ -34,6 +34,7 @@ class SettingsPage(Page):
         body = self.scroll_body()
         layout = body.body_layout
 
+        layout.addWidget(self._language_section())
         layout.addWidget(self._appearance_section())
         layout.addWidget(self._everyday_section())
 
@@ -89,10 +90,11 @@ class SettingsPage(Page):
         layout.addWidget(fair)
 
         about = Section("About")
-        about.add(muted(f"GeoHarvest {config.APP_VERSION}, © 2026 Abdullah. Free software: "
-                        "GeoHarvest's code is MIT licensed, and this download, which includes "
-                        "PyQt6, is distributed under the GNU GPL v3. It comes with no warranty. "
-                        "Not affiliated with Google."))
+        about.add(muted(t("GeoHarvest {app_version}, © 2026 Abdullah. Free software: "
+                          "GeoHarvest's code is MIT licensed, and this download, which "
+                          "includes PyQt6, is distributed under the GNU GPL v3. It comes "
+                          "with no warranty. Not affiliated with Google.",
+                          app_version=config.APP_VERSION)))
         about.add(wrap_row(
             secondary_button("Report a problem or suggest an idea",
                              lambda: open_url(f"{config.REPO_URL}/issues/new")),
@@ -100,6 +102,20 @@ class SettingsPage(Page):
             secondary_button("Source code", lambda: open_url(config.REPO_URL))))
         layout.addWidget(about)
         layout.addStretch(1)
+
+    # --- language ------------------------------------------------------------
+    def _language_section(self) -> Section:
+        """Each language is shown in its own words, so anyone can find theirs."""
+        from app import i18n
+
+        section = Section("Language", "Changes every page, button and message straight away. "
+                                      "Arabic also turns the layout to read from right to "
+                                      "left. Business details from Google stay as Google "
+                                      "wrote them, and the columns in exported files stay in "
+                                      "English, so CRMs can read them.")
+        section.add(ChoiceButtons([(code, native) for code, native, _english in i18n.LANGUAGES],
+                                  i18n.language(), on_change=self.window_.change_language))
+        return section
 
     # --- everyday ------------------------------------------------------------
     def _everyday_section(self) -> Section:
@@ -442,20 +458,21 @@ class SettingsPage(Page):
     def save_proxies(self) -> None:
         good, bad = scraper.parse_proxies(self.proxies.toPlainText())
         if bad:
-            self.notify("These lines aren't proxies: " + ", ".join(bad[:3]) +
-                        (" and more" if len(bad) > 3 else "") + ". Fix them, then save again.",
+            self.notify(t("These lines aren't proxies: {lines}. Fix them, then save again.",
+                          lines=", ".join(bad[:3]) + (" ..." if len(bad) > 3 else "")),
                         "warn", 8000)
             return
         credentials.save_secret(scraper.PROXIES_SECRET, "\n".join(good))
         self.proxies.setPlainText("\n".join(good))
-        self.notify(f"Saved {len(good)} {'proxy' if len(good) == 1 else 'proxies'}." if good
-                    else "Proxies cleared: searches go direct.", "success")
+        self.notify(t("Saved {count} proxies.", count=len(good)) if len(good) > 1 else
+                    t("Saved 1 proxy.") if good else "Proxies cleared: searches go direct.",
+                    "success")
 
     def test_proxies(self) -> None:
         good, bad = scraper.parse_proxies(self.proxies.toPlainText())
         if bad or not good:
-            self.proxy_status.setText("Nothing to test." if not bad else
-                                      "Fix the lines that aren't proxies first.")
+            self.proxy_status.setText(t("Nothing to test.") if not bad else
+                                      t("Fix the lines that aren't proxies first."))
             return
 
         def check_all() -> list[str | None]:
@@ -465,12 +482,13 @@ class SettingsPage(Page):
         def done(results: list[str | None]) -> None:
             working = sum(r is None for r in results)
             failed = [f"{proxy.split('@')[-1]}: {r}" for proxy, r in zip(good, results) if r]
-            self.proxy_status.setText(f"{working} of {len(good)} working." + (
-                " Not working: " + "; ".join(failed[:3]) + (" ..." if len(failed) > 3 else "")
-                if failed else ""))
+            self.proxy_status.setText(t("{working} of {count} working.",
+                                        working=working, count=len(good)) + (
+                " " + t("Not working: {proxies}", proxies="; ".join(failed[:3])
+                        + (" ..." if len(failed) > 3 else "")) if failed else ""))
 
         self.test_button.setEnabled(False)
-        self.proxy_status.setText(f"Testing {len(good)}...")
+        self.proxy_status.setText(t("Testing {count}...", count=len(good)))
         Task(check_all).start(
             on_result=self.guard(done),
             on_error=self.guard(lambda message: self.proxy_status.setText(message)),
@@ -505,6 +523,6 @@ class SettingsPage(Page):
         try:
             updater.start_uninstall(delete_data=choice == "delete")
         except OSError as error:
-            self.notify(f"The uninstaller didn't start: {error}", "error")
+            self.notify(t("The uninstaller didn't start: {error}", error=error), "error")
             return
         self.window_.quit_app()

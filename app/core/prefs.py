@@ -40,7 +40,8 @@ DEFAULTS = {
     "date_format": DEFAULT_DATE_FORMAT,
     "time_format": DEFAULT_TIME_FORMAT,
     "start_page": "search",
-    "notify_done": True,      # a Windows notification when a search ends in the background
+    "notify_done": True,
+    "language": "",           # "" until chosen: the computer's own language, if supported      # a Windows notification when a search ends in the background
     "nav_order": [],          # sidebar page keys in the user's order; [] is the original order
     "nav_hidden": [],         # sidebar pages the user switched off
 }
@@ -100,6 +101,16 @@ def format_datetime(value, seconds: bool = False) -> str:
     if moment is None:
         return str(value or "")
     return f"{format_date(moment)}  {format_time(moment, seconds)}"
+
+
+def language(system_locale: str | None = None) -> str:
+    """The app's language: the one chosen in Settings, else the computer's, else English."""
+    from app import i18n
+
+    chosen = get("language")
+    if chosen in i18n.CODES:
+        return chosen
+    return i18n.system_language(system_locale)
 
 
 def text_scale() -> float:

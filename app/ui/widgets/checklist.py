@@ -4,6 +4,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
+from app.i18n import t
 from app.ui.widgets.common import hint, row, small_button
 from app.ui.widgets.inputs import line_edit
 
@@ -91,6 +92,7 @@ class CheckList(QWidget):
     def _update_count(self) -> None:
         ticked = [self.list.item(i).text() for i in range(self.list.count())
                   if self.list.item(i).checkState() == Qt.CheckState.Checked]
-        summary = f"{len(ticked):,} of {self.list.count():,} chosen"
+        summary = t("{count:,} of {total:,} chosen", count=len(ticked),
+                    total=self.list.count())
         # A few ticks are easy to lose in a long list, so name them
         self.count.setText(summary + (": " + ", ".join(ticked) if 0 < len(ticked) <= 6 else ""))
