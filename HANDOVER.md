@@ -5,13 +5,23 @@ is done, what is next, and the decisions already made so nobody re-asks them.
 
 ## Where things stand (start here)
 
-**Phase: beta testing (since 2026-10-16). Current version: v0.2.2 beta (2026-10-17).**
-All 7 original milestones are done, then v0.1.1-v0.1.3, v0.2.1 and **v0.2.2**. Version numbers
+**Phase: beta testing (since 2026-10-16). Current version: v0.3.0 beta (2026-10-29).**
+All 7 original milestones are done, then v0.1.1-v0.1.3, v0.2.1, v0.2.2 and **v0.3.0**. Version numbers
 follow the user's GitHub tags: keep `APP_VERSION` (app/config.py) equal to the tag's numbers.
 Don't start new features unless the user asks. Ask the user questions with the
 AskUserQuestion form, not as a text list (their preference).
 
-**v0.3.0 in progress (started 2026-10-29).** The user tested v0.2.2 and asked for a big batch.
+**State of v0.3.0 (2026-10-29):** code, `docs/releases/v0.3.0-beta.md`, README and fresh
+screenshots pushed; `dist/GeoHarvest-v0.3.0-beta-windows.zip` built locally (packaged self-test
+OK). The user publishes release `v0.3.0` and tests it. **Next agreed: v0.3.1 = a backup
+installer for Smart App Control PCs.** HomingPigeon's `.bat` can't be copied as is: it only
+gets past Setup, because HomingPigeon runs on signed python.org Python, but GeoHarvest's app is
+an unsigned PyInstaller `GeoHarvest.exe`, which SAC blocks too. It needs a second install method
+(python.org Python + pip-installed requirements + GeoHarvest from source, like HomingPigeon's
+`installer/setup_app.py`) and an update path that doesn't run `GeoHarvest-Setup.exe`. The
+user chose to ship 0.3.0 without it; READ ME FIRST and the README say it's coming.
+
+**v0.3.0 (started 2026-10-29).** The user tested v0.2.2 and asked for a big batch.
 Agreed plan (form answers), in order, pausing to ask after milestones 2, 3 and 8:
 1. [x] Requirements: "Which businesses?" renamed Requirements, every choice a select button,
    min/max sliders (rating, reviews, company age in years with Any/Startups/Established/My own
@@ -35,7 +45,7 @@ Agreed plan (form answers), in order, pausing to ask after milestones 2, 3 and 8
    search finishes, requirement presets, live estimate on the form
 8. [x] Languages: Arabic (RTL), German, Spanish, French via HomingPigeon's i18n package; Claude
    wrote the translations (see "Languages (0.3)" below)
-9. [ ] Build v0.3.0 zip (+ install-if-blocked .bat), release notes, README
+9. [x] Build v0.3.0 zip, release notes, README (the install-if-blocked .bat moved to v0.3.1)
 
 **State of v0.2.2 when the session ended (2026-10-17):**
 - Code, `docs/releases/v0.2.2-beta.md` and README pushed; the GitHub Actions run was green.

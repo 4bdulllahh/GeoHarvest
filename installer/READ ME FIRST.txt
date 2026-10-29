@@ -11,6 +11,10 @@ HOW TO INSTALL
 "Windows protected your PC"? GeoHarvest is not code-signed yet. Click
 "More info", then "Run anyway".
 
+"Smart App Control blocked an app"? Some Windows 11 PCs block every program
+that isn't code-signed, with no "Run anyway". GeoHarvest can't be installed on
+those PCs yet; a backup installer for them is coming in v0.3.1.
+
 No administrator password needed. No account, no sign-in: your searches, leads
 and settings stay on this computer, in %APPDATA%\GeoHarvest.
 
