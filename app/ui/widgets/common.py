@@ -12,7 +12,7 @@ from typing import Callable
 from PyQt6.QtCore import (QEasingCurve, QEvent, QPropertyAnimation, Qt, QTimer,
                           pyqtSignal)
 from PyQt6.QtGui import QAction, QActionGroup, QGuiApplication
-from PyQt6.QtWidgets import (QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLayout,
+from PyQt6.QtWidgets import (QBoxLayout, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLayout,
                              QMenu, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
                              QVBoxLayout, QWidget)
 
@@ -156,6 +156,35 @@ def wrap_row(*widgets: QWidget, spacing: int = 8) -> QWidget:
     for widget in widgets:
         layout.addWidget(widget)
     return container
+
+
+class Columns(QWidget):
+    """Widgets side by side, stacked on top of each other once the space is narrower than
+    ``stack_below`` (at text size Medium): two narrow columns are harder to use than one."""
+
+    def __init__(self, *widgets: QWidget, stack_below: int = 760, spacing: int = 16,
+                 parent=None):
+        super().__init__(parent)
+        self.setProperty("role", "plain")
+        self.stack_below = stack_below
+        self._layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(round(spacing * theme.text_scale()))
+        for widget in widgets:
+            self._layout.addWidget(widget, 1, Qt.AlignmentFlag.AlignTop)
+
+    def resizeEvent(self, event):  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        limit = self.stack_below * theme.text_scale()
+        # A small band either side, so a scrollbar appearing can't flip it back and forth
+        if self.width() < limit - 10:
+            wanted = QBoxLayout.Direction.TopToBottom
+        elif self.width() > limit + 10:
+            wanted = QBoxLayout.Direction.LeftToRight
+        else:
+            return
+        if self._layout.direction() != wanted:
+            self._layout.setDirection(wanted)
 
 
 class Card(QFrame):

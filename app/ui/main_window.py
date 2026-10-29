@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from typing import Callable
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QByteArray, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton,
                              QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget)
@@ -27,6 +27,9 @@ NAV_ITEMS = [
     ("history", "history", "Past searches", "Reopen or resume", "history", "HistoryPage"),
     ("smart", "smart", "Smart mode", "AI checks each lead", "smart", "SmartPage"),
 ]
+MIN_WIDTH = 760       # the narrowest the window goes (pages stack and wrap to fit)
+COMPACT_BELOW = 1000  # narrower than this, the menu shows icons only...
+COMPACT_WIDTH = 64    # ...in a sidebar this wide
 SETTINGS_ITEM = ("settings", "settings", "Settings", "Theme, speed, updates", "settings",
                  "SettingsPage")
 
@@ -101,6 +104,12 @@ class NavButton(QPushButton):
         hint.setHeight(self._height)
         return hint
 
+    def set_compact(self, compact: bool) -> None:
+        """Icon only (the name shows on hover), for a narrow window."""
+        self.title_label.setVisible(not compact)
+        self.subtitle_label.setVisible(not compact and theme.text_scale() <= theme.SUBTITLE_MAX_SCALE)
+        self.setToolTip(self.title_label.text() if compact else "")
+
     def set_badge(self, show: bool) -> None:
         self.badge.setText("●" if show else "")
         self.badge.setStyleSheet(
@@ -130,6 +139,7 @@ class MainWindow(QMainWindow):
 
         self._build()
         self._size_to_screen()
+        self._restore_geometry()
         self._register_pages()
         self.show_page("search")
 
@@ -153,7 +163,34 @@ class MainWindow(QMainWindow):
         width = min(1360, (available.width() - 80) if available else 1360)
         height = min(880, (available.height() - 60) if available else 880)
         self.resize(width, height)
-        self.setMinimumSize(min(1000, width), min(620, height))
+        self.setMinimumSize(min(MIN_WIDTH, width), min(560, height))
+
+    # The window opens where it was left, at that size, maximised or not
+    def _restore_geometry(self) -> None:
+        saved = db.get_setting("window_geometry", "")
+        if saved:
+            self.restoreGeometry(QByteArray.fromBase64(saved.encode("ascii")))
+
+    def _save_geometry(self) -> None:
+        db.set_setting("window_geometry", bytes(self.saveGeometry().toBase64()).decode("ascii"))
+
+    def resizeEvent(self, event):  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        self._fit_sidebar()
+
+    def _fit_sidebar(self) -> None:
+        """Below COMPACT_BELOW wide the menu shows icons only, giving the page the room."""
+        scale = theme.text_scale()
+        compact = self.width() < COMPACT_BELOW * scale
+        if getattr(self, "_compact", None) == compact or not hasattr(self, "sidebar"):
+            return
+        self._compact = compact
+        self.sidebar.setFixedWidth(round((COMPACT_WIDTH if compact else theme.SIDEBAR_WIDTH)
+                                         * scale))
+        self.sidebar_names.setVisible(not compact)
+        self.refresh_button.setVisible(not compact)
+        for button in self._nav.values():
+            button.set_compact(compact)
 
     def _build(self) -> None:
         central = QWidget()
@@ -180,6 +217,8 @@ class MainWindow(QMainWindow):
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(round(theme.SIDEBAR_WIDTH * scale))
+        self.sidebar = sidebar
+        self._compact = None
 
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(round(10 * scale), round(14 * scale), round(10 * scale),
@@ -197,7 +236,10 @@ class MainWindow(QMainWindow):
         logo.setFixedSize(QSize(size, size))
         header.addWidget(logo)
 
-        names = QVBoxLayout()
+        self.sidebar_names = QWidget()
+        self.sidebar_names.setProperty("role", "plain")
+        names = QVBoxLayout(self.sidebar_names)
+        names.setContentsMargins(0, 0, 0, 0)
         names.setSpacing(0)
         title = QLabel(config.APP_TITLE)
         title.setProperty("role", "app-title")
@@ -205,7 +247,7 @@ class MainWindow(QMainWindow):
         version = QLabel(config.APP_VERSION)
         version.setProperty("role", "hint")
         names.addWidget(version)
-        header.addLayout(names, 1)
+        header.addWidget(self.sidebar_names, 1)
 
         # Rebuilds the page on screen: the fix a user can reach for without restarting
         self.refresh_button = QPushButton(theme.icon("refresh"))
@@ -252,6 +294,7 @@ class MainWindow(QMainWindow):
         settings.clicked.connect(lambda _checked=False: self.show_page("settings"))
         layout.addWidget(settings)
         self._nav[key] = settings
+        QTimer.singleShot(0, self._fit_sidebar)  # after a rebuild, at the window's real width
         return sidebar
 
     def apply_nav_order(self) -> None:
@@ -541,6 +584,7 @@ class MainWindow(QMainWindow):
 
     def quit_app(self) -> None:
         """Close without questions (the updater is waiting for us to exit)."""
+        self._save_geometry()
         for page in self._pages.values():
             stop = getattr(page, "stop", None)
             if callable(stop):
@@ -579,6 +623,7 @@ class MainWindow(QMainWindow):
                 if callable(stop):
                     stop()
 
+        self._save_geometry()
         from app.workers import base as workers
 
         workers.shutdown(2000)

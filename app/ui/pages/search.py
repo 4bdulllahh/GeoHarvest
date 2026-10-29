@@ -9,7 +9,7 @@ from app.core import search as searches
 from app.i18n import t
 from app.ui.pages.base import Page
 from app.core.places import FIELD_GROUPS, HEADERS
-from app.ui.widgets.common import (Card, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
+from app.ui.widgets.common import (Card, Columns, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
                                    confirm_button, danger_button, flow_row, hint, muted, row,
                                    secondary_button, select_button)
 from app.ui.widgets.checklist import CheckList
@@ -102,17 +102,11 @@ class SearchPage(Page):
         self.extra_places: list[str] = []
         self.extra_place = line_edit("A town or area that is not listed")
         self.extra_place.returnPressed.connect(self._add_place)
-        self.cities_box = QWidget()
-        self.cities_box.setProperty("role", "plain")
-        columns = QHBoxLayout(self.cities_box)
-        columns.setContentsMargins(0, 0, 0, 0)
-        columns.setSpacing(16)
         left, right = FormRow("Countries"), FormRow("Cities")
         left.add(self.countries)
         right.add(self.cities)
         right.add(row(self.extra_place, small_button("Add", self._add_place), stretch=0))
-        columns.addWidget(left, 1, Qt.AlignmentFlag.AlignTop)
-        columns.addWidget(right, 1, Qt.AlignmentFlag.AlignTop)
+        self.cities_box = Columns(left, right, stack_below=720)
         where.add(self.cities_box)
 
         self.area_box = QWidget()
@@ -169,13 +163,9 @@ class SearchPage(Page):
         age_row.add(self.age)
         which.add(age_row)
 
-        sliders = QWidget()
-        sliders.setProperty("role", "plain")
-        sliders_layout = QHBoxLayout(sliders)
-        sliders_layout.setContentsMargins(0, 0, 0, 0)
-        sliders_layout.setSpacing(32)
         self.rating = RangeSlider(RATING_STEPS, 0, 5.0, rating_label)
         self.reviews = RangeSlider(REVIEW_STEPS, 0, NO_MAX, reviews_label)
+        fields = []
         for label, note, slider in (
                 ("Google rating", "Drag either end. Any includes businesses with no rating yet.",
                  self.rating),
@@ -183,8 +173,8 @@ class SearchPage(Page):
                                       "customers.", self.reviews)):
             field = FormRow(label, note)
             field.add(slider)
-            sliders_layout.addWidget(field, 1, Qt.AlignmentFlag.AlignTop)
-        which.add(sliders)
+            fields.append(field)
+        which.add(Columns(*fields, stack_below=640, spacing=32))
 
         self.min_leads = spin(0, 100000, int(last["min_leads"]), " leads", "Everything found")
         self.min_leads.setFixedWidth(200)
@@ -302,8 +292,7 @@ class SearchPage(Page):
 
         # --- run bar (stays visible below the scrolling form) ---------------
         bar = Card(padding=14)
-        stats = QHBoxLayout()
-        stats.setSpacing(10)
+        self.stats, stats = flow_row(spacing=10)  # tiles wrap in a narrow window
         self.tile_found = StatTile("Businesses found", "0")
         self.tile_places = StatTile("Searches done", "0")
         self.tile_web = StatTile("Websites checked", "-")
@@ -314,8 +303,6 @@ class SearchPage(Page):
         for tile in (self.tile_found, self.tile_places, self.tile_web, self.tile_email,
                      self.tile_phone, self.tile_ai, self.tile_best):
             stats.addWidget(tile)
-        self.stats = QWidget()
-        self.stats.setLayout(stats)
         self.stats.hide()
         bar.add(self.stats)
 

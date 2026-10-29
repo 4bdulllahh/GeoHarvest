@@ -18,7 +18,8 @@ from app.i18n import t
 from app.ui import theme
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (Card, copy_to_clipboard, danger_button, flow_row, hint, muted,
-                                   open_url, primary_button, row, secondary_button, select_button)
+                                   open_url, primary_button, row, secondary_button, select_button,
+                                   wrap_row)
 from app.ui.widgets.dialogs import ConfirmDialog
 from app.ui.widgets.inputs import Debouncer, combo, line_edit
 from app.ui.widgets.leads_model import LEAD_ROLE, LeadsModel, LeadsProxy
@@ -168,7 +169,7 @@ class LeadsPage(Page):
             self.current_id = newest[0]["id"]
 
         self.picker = combo([ALL], ALL, on_change=lambda _text: self._load(), translate={ALL})
-        self.picker.setMinimumWidth(360)
+        self.picker.setMinimumWidth(240)
         self.picker.setMaximumWidth(460)
         self.filter = line_edit("Filter: type a name, city, category, email...")
         self.excel_button = primary_button("Export to Excel", lambda: self.export("xlsx"))
@@ -186,8 +187,9 @@ class LeadsPage(Page):
         self.delete_leads_button = secondary_button("Delete selected", self.delete_selected)
         self.score_button = secondary_button("Score with AI", self.score_with_ai)
         self.score_worker = None
-        self.root.addWidget(row(self.picker, self.filter, self.score_button, self.excel_button,
-                                self.csv_button, self.delete_button, stretch=1))
+        self.root.addWidget(row(self.picker, self.filter, stretch=1))
+        self.root.addWidget(wrap_row(self.excel_button, self.csv_button, self.score_button,
+                                     self.delete_button))
 
         card = Card(padding=12)
         self.count_label = muted("", wrap=False)
