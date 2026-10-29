@@ -5,10 +5,12 @@ search can be resumed with exactly the settings it started with.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import math
 
 from app.core import db, geo, hours
+from app.core.enrich import STARTUP_YEARS
 from app.core.places import FIELDS, SERVICE_AREA
 
 DEFAULT_OPTIONS = {
@@ -21,7 +23,8 @@ DEFAULT_OPTIONS = {
     "countries": [],          # countries and/or regions ("European Union"), as typed
     "cities": [],             # "City, Country" as ticked; empty: each country's biggest
     "city_count": 10,
-    "company_age": "any",     # any, startup, established (estimated, see enrich.py)
+    "age_min": 0,             # company age in whole years (estimated, see enrich.py)...
+    "age_max": -1,            # ...-1: no maximum. Unknown ages are kept, ranked last
     "min_rating": 0.0,
     "min_reviews": 0,
     "max_rating": 0.0,        # 0: no maximum
@@ -29,6 +32,12 @@ DEFAULT_OPTIONS = {
     "website": "any",         # any, yes (must have one), no (must not: leads for web designers)
     "require_phone": False,
     "require_address": False,  # leave out businesses that hide their address on Google
+    "require_claimed": False,  # claimed by its owner on Google
+    "require_hours": False,   # lists its opening hours
+    "require_email": False,   # these four need the website visit (find_emails / find_owner)
+    "require_social": False,  # any of Facebook, Instagram, LinkedIn, X, YouTube, TikTok
+    "require_linkedin": False,  # the company's or the owner's LinkedIn
+    "require_owner": False,
     "open_now": False,        # opening hours filters; leads without listed hours are left out
     "open_24h": False,
     "open_weekends": False,
@@ -37,7 +46,7 @@ DEFAULT_OPTIONS = {
     "open_time": "20:00",
     "skip_closed": True,
     "skip_known": True,       # leave out businesses found by an earlier search
-    "max_results": 0,         # 0: no limit; else the best this many (see balanced)
+    "min_leads": 0,           # 0: everything found; else keep searching until this many fit
     "find_emails": True,      # visit websites for emails and social links
     "find_owner": False,      # owner's name from the website and domain record, LinkedIn link
     "smart": False,           # score every lead with the user's AI
@@ -51,7 +60,51 @@ def options_with_defaults(options: dict) -> dict:
         merged["countries"] = [options["country"]]
     if merged.pop("require_website", False) and "website" not in options:  # before 0.2.1
         merged["website"] = "yes"
+    age = merged.pop("company_age", None)  # before 0.3: any / startup / established
+    if age in AGE_PRESETS and "age_min" not in options:
+        merged["age_min"], merged["age_max"] = AGE_PRESETS[age]
+    if "max_results" in merged:  # before 0.3: "Stop after"; now the least to find
+        limit = merged.pop("max_results")
+        if "min_leads" not in options:
+            merged["min_leads"] = limit
     return merged
+
+
+# Company age quick choices: (lowest, highest) whole years, -1 for no maximum
+AGE_PRESETS = {"any": (0, -1), "startup": (0, STARTUP_YEARS - 1),
+               "established": (STARTUP_YEARS, -1)}
+
+
+FROM_WEBSITE_REQUIREMENTS = ("require_email", "require_social", "require_linkedin",
+                             "require_owner")
+# Quick setup on the form: the requirements for a common job. Each one sets every
+# requirement, so picking one after another never leaves a mix of both.
+_NO_REQUIREMENTS = {"age_min": 0, "age_max": -1, "min_rating": 0.0, "max_rating": 0.0,
+                    "min_reviews": 0, "max_reviews": -1, "website": "any",
+                    "require_phone": False, "require_address": False, "require_claimed": False,
+                    "require_hours": False, "require_email": False, "require_social": False,
+                    "require_linkedin": False, "require_owner": False, "open_now": False,
+                    "open_24h": False, "open_weekends": False, "open_at": False,
+                    "skip_closed": True, "find_emails": True, "find_owner": False}
+USE_CASES = {
+    "email": {**_NO_REQUIREMENTS, "website": "yes", "require_email": True},
+    "calls": {**_NO_REQUIREMENTS, "require_phone": True, "find_owner": True},
+    "database": {**_NO_REQUIREMENTS, "find_owner": True},
+}
+USE_CASE_NAMES = [("email", "Cold email"), ("calls", "Cold calling"),
+                  ("database", "Build a database")]
+
+
+def age_filtered(options: dict) -> bool:
+    return (int(options["age_min"]), int(options["age_max"])) != AGE_PRESETS["any"]
+
+
+def visits_websites(options: dict) -> bool:
+    """Whether the search must visit each website: for details, or for a requirement only
+    a website can answer."""
+    return bool(options["find_emails"] or options["find_owner"] or age_filtered(options)
+                or options["require_email"] or options["require_social"]
+                or options["require_linkedin"] or options["require_owner"])
 
 
 def places_for(options: dict) -> list[str]:
@@ -144,41 +197,79 @@ def why_not(lead: dict, options: dict) -> str | None:
         return "no phone number"
     if options["require_address"] and lead.get("address") in ("", SERVICE_AREA):
         return "address hidden"
+    if options["require_claimed"] and lead.get("claimed") != "Yes":
+        return "not claimed by its owner"
+    if options["require_hours"] and not lead.get("hours"):
+        return "no opening hours listed"
     if not passes_hours(lead.get("hours") or "", lead.get("timezone"), options):
         return "not open at the chosen times"
     return None
 
 
+SOCIALS = ("facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok")
+
+
+def has_link(lead: dict, key: str) -> bool:
+    return str(lead.get(key) or "").startswith("http")
+
+
+def why_not_checked(lead: dict, options: dict) -> str | None:
+    """Why a requirement only the website visit can answer leaves this lead out; None if it
+    fits. An unknown company age fits (many registries hide dates); it is ranked last."""
+    years, low, high = lead.get("age_years"), int(options["age_min"]), int(options["age_max"])
+    if years is not None:
+        if years < low:
+            return f"younger than {low} years"
+        if 0 <= high < years:
+            return f"older than {high} years"
+    if options["require_email"] and not lead.get("emails"):
+        return "no email found"
+    if options["require_social"] and not any(has_link(lead, key) for key in SOCIALS):
+        return "no social media found"
+    if options["require_linkedin"] and not (has_link(lead, "linkedin")
+                                            or has_link(lead, "owner_linkedin")):
+        return "no LinkedIn found"
+    if options["require_owner"] and not lead.get("owner_name"):
+        return "owner not found"
+    return None
+
+
+def is_age_reason(reason: str) -> bool:
+    return reason.startswith(("younger than", "older than", "company age unknown"))
+
+
 # --- picking the best -------------------------------------------------------
-def quality(lead: dict) -> int:
-    """0-100 from the facts alone: how reachable and established the business looks."""
-    socials = sum(str(lead.get(k) or "").startswith("http") for k in
-                  ("facebook", "instagram", "linkedin", "twitter", "youtube", "tiktok"))
+def quality_parts(lead: dict) -> list[tuple[str, int, int]]:
+    """The score, part by part: (what, points earned, points possible). Mostly how much is
+    known about the business, so it can be reached and researched; a little for reputation."""
+    socials = sum(has_link(lead, key) for key in SOCIALS)
     rating, reviews = lead.get("rating") or 0, lead.get("reviews") or 0
-    points = (15 * bool(lead.get("phone")) + 15 * bool(lead.get("website"))
-              + 15 * bool(lead.get("emails")) + 10 * (rating >= 4) + 5 * (rating >= 4.5)
-              + min(15, round(5 * math.log10(1 + reviews)))  # 15 at 1,000 reviews
-              + 10 * (lead.get("claimed") == "Yes")
-              + 5 * (lead.get("address") not in ("", None, SERVICE_AREA))
-              + 5 * bool(lead.get("hours")) + min(5, 2 * socials))
-    return min(100, points)
+    return [
+        ("Email", 15 * bool(lead.get("emails")), 15),
+        ("Phone", 12 * bool(lead.get("phone")), 12),
+        ("Website", 10 * bool(lead.get("website")), 10),
+        ("Owner's name", 8 * bool(lead.get("owner_name")), 8),
+        ("Social media", min(8, 3 * socials), 8),
+        ("LinkedIn", 4 * (has_link(lead, "linkedin") or has_link(lead, "owner_linkedin")), 4),
+        ("Address", 6 * (lead.get("address") not in ("", None, SERVICE_AREA)), 6),
+        ("Claimed by owner", 5 * (lead.get("claimed") == "Yes"), 5),
+        ("Opening hours", 4 * bool(lead.get("hours")), 4),
+        ("Company age known", 4 * (lead.get("age_years") is not None), 4),
+        ("Description", 4 * bool(lead.get("description")), 4),
+        ("Rating", 5 * (rating >= 4) + 3 * (rating >= 4.5), 8),
+        ("Reviews", min(12, round(4 * math.log10(1 + reviews))), 12),  # 12 at 1,000 reviews
+    ]
+
+
+def quality(lead: dict) -> int:
+    """0-100: how much is known about the business, plus a little for its reputation."""
+    return sum(points for _what, points, _most in quality_parts(lead))
 
 
 def score(lead: dict) -> float:
     """The quality score, averaged with the AI score once Smart mode has given one."""
     base = lead.get("quality", 0)
     return (base + lead["ai_score"]) / 2 if "ai_score" in lead else base
-
-
-def balanced(leads: list[dict], key) -> list[dict]:
-    """Best first, taking turns between the searches (city and business type) that found
-    them: the first N are every search's best few, so no city or business type gets more
-    than its share unless the others run out."""
-    groups: dict[str, list[dict]] = {}
-    for lead in sorted(leads, key=key, reverse=True):
-        groups.setdefault(lead.get("query", ""), []).append(lead)
-    turn = {id(lead): n for group in groups.values() for n, lead in enumerate(group)}
-    return sorted(leads, key=lambda lead: (turn[id(lead)], -key(lead)))
 
 
 def passes_hours(text: str, timezone: str | None, options: dict) -> bool:
@@ -193,6 +284,119 @@ def passes_hours(text: str, timezone: str | None, options: dict) -> bool:
         if not hours.open_at(text, int(options["open_day"]), int(hour) * 60 + int(minute or 0)):
             return False
     return True
+
+
+# --- finding more: deeper in each city, related business types ----------------
+DEEP_AT = 100      # a city search Google gave this many for was probably cut short
+DEEP_KM = (2, 15)  # the area a deeper search covers, from the businesses already found
+
+
+def deep_queries(search_id: int, options: dict) -> list[str]:
+    """Google lists at most about 200 businesses per search, so a big city's search misses
+    most of them. For each city search that was cut short, the same search again in small
+    map views covering where its businesses were found. Saved in the search's progress
+    (each city search is split once); returns the new ones."""
+    if options["where"] != "cities":
+        return []
+    progress = get(search_id)["progress"]
+    split = set(progress.get("deepened", []))
+    capped = set(progress.get("capped", []))
+    per_city = []
+    for query in build_queries(options):
+        if query in split or query in capped or query not in progress.get("done", []):
+            continue
+        points = [(r["lat"], r["lng"]) for r in db.query(
+            "SELECT json_extract(data, '$.latitude') AS lat, json_extract(data, '$.longitude') "
+            "AS lng FROM candidates WHERE search_id = ? AND json_extract(data, '$.query') = ?",
+            (search_id, query)) if r["lat"] is not None]
+        split.add(query)
+        if len(points) < DEEP_AT:
+            continue
+        lat = sorted(p[0] for p in points)[len(points) // 2]
+        lng = sorted(p[1] for p in points)[len(points) // 2]
+        reach = sorted(geo.distance_km(lat, lng, *p) for p in points)[int(len(points) * 0.8)]
+        km = min(DEEP_KM[1], max(DEEP_KM[0], reach))
+        niche, _, place = query.partition(" in ")
+        per_city.append([f"{niche} near {place} @{cell_lat},{cell_lng},{camera}"
+                         for cell_lat, cell_lng, camera in geo.radius_cells(lat, lng, km)])
+    # Taking turns between the cities, so stopping once there are enough is fair to all
+    added = [q for turn in itertools.zip_longest(*per_city) for q in turn if q]
+    progress["deepened"] = sorted(split)
+    progress["deep"] = progress.get("deep", []) + added
+    _save_progress(search_id, progress)
+    return added
+
+
+def all_queries(search_id: int, options: dict) -> list[str]:
+    """The searches the options make, then the deeper ones added while it ran."""
+    return build_queries(options) + get(search_id)["progress"].get("deep", [])
+
+
+# Close cousins of common business types, for "Add related business types"
+RELATED = {
+    "dentist": ["dental clinic", "orthodontist", "cosmetic dentist"],
+    "dental clinic": ["dentist", "orthodontist"],
+    "doctor": ["medical clinic", "general practitioner", "family doctor"],
+    "medical clinic": ["doctor", "polyclinic", "health center"],
+    "physiotherapist": ["physical therapy clinic", "sports massage", "chiropractor"],
+    "pharmacy": ["drugstore", "chemist"],
+    "veterinarian": ["animal hospital", "pet clinic"],
+    "restaurant": ["cafe", "bistro", "diner"],
+    "cafe": ["coffee shop", "bakery", "tea house"],
+    "coffee shop": ["cafe", "espresso bar"],
+    "bakery": ["patisserie", "cake shop"],
+    "gym": ["fitness center", "personal trainer", "crossfit gym"],
+    "yoga studio": ["pilates studio", "meditation center"],
+    "beauty salon": ["nail salon", "spa", "beauty clinic"],
+    "hair salon": ["barber shop", "hairdresser"],
+    "barber shop": ["hair salon", "mens grooming"],
+    "spa": ["massage spa", "wellness center", "beauty salon"],
+    "real estate agency": ["real estate agent", "property consultant", "property management"],
+    "property management": ["real estate agency", "facility management"],
+    "construction company": ["contractor", "general contractor", "builder"],
+    "contractor": ["general contractor", "construction company", "renovation company"],
+    "interior designer": ["interior design company", "fit-out company", "home decor"],
+    "architect": ["architecture firm", "design studio"],
+    "plumber": ["plumbing service", "drainage service"],
+    "electrician": ["electrical contractor", "electrical services"],
+    "cleaning service": ["cleaning company", "maid service", "janitorial service"],
+    "moving company": ["movers", "removal company", "relocation service"],
+    "law firm": ["lawyer", "legal consultant", "attorney"],
+    "lawyer": ["law firm", "attorney", "legal consultant"],
+    "accountant": ["accounting firm", "bookkeeping service", "tax consultant"],
+    "insurance agency": ["insurance broker", "insurance company"],
+    "marketing agency": ["digital marketing agency", "advertising agency", "branding agency"],
+    "digital marketing agency": ["marketing agency", "SEO agency", "social media agency"],
+    "advertising agency": ["marketing agency", "media agency"],
+    "web design company": ["web developer", "website design agency", "digital agency"],
+    "software company": ["software developer", "IT company", "app developer"],
+    "IT company": ["IT services", "IT support", "software company"],
+    "recruitment agency": ["staffing agency", "employment agency", "headhunter"],
+    "car repair": ["auto repair shop", "mechanic", "car service center"],
+    "car dealer": ["used car dealer", "car showroom"],
+    "hotel": ["boutique hotel", "guest house", "resort"],
+    "travel agency": ["tour operator", "travel agent"],
+    "school": ["private school", "international school"],
+    "tutoring": ["tutoring center", "learning center", "test prep"],
+    "photographer": ["photography studio", "wedding photographer"],
+    "printing service": ["print shop", "printing press"],
+    "florist": ["flower shop", "flower delivery"],
+    "furniture store": ["furniture shop", "home furniture"],
+    "event planner": ["event management company", "wedding planner"],
+    "logistics company": ["freight forwarder", "shipping company", "courier service"],
+}
+
+
+def related_types(niches: list[str]) -> list[str]:
+    """Related business types not searched yet, a few for each type that has some."""
+    have = {n.strip().lower() for n in niches}
+    extra = []
+    for niche in niches:
+        for other in RELATED.get(niche.strip().lower(), []):
+            if other.lower() not in have:
+                have.add(other.lower())
+                extra.append(other)
+    return extra
 
 
 # --- storage ----------------------------------------------------------------
@@ -225,6 +429,10 @@ def mark_query_done(search_id: int, query: str, capped: bool = False) -> None:
         done.append(query)
     rest = [q for q in progress.get("capped", []) if q != query]
     progress["capped"] = rest + [query] if capped else rest
+    _save_progress(search_id, progress)
+
+
+def _save_progress(search_id: int, progress: dict) -> None:
     db.execute("UPDATE searches SET progress = ?, updated = ? WHERE id = ?",
                (json.dumps(progress), db.now(), search_id))
 

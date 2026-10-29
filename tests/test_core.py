@@ -160,8 +160,8 @@ def test_save_dedupes_and_resumes(fresh_db):
     assert searches.leads(first)[0] == {"place_id": "A", "name": "One", "emails": "hi@one.pk"}
 
 
-def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
-    """Leads the age filter drops do not count: the search keeps going until N stay."""
+def test_minimum_keeps_every_match_the_website_check_leaves(fresh_db, monkeypatch):
+    """Leads the age requirement drops do not count, and every match found is kept."""
     from app.core import enrich
     from app.workers import scrape
 
@@ -184,12 +184,16 @@ def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
     monkeypatch.setattr(scrape.scraper, "search", fake_search)
     monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: FakeEnricher(False))
     monkeypatch.setattr(enrich, "Enricher", FakeEnricher)
+    # Saved the way 0.2 did: "startup" and "Stop after" become an age range and a minimum
     search_id = searches.create({"niches": ["cafe"], "countries": ["Pakistan"],
                                  "cities": ["Lahore, Pakistan"], "company_age": "startup",
                                  "find_emails": False, "max_results": 30})
+    options = searches.get(search_id)["options"]
+    assert (options["age_min"], options["age_max"], options["min_leads"]) == (0, 2, 30)
     result = scrape.ScrapeWorker(search_id).work()
-    assert result["status"] == "done" and searches.count(search_id) == 30
+    assert result["status"] == "done" and searches.count(search_id) == 50
     assert all(lead["young"] for lead in searches.leads(search_id))
+    assert result["dropped"] == {"older than 2 years": 50}
 
     # Stop does not wait for website checks already under way
     import threading
@@ -198,57 +202,85 @@ def test_stop_after_gives_exactly_that_many_kept_leads(fresh_db, monkeypatch):
     started = threading.Event()
     FakeEnricher.enrich = lambda self, lead, contacts, **_: (started.set(), time.sleep(3), {})[2]
     worker = scrape.ScrapeWorker(searches.create({**searches.get(search_id)["options"],
-                                                  "max_results": 0}))
+                                                  "min_leads": 0}))
     threading.Thread(target=lambda: (started.wait(), worker.stop()), daemon=True).start()
     began = time.monotonic()
     assert worker.work()["status"] == "stopped"
     assert time.monotonic() - began < 2
 
 
-def test_best_leads_are_balanced_over_searches(fresh_db, monkeypatch):
-    """Dubai has far more and better businesses, yet Sharjah still gets its share."""
+def test_short_searches_dig_deeper_into_the_city(fresh_db, monkeypatch):
+    """Google stops at about 120 per search; the city is then searched again in map views."""
     from app.workers import scrape
 
     def fake_search(client, query, cancelled):
-        city = query.split(" in ")[1]
-        size = 100 if city.startswith("Dubai") else 6
-        yield [{"place_id": f"{city}-{n}", "status": "Open", "country_code": "AE",
-                "query": query, "phone": "1" if n % 3 else "", "reviews": 500 if
-                city.startswith("Dubai") else n} for n in range(size)]
+        if "@" in query:  # a map view: 10 more, all with a phone
+            cell = query.rsplit("@", 1)[1]
+            yield [{"place_id": f"{cell}-{n}", "status": "Open", "country_code": "AE",
+                    "query": query.split(" @")[0], "phone": "1", "reviews": n}
+                   for n in range(10)]
+            return
+        for start in range(0, 120, 20):
+            yield [{"place_id": f"city-{n}", "status": "Open", "country_code": "AE",
+                    "query": query, "phone": "1" if n % 3 else "", "reviews": n,
+                    "latitude": 25.2 + (n % 11) / 200, "longitude": 55.27 + (n % 7) / 200}
+                   for n in range(start, start + 20)]
 
     monkeypatch.setattr(scrape.scraper, "search", fake_search)
-    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: type("C", (), {"close": lambda self: None})())
+    monkeypatch.setattr(scrape.scraper, "MapsClient",
+                        lambda: type("C", (), {"close": lambda self: None})())
     search_id = searches.create({
         "niches": ["cafe"], "countries": ["United Arab Emirates"],
-        "cities": ["Dubai, United Arab Emirates", "Sharjah, United Arab Emirates"],
-        "find_emails": False, "require_phone": True, "max_results": 20})
+        "cities": ["Dubai, United Arab Emirates"], "find_emails": False,
+        "require_phone": True, "min_leads": 100})
     result = scrape.ScrapeWorker(search_id).work()
-    cities = [lead["place_id"].split(",")[0] for lead in searches.leads(search_id)]
-    assert result["status"] == "done" and result["found"] == 20
-    assert cities.count("Sharjah") == 4  # every Sharjah cafe with a phone
-    assert result["dropped"] == {"no phone number": 36}  # 34 in Dubai, 2 in Sharjah
-    assert result["listed"] == 106
+    deep = searches.get(search_id)["progress"]["deep"]
+    assert deep and all(q.startswith("cafe near Dubai, United Arab Emirates @") for q in deep)
+    assert result["status"] == "done" and result["found"] == 80 + 10 * len(deep) >= 100
+    assert result["dropped"] == {"no phone number": 40}
+    kept = searches.leads(search_id)
+    assert [lead["quality"] for lead in kept] == sorted((lead["quality"] for lead in kept),
+                                                        reverse=True)  # best first
 
     # Leads the user deletes are not picked again when the search is resumed
-    searches.delete_leads([searches.leads(search_id)[0]["place_id"]], search_id)
+    searches.delete_leads([kept[0]["place_id"]], search_id)
     scrape.ScrapeWorker(search_id).work()
-    assert searches.count(search_id) == 20
+    assert searches.count(search_id) == len(kept) - 1
     assert searches.dropped_counts(search_id)[searches.REMOVED] == 1
 
 
-def test_quality_and_balanced_order():
+def test_website_requirements_and_use_cases():
+    options = searches.options_with_defaults({"age_min": 3, "require_email": True,
+                                              "require_linkedin": True})
+    lead = {"age_years": 5, "emails": "a@x.com", "linkedin": "https://linkedin.com/company/x"}
+    assert searches.why_not_checked(lead, options) is None
+    assert searches.why_not_checked({**lead, "age_years": 2}, options) == "younger than 3 years"
+    assert searches.why_not_checked({**lead, "age_years": None}, options) is None  # unknown kept
+    assert searches.why_not_checked({**lead, "emails": ""}, options) == "no email found"
+    assert searches.why_not_checked({**lead, "linkedin": places.NOT_FOUND},
+                                    options) == "no LinkedIn found"
+    assert searches.is_age_reason("younger than 3 years")
+    assert searches.visits_websites({**searches.DEFAULT_OPTIONS, "find_emails": False,
+                                     "require_owner": True})
+    assert not searches.passes({"status": "Open", "claimed": "No"},
+                               searches.options_with_defaults({"require_claimed": True}))
+    # Each quick setup sets every requirement, so they never mix
+    assert {frozenset(case) for case in searches.USE_CASES.values()} == {
+        frozenset(searches.USE_CASES["email"])}
+    assert searches.related_types(["Dentist", "dental clinic"]) == ["orthodontist",
+                                                                    "cosmetic dentist"]
+
+
+def test_quality_score():
     bare = {"place_id": "a"}
     full = {"phone": "1", "website": "x", "emails": "a@x", "rating": 4.6, "reviews": 1000,
             "claimed": "Yes", "address": "1 Road", "hours": "Mon: 9-5", "facebook": "https://f",
-            "instagram": "https://i", "linkedin": "https://l"}
+            "instagram": "https://i", "linkedin": "https://l", "owner_name": "A B",
+            "age_years": 4, "description": "Clinic"}
     assert searches.quality(bare) == 0 and searches.quality(full) == 100
-    assert searches.quality({**full, "linkedin": places.NOT_FOUND}) == 99
+    assert searches.quality({**full, "linkedin": places.NOT_FOUND}) == 94
     assert searches.quality({"address": places.SERVICE_AREA}) == 0
-    leads = [{"query": q, "quality": s} for q, s in
-             [("a", 90), ("a", 80), ("a", 70), ("b", 10), ("b", 5)]]
-    order = searches.balanced(leads, searches.score)
-    assert [(lead["query"], lead["quality"]) for lead in order] == [
-        ("a", 90), ("b", 10), ("a", 80), ("b", 5), ("a", 70)]
+    assert sum(most for _what, _points, most in searches.quality_parts(bare)) == 100
     assert searches.score({"quality": 60, "ai_score": 80}) == 70
 
 
@@ -370,10 +402,6 @@ def test_company_age():
     young = enrich.age_fields(date(2026, 3, 1), today=date(2026, 10, 16))
     assert young["company_age"] == "Startup (under 1 year)"
     assert enrich.domain_candidates("clinic.netlify.app") == []
-    assert enrich.matches_age(fields, "startup") and not enrich.matches_age(fields, "established")
-    assert enrich.matches_age({}, "any") and not enrich.matches_age({}, "startup")
-    assert enrich.age_mismatch({}, "startup") is None  # unknown ages are kept
-    assert enrich.age_mismatch(fields, "established") == "younger than 3 years"
     assert enrich.domain_candidates("www.shop.acme.co.uk") == ["shop.acme.co.uk", "acme.co.uk",
                                                                "co.uk"]
 

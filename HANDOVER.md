@@ -11,6 +11,32 @@ follow the user's GitHub tags: keep `APP_VERSION` (app/config.py) equal to the t
 Don't start new features unless the user asks. Ask the user questions with the
 AskUserQuestion form, not as a text list (their preference).
 
+**v0.3.0 in progress (started 2026-10-29).** The user tested v0.2.2 and asked for a big batch.
+Agreed plan (form answers), in order, pausing to ask after milestones 2, 3 and 8:
+1. [x] Requirements: "Which businesses?" renamed Requirements, every choice a select button,
+   min/max sliders (rating, reviews, company age in years with Any/Startups/Established/My own
+   range quick buttons), Name can be unpicked (none picked = Name), new must-haves (email,
+   social media, LinkedIn, owner, claimed, hours listed), Quick setup (Cold email / Cold calling /
+   Build a database, `search.USE_CASES`)
+2. [x] Finding pipeline: "Stop after" -> **Minimum leads**, every match kept best first, digs
+   deeper by itself, asks before adding cities or related types; score = info found + a little
+   reputation, low scores ranked last, breakdown in the lead window (see "Finding (0.3)" below)
+3. [ ] Updates: no switch; check + download latest on open, install right away unless a search
+   runs; Setup (0.3+) fetches the newest release instead of installing an old one, offline it
+   installs what it has; Settings > Updates = version + Check now + GitHub page
+4. [ ] HomingPigeon look: themes + theme maker + share file, smooth scrolling, menu order/hide,
+   reset appearance
+5. [ ] Resizing: rows wrap, side-by-side parts stack, sidebar shrinks to icons below ~1000 px,
+   remember window size and place
+6. [ ] Leads page: Sort menu, Show menu, date range, rating/reviews sliders, copy emails/phones,
+   export only new leads, export for HomingPigeon, score breakdown (done in 2)
+7. [ ] Settings/extras: backup + restore + weekly auto backup (keep 4), first page on open,
+   date/time format, forget saved keys, report a problem, Start here guide page, notify when a
+   search finishes, requirement presets, live estimate on the form
+8. [ ] Languages: Arabic (RTL), German, Spanish, French via HomingPigeon's i18n package; Claude
+   writes the translations
+9. [ ] Build v0.3.0 zip (+ install-if-blocked .bat), release notes, README
+
 **State of v0.2.2 when the session ended (2026-10-17):**
 - Code, `docs/releases/v0.2.2-beta.md` and README pushed; the GitHub Actions run was green.
 - Built locally too: `dist/GeoHarvest-v0.2.2-beta-windows.zip` (32 MB, packaged self-test OK
@@ -135,8 +161,10 @@ theme module, sidebar, cards, status bar, worker pattern.
 | Extras | Emails and social links from each business website; filters (min rating, min reviews, has website/phone, hide closed); history with resume; auto-updater from GitHub releases |
 | Cost | Nothing paid. No paid APIs, no proxies |
 | Release | GitHub Releases, `GeoHarvest-vX.Y.Z-windows.zip` holding `GeoHarvest-Setup.exe`, its `runtime/` folder and `READ ME FIRST.txt` (since 0.1.2; must be extracted first). **Own installer** `installer/setup_app.py`: Tkinter, standard library only, copied from HomingPigeon's (`Email-Sender/installer/setup_app.py`) for the look (welcome card, step list with ticks, progress bar, activity log, finish page with Start menu / Desktop / open-at-Windows-start (unticked) / open-now). PyInstaller one-folder with `--contents-directory runtime`, never one-file (HomingPigeon's one-file Setup was flagged by Defender as Wacatac). Carries the app folder as `payload.zip` (LZMA), unpacked into `<install>.new` and swapped in only when complete (old files go to `<install>.old`, and are put back if the swap fails), so Cancel and a full disk never leave a half-install; Cancel is ignored once the swap starts. Installs per user to `%LOCALAPPDATA%\Programs\GeoHarvest` (no admin), writes `version.txt`, keeps a copy of itself (only `GeoHarvest-Setup.exe` and its `runtime` folder minus the payload, never the folder it was run from) in `<app>\uninstall\` as the uninstaller, registers HKCU `...\Uninstall\GeoHarvest`. The app's Update now runs `GeoHarvest-Setup.exe --update --target <app folder>` directly (no batch file, no console; `PYINSTALLER_RESET_ENVIRONMENT=1`); Setup waits for the app to close, updates, reopens it. Settings > Uninstall asks keep/delete data in the app, then runs `uninstall\GeoHarvest-Setup.exe --uninstall --confirmed [--delete-data]`. Setup also accepts 0.1.1's Inno-style `/SILENT /DIR=` and removes 0.1.1's Inno registry entry and `unins000.*`. Version check compares numbers only (tags are written with and without "beta"). No accounts, everything local |
-| Stop after N | Means the **best** N leads, spread fairly over the cities and business types (see "Three-step search"). "Leave out businesses I found in earlier searches" is on by default since 0.1.1 |
-| Three-step search (2026-10-17) | User's choices: one step at a time, best-but-balanced, built-in score + AI when on, explain + offer to widen. `workers/scrape.py`: **1. Search Google**: every business listed goes into the `candidates` table with `dropped` = why a filter left it out (`search.why_not`, NULL = fits). With Stop after N each query stops at its share of 3N fitting candidates (`POOL`); if the total is short, the capped queries (`progress["capped"]`) run again to the end. **2. Check websites** in `search.balanced` order until 1.5N (`CHECK_EXTRA`) pass the age filter (`enrich.age_mismatch` reasons). **3.** Smart mode scores in turn until N reach the minimum; then `balanced(...)[:N]` replaces the search's rows in `leads` (`set_picked`). `balanced` = round robin over `lead["query"]` (city x type), best first within each, so nobody gets more than their share unless others run dry. `search.quality` 0-100 (phone, website, email, rating, reviews, claimed, real address, hours, socials), `score` averages it with `ai_score`. Leads appear on the Leads page only when picked; Stop still picks from what is checked. Deleted leads are marked `dropped = deleted by you` so resume doesn't re-pick them; old searches' leads are copied into candidates on resume (`adopt_leads`). Finish shows the top drop reasons and offers "Add 10 more cities" (next biggest, taking turns between countries) and "Allow any company age" (`undrop`), which change the saved search and resume it. Tiles only count up |
+| Minimum leads (0.3) | Replaces "Stop after" (old `max_results` -> `min_leads`, converted in `options_with_defaults`). User's choice: **minimum, and keep every match found**, best score first. "Leave out businesses I found in earlier searches" is on by default since 0.1.1 |
+| Finding (0.3, replaces the 0.2.2 "three-step search") | `workers/scrape.py` runs **rounds** of: 1. Search Google (every listing into `candidates`, `dropped` = `search.why_not`), 2. check every fitting website best first (`search.why_not_checked`: age range, email, social media, LinkedIn, owner), 3. Smart mode AI on everything left. `keep()` then makes every fitting candidate a lead (`set_picked`), sorted checked first, known age first, then `search.score`. If fewer than the minimum: next round runs the queries capped at their share (first round: share of 3N, `POOL`) to the end, then `search.deep_queries` splits each city search that Google gave >= 100 for (`DEEP_AT`) into map views (`geo.radius_cells` around the median of its businesses, radius = 80th percentile distance, 2-15 km), cities taking turns; deep rounds stop starting queries once they have 3x what is still missing (the rest wait). Stops when nothing is left or a round makes no progress (failing queries). User's choice: digging deeper is automatic; adding cities or related types (`search.RELATED`, `related_types`) is a button after the shortfall summary. Live 2026-10-29: Dubai cafes with a phone, minimum 300: 630 leads in 52 s (36 views planned, 4 needed); 0.2.2 found ~100. `balanced` and `enrich.age_mismatch` are gone |
+| Score (0.3) | User: "whatever is most functional". `search.quality_parts`: mostly info found (email 15, phone 12, website 10, owner 8, socials 8, LinkedIn 4, address 6, claimed 5, hours 4, age known 4, description 4) + reputation (rating 8, reviews 12). Low scores are ranked last, never dropped (user's choice). The lead window (double-click) shows the breakdown |
+| Requirements UI (0.3) | User's choice: **select buttons for every choice** in Requirements and Extra detail (switches stay only in the country/city checklists). Sliders: `widgets/range_slider.py` (HomingPigeon's, generalised to a step table): rating 0 (Any) to 5.0, reviews 0 to "No maximum" (`NO_MAX`), company age 0-30+ years (`age_min`/`age_max`, -1 = none; old `company_age` converted via `search.AGE_PRESETS`). A website-only requirement switches "Visit each website" on; switching that off clears them |
 | Hidden addresses (2026-10-17) | Service-area businesses hide their address; Google sends only a rough pin (one was in Europe for a Dubai search). `places.parse` sets the address to `places.SERVICE_AREA`; `scraper.near_place` fills city and country from the query when the pin is within 50 km of where Google centred the city, else no country, which the country filter drops. Optional filter `require_address` ("Must show its address"). In the user's DB 82 of 227 leads were like this |
 | Download size | 41 MB -> 32 MB in 0.1.3. `tools/build.py` leaves out the anthropic SDK's optional extras that PyInstaller pulled in (pygments, rich, click, aiohttp, Google auth, setuptools...: `EXCLUDE`), unused Qt DLLs and plugins (`DROP`; Qt6Svg and the svg plugins stay because the theme's tick and arrow icons are SVG), and Setup's unused SSL, Tcl time zones and translations (`SETUP_EXCLUDE`, `SETUP_DROP`). `run.py --self-test` sends a request through the SDK to prove it still works without them. What's left: Qt ~16 MB, Python twice (app + Setup) ~5 MB, the anthropic SDK ~5 MB (calling Claude over plain httpx would save that, but the claude-api guidance is to keep the SDK unless the user asks). HomingPigeon's 12 MB zip is not comparable: it ships source and downloads Python + PyQt6 during install |
 | Columns ("Details to include") | `fields` option: the columns a search shows and exports (default all). Leads always store everything; the Leads page hides columns not in the selected search's `fields`, and export writes only the columns on screen (`exporter.export(..., keys)`). Website-only details (emails, socials, age) are greyed out when "Visit each website" is off. Every `places.FIELDS` key must be listed in `DETAIL_GROUPS` in `pages/search.py` |
@@ -308,6 +336,11 @@ python tools/make_icons.py    # after editing assets/logo.svg
 - 2026-10-17: README rewritten in typencut's style with 10 new screenshots, MIT LICENSE, third-party
   notices and license files bundled in the download (PyQt6 is GPL v3), PRIVACY, DISCLAIMER and
   SECURITY pages, Settings > About. On-screen "tick" wording changed to match the switches.
+
+- 2026-10-29: v0.3.0 milestones 1+2 (one commit: the form and the worker share the new
+  options). 32 unit tests; live Dubai cafes run above. The loop was checked to end when website
+  requirements leave most out (25 views, 33 of 500, shortfall shown). Not tested: the new form
+  with a real mouse, a multi-city deep run, resuming a 0.2.2 search under the new rules.
 
 ## Releasing a new version
 

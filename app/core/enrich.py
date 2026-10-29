@@ -234,28 +234,6 @@ def age_fields(created: date | None, source: str = "Domain registration",
             "age_source": source}
 
 
-def matches_age(lead: dict, wanted: str) -> bool:
-    if wanted == "any":
-        return True
-    years = lead.get("age_years")
-    if years is None:
-        return False
-    return years < STARTUP_YEARS if wanted == "startup" else years >= STARTUP_YEARS
-
-
-# The first is no longer given (unknown ages are kept since 2026-10-17), but older searches have it
-AGE_REASONS = ("company age unknown", f"older than {STARTUP_YEARS} years",
-               f"younger than {STARTUP_YEARS} years")
-
-
-def age_mismatch(lead: dict, wanted: str) -> str | None:
-    """Why the lead fails the company age filter, or None if it passes. An unknown age passes
-    (user's choice: many registries hide dates); the pick ranks those after known ones."""
-    if lead.get("age_years") is None or matches_age(lead, wanted):
-        return None
-    return AGE_REASONS[1] if wanted == "startup" else AGE_REASONS[2]
-
-
 # --- network ---------------------------------------------------------------------
 class Enricher:
     """Shared by many threads; one connection pool, one domain-age cache."""

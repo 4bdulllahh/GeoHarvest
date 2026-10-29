@@ -14,6 +14,7 @@ from app.core import db, exporter
 from app.core import search as searches
 from app.core.exporter import LINK_COLUMNS
 from app.core.places import FIELD_GROUPS, FIELDS, HEADERS
+from app.i18n import t
 from app.ui import theme
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (Card, copy_to_clipboard, danger_button, flow_row, hint, muted,
@@ -111,6 +112,14 @@ class LeadDialog(QDialog):
         layout.addWidget(text_label(lead.get("name") or "", "heading"))
         if lead.get("category"):
             layout.addWidget(text_label(lead["category"], "muted"))
+        parts = searches.quality_parts(lead)
+        layout.addWidget(text_label(t(
+            "Quality score {score} of 100. Found: {found}. Missing: {missing}.",
+            score=sum(points for _what, points, _most in parts),
+            found=", ".join(f"{t(what)} +{points}" for what, points, _most in parts if points)
+            or t("nothing yet"),
+            missing=", ".join(f"{t(what)} ({most - points})" for what, points, most in parts
+                              if points < most) or t("nothing")), "muted"))
 
         filled = [(key, header, as_text(lead[key])) for key, header in FIELDS
                   if lead.get(key) not in (None, "", [])]

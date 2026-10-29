@@ -4,15 +4,17 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QHBoxLayout, QSpinBox, QWidget
 
-from app.core import db, enrich, geo, hours, scraper
+from app.core import db, geo, hours, scraper
 from app.core import search as searches
+from app.i18n import t
 from app.ui.pages.base import Page
 from app.core.places import FIELD_GROUPS, HEADERS
 from app.ui.widgets.common import (Card, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
                                    confirm_button, danger_button, flow_row, hint, muted, row,
                                    secondary_button, select_button)
 from app.ui.widgets.checklist import CheckList
-from app.ui.widgets.inputs import checkbox, combo, line_edit
+from app.ui.widgets.inputs import combo, line_edit
+from app.ui.widgets.range_slider import RangeSlider
 from app.ui.widgets.type_picker import TypePicker
 from app.workers.base import Task
 
@@ -21,9 +23,32 @@ FROM_WEBSITE = {"emails", "facebook", "instagram", "linkedin", "twitter", "youtu
                 "company_age", "domain_created", "age_source", "owner_name", "owner_source",
                 "owner_linkedin"}
 TIMES = [f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (0, 30)]
-RATINGS = [("3.5", "3.5"), ("4", "4"), ("4.5", "4.5")]
-STEPS = {1: "Searching Google", 2: "Checking websites", 3: "Picking the best leads"}
+STEPS = {1: "Searching Google", 2: "Checking websites", 3: "Ranking the leads"}
 MORE_CITIES = 10
+# Slider steps: finer where people choose (ratings near 4-5, small review counts)
+RATING_STEPS = [0, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5] + [round(3.6 + i / 10, 1) for i in range(15)]
+NO_MAX = 10 ** 9
+REVIEW_STEPS = [0, 1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 500, 750,
+                1000, 2000, 5000, 10000, NO_MAX]
+AGE_STEPS = list(range(31))  # the last one means "30 years or more"
+# Options that are a select button of the same name on the form
+REQUIREMENT_BUTTONS = ("require_phone", "require_address", "require_email", "require_social",
+                       "require_linkedin", "require_owner", "require_claimed", "require_hours",
+                       "skip_closed", "skip_known", "open_now", "open_24h", "open_weekends",
+                       "open_at", "find_emails", "find_owner")
+
+
+def rating_label(value: float) -> str:
+    return t("Any") if not value else f"{value:.1f}"
+
+
+def reviews_label(value: int) -> str:
+    return t("No maximum") if value == NO_MAX else f"{value:,}"
+
+
+def age_label(value: int) -> str:
+    return t("{years}+ years", years=value) if value == AGE_STEPS[-1] else \
+        t("{years} years", years=value) if value != 1 else t("1 year")
 
 
 def split_list(text: str) -> list[str]:
@@ -118,54 +143,57 @@ class SearchPage(Page):
         self.area_place.textChanged.connect(self._update_plan)
         self.area_km.valueChanged.connect(self._update_plan)
 
-        # --- which ----------------------------------------------------------
-        which = Section("Which businesses?")
+        # --- requirements ---------------------------------------------------
+        which = Section("Requirements",
+                        "Click a requirement to switch it on (highlighted) or off (greyed out). "
+                        "Only businesses that meet every one you switch on become leads.")
+        self.use_case_row = FormRow("Quick setup", "Sets the requirements below for a common "
+                                                   "job. Change anything afterwards.")
+        self.use_case_row.add(row(*[small_button(label, lambda _c=False, k=key: self._use_case(k))
+                                    for key, label in searches.USE_CASE_NAMES], None))
+        which.add(self.use_case_row)
+
         age_row = FormRow("Company age",
                           "Estimated from when the business's website was registered (or first "
                           "appeared online, for countries whose registry keeps that private, "
-                          "which takes longer). Google Maps does not record when a company was "
-                          "founded, so businesses without a website only appear under Any age. "
-                          "Websites whose age can't be found are kept, marked Unknown, and "
-                          "ranked after the rest.")
-        self.company_age = ChoiceButtons(
+                          "which takes longer). Businesses without a website only appear with "
+                          "any age. Websites whose age can't be found are kept, marked Unknown, "
+                          "and ranked after the rest.")
+        self.age_quick = ChoiceButtons(
             [("any", "Any age"), ("startup", "Startups (under 3 years)"),
-             ("established", "Established (3 years or more)")], last["company_age"])
-        age_row.add(self.company_age)
+             ("established", "Established (3 years or more)"), ("own", "My own range")], "any",
+            on_change=self._age_quick_changed)
+        self.age = RangeSlider(AGE_STEPS, 0, AGE_STEPS[-1], age_label)
+        self.age.changed.connect(lambda *_values: self._age_moved())
+        age_row.add(self.age_quick)
+        age_row.add(self.age)
         which.add(age_row)
 
-        ratings = QWidget()
-        ratings_layout = QHBoxLayout(ratings)
-        ratings_layout.setContentsMargins(0, 0, 0, 0)
-        ratings_layout.setSpacing(24)
-        self.min_rating = ChoiceButtons([("0", "Any")] + RATINGS,
-                                        str(last["min_rating"]).removesuffix(".0"))
-        self.max_rating = ChoiceButtons([("0", "Any")] + RATINGS,
-                                        str(last["max_rating"]).removesuffix(".0"))
-        for label, choice in (("Google rating at least", self.min_rating),
-                              ("Google rating at most", self.max_rating)):
-            field = FormRow(label)
-            field.add(choice)
-            ratings_layout.addWidget(field, 1, Qt.AlignmentFlag.AlignTop)
-        which.add(ratings)
-
-        self.min_reviews = spin(0, 100000, int(last["min_reviews"]), " reviews", "Any")
-        self.max_reviews = spin(-1, 100000, int(last["max_reviews"]), " reviews", "No maximum")
-        self.max_results = spin(0, 100000, int(last["max_results"]), " leads", "No limit")
-        limits = QWidget()
-        limits_layout = QHBoxLayout(limits)
-        limits_layout.setContentsMargins(0, 0, 0, 0)
-        limits_layout.setSpacing(12)
-        for label, box, note in (
-                ("Reviews at least", self.min_reviews, ""),
-                ("Reviews at most", self.max_reviews, "Few reviews often means a business "
-                                                      "that needs more customers"),
-                ("Stop after", self.max_results, "The best this many, shared fairly between "
-                                                 "your cities and business types")):
+        sliders = QWidget()
+        sliders.setProperty("role", "plain")
+        sliders_layout = QHBoxLayout(sliders)
+        sliders_layout.setContentsMargins(0, 0, 0, 0)
+        sliders_layout.setSpacing(32)
+        self.rating = RangeSlider(RATING_STEPS, 0, 5.0, rating_label)
+        self.reviews = RangeSlider(REVIEW_STEPS, 0, NO_MAX, reviews_label)
+        for label, note, slider in (
+                ("Google rating", "Drag either end. Any includes businesses with no rating yet.",
+                 self.rating),
+                ("Number of reviews", "Few reviews often means a business that needs more "
+                                      "customers.", self.reviews)):
             field = FormRow(label, note)
-            field.add(box)
-            limits_layout.addWidget(field, 0, Qt.AlignmentFlag.AlignTop)
-        limits_layout.addStretch(1)
-        which.add(limits)
+            field.add(slider)
+            sliders_layout.addWidget(field, 1, Qt.AlignmentFlag.AlignTop)
+        which.add(sliders)
+
+        self.min_leads = spin(0, 100000, int(last["min_leads"]), " leads", "Everything found")
+        self.min_leads.setFixedWidth(200)
+        count_row = FormRow("Minimum leads", "GeoHarvest keeps searching until at least this "
+                                             "many businesses meet your requirements, digging "
+                                             "deeper into each city if it has to. Every match "
+                                             "it finds on the way is kept, best first.")
+        count_row.add(self.min_leads)
+        which.add(count_row)
 
         website_row = FormRow("Website", "\"No website\" finds businesses you could build a "
                                          "site for. Emails, social media, company age and the "
@@ -175,66 +203,93 @@ class SearchPage(Page):
         website_row.add(self.website)
         which.add(website_row)
 
-        self.require_phone = checkbox("Must have a phone number", last["require_phone"])
-        self.require_address = checkbox("Must show its address (some businesses hide it on "
-                                        "Google)", last["require_address"])
-        self.skip_closed = checkbox("Leave out closed businesses", last["skip_closed"])
-        self.skip_known = checkbox("Leave out businesses I found in earlier searches",
-                                   last["skip_known"])
-        for box in (self.require_phone, self.require_address, self.skip_closed,
-                    self.skip_known):
-            which.add(box)
+        self.require_phone = select_button("Phone number", last["require_phone"])
+        self.require_address = select_button("Address shown on Google", last["require_address"])
+        self.require_email = select_button("Email", last["require_email"])
+        self.require_social = select_button("Social media", last["require_social"])
+        self.require_linkedin = select_button("LinkedIn", last["require_linkedin"])
+        self.require_owner = select_button("Owner's name", last["require_owner"])
+        self.require_claimed = select_button("Claimed by owner", last["require_claimed"])
+        self.require_hours = select_button("Opening hours listed", last["require_hours"])
+        must_row = FormRow("Must have", "Email, social media, LinkedIn and the owner come from "
+                                        "the business's website, so they switch on \"Visit each "
+                                        "website\" below, and the search keeps going until "
+                                        "enough have them.")
+        container, flow = flow_row(spacing=10)
+        for box in (self.require_phone, self.require_address, self.require_email,
+                    self.require_social, self.require_linkedin, self.require_owner,
+                    self.require_claimed, self.require_hours):
+            flow.addWidget(box)
+        must_row.add(container)
+        which.add(must_row)
 
-        hours_row = FormRow("Opening hours", "In each business's own time zone. Businesses "
-                                             "that don't list their hours on Google are left "
-                                             "out while any of these is on.")
-        self.open_now = checkbox("Open now", last["open_now"])
-        self.open_24h = checkbox("Open 24 hours", last["open_24h"])
-        self.open_weekends = checkbox("Open on weekends", last["open_weekends"])
-        self.open_at = checkbox("Open on", last["open_at"])
+        self.skip_closed = select_button("Closed businesses", last["skip_closed"])
+        self.skip_known = select_button("Businesses I found in earlier searches",
+                                        last["skip_known"])
+        leave_row = FormRow("Leave out")
+        container, flow = flow_row(spacing=10)
+        flow.addWidget(self.skip_closed)
+        flow.addWidget(self.skip_known)
+        leave_row.add(container)
+        which.add(leave_row)
+
+        hours_row = FormRow("Open", "In each business's own time zone. Businesses that don't "
+                                    "list their hours on Google are left out while any of these "
+                                    "is on.")
+        self.open_now = select_button("Now", last["open_now"])
+        self.open_24h = select_button("24 hours", last["open_24h"])
+        self.open_weekends = select_button("On weekends", last["open_weekends"])
+        self.open_at = select_button("On", last["open_at"])
         self.open_day = combo(hours.DAYS, hours.DAYS[int(last["open_day"])], translate=False)
         self.open_time = combo(TIMES, last["open_time"], translate=False)
-        hours_row.add(self.open_now)
-        hours_row.add(self.open_24h)
-        hours_row.add(self.open_weekends)
-        hours_row.add(row(self.open_at, self.open_day, muted("at", wrap=False), self.open_time,
-                          None))
+        container, flow = flow_row(spacing=10)
+        for box in (self.open_now, self.open_24h, self.open_weekends,
+                    row(self.open_at, self.open_day, muted("at", wrap=False), self.open_time)):
+            flow.addWidget(box)
+        hours_row.add(container)
         which.add(hours_row)
         layout.addWidget(which)
 
         # --- extra ----------------------------------------------------------
-        extra = Section("Extra detail")
-        self.find_emails = checkbox(
-            "Visit each website to find emails and social media (Facebook, Instagram, "
-            "LinkedIn...) and estimate company age", last["find_emails"])
-        extra.add(self.find_emails)
-        self.find_owner = checkbox(
-            "Look for the owner: their name (on the website or in the domain record) and their "
-            "LinkedIn profile, if the website links it", last["find_owner"])
-        extra.add(self.find_owner)
-        self.smart = checkbox("Smart mode: let AI check every lead against your ideal customer",
-                              last["smart"])
-        extra.add(self.smart)
+        extra = Section("Extra detail", "Click to switch on (highlighted) or off (greyed out).")
+        self.find_emails = select_button("Visit each website", last["find_emails"])
+        self.find_owner = select_button("Look for the owner", last["find_owner"])
+        self.smart = select_button("Smart mode", last["smart"])
+        container, flow = flow_row(spacing=10)
+        for box in (self.find_emails, self.find_owner, self.smart):
+            flow.addWidget(box)
+        extra.add(container)
+        extra.add(hint("Visit each website: emails, social media (Facebook, Instagram, "
+                       "LinkedIn...) and company age. Look for the owner: their name (on the "
+                       "website or in the domain record) and their LinkedIn profile, if the "
+                       "website links it. Smart mode: AI checks every lead against your ideal "
+                       "customer."))
         self.smart_note = hint("")
         extra.add(self.smart_note)
         layout.addWidget(extra)
+        # A requirement only a website can answer switches the visit on; switching the
+        # visit off switches those requirements off
+        for box in (self.require_email, self.require_social, self.require_linkedin):
+            box.toggled.connect(lambda on: on and self.find_emails.setChecked(True))
+        self.require_owner.toggled.connect(lambda on: on and self.find_owner.setChecked(True))
+        self.find_owner.toggled.connect(lambda on: on and self.find_emails.setChecked(True))
+        self.find_owner.toggled.connect(lambda on: on or self.require_owner.setChecked(False))
 
         # --- details ----------------------------------------------------------
         details = Section("Details to include",
                           "Highlighted details are included; click one to leave it out (it "
                           "greys out) or put it back. Left-out details are not in the Leads "
-                          "table or the Excel file. Name is always included.")
+                          "table or the Excel file. With none picked, Name is included.")
         self.detail_boxes: dict[str, object] = {}
         for group, keys in FIELD_GROUPS:
             container, flow = flow_row(spacing=14)
             for key in keys:
-                box = select_button(HEADERS[key], key in last["fields"] or key == "name")
+                box = select_button(HEADERS[key], key in last["fields"])
                 self.detail_boxes[key] = box
                 flow.addWidget(box)
             group_row = FormRow(group)
             group_row.add(container)
             details.add(group_row)
-        self.detail_boxes["name"].setEnabled(False)
         details.add(row(hint("Emails, social media, company age and the owner need \"Visit "
                              "each website\" switched on above."),
                         small_button("Select all", lambda: self._tick_details(True)),
@@ -255,7 +310,7 @@ class SearchPage(Page):
         self.tile_email = StatTile("With an email", "-")
         self.tile_phone = StatTile("With a phone", "0")
         self.tile_ai = StatTile("AI checked", "-")
-        self.tile_best = StatTile("Best leads", "-")
+        self.tile_best = StatTile("Leads", "-")
         for tile in (self.tile_found, self.tile_places, self.tile_web, self.tile_email,
                      self.tile_phone, self.tile_ai, self.tile_best):
             stats.addWidget(tile)
@@ -280,8 +335,9 @@ class SearchPage(Page):
         bar.add(self.summary)
         self.more_cities_button = secondary_button(f"Add {MORE_CITIES} more cities",
                                                    self._add_cities)
+        self.related_button = secondary_button("Add related business types", self._add_related)
         self.any_age_button = secondary_button("Allow any company age", self._any_age)
-        self.widen = row(self.more_cities_button, self.any_age_button, None)
+        self.widen = row(self.more_cities_button, self.related_button, self.any_age_button, None)
         self.widen.hide()
         bar.add(self.widen)
         self.root.addWidget(bar)
@@ -353,15 +409,42 @@ class SearchPage(Page):
                           if count else "")
 
     def _tick_details(self, on: bool) -> None:
-        for key, box in self.detail_boxes.items():
-            box.setChecked(on or key == "name")
+        for box in self.detail_boxes.values():
+            box.setChecked(on)
 
     def _website_details(self, on: bool) -> None:
         for key in FROM_WEBSITE:
             self.detail_boxes[key].setEnabled(on)
-        self.find_owner.setEnabled(on)
         if not on:
-            self.find_owner.setChecked(False)
+            for box in (self.find_owner, self.require_email, self.require_social,
+                        self.require_linkedin, self.require_owner):
+                box.setChecked(False)
+
+    def _age_quick_changed(self, key: str) -> None:
+        if key in searches.AGE_PRESETS:
+            low, high = searches.AGE_PRESETS[key]
+            self.age.set(low, AGE_STEPS[-1] if high < 0 else high)
+
+    def _age_moved(self) -> None:
+        """The quick button that matches the slider lights up, else "My own range"."""
+        low, high = self.age.get()
+        chosen = (low, -1 if high == AGE_STEPS[-1] else high)
+        self.age_quick.set(next((key for key, value in searches.AGE_PRESETS.items()
+                                 if value == chosen), "own"))
+
+    def _age_range(self) -> tuple[int, int]:
+        low, high = self.age.get()
+        return low, -1 if high == AGE_STEPS[-1] else high
+
+    def _set_age(self, low: int, high: int) -> None:
+        self.age.set(low, AGE_STEPS[-1] if high < 0 else high)
+        self._age_moved()
+
+    def _use_case(self, key: str) -> None:
+        """Quick setup: put the requirements for a common job on the form."""
+        self.load_options({**self.options(), **searches.USE_CASES[key]})
+        self.notify(t("Requirements set for {job}. Change anything you like.",
+                      job=t(dict(searches.USE_CASE_NAMES)[key]).lower()), "success")
 
     def on_show(self) -> None:
         ready = bool(db.get_setting("ai_provider", ""))
@@ -375,6 +458,9 @@ class SearchPage(Page):
     def options(self) -> dict:
         place = self.area_place.text().strip()
         found = self.located if self.located and self.located[0] == place else None
+        min_rating, max_rating = self.rating.get()
+        min_reviews, max_reviews = self.reviews.get()
+        age_min, age_max = self._age_range()
         return {
             "niches": split_list(self.niches.text()),
             "where": self.where.get(),
@@ -385,27 +471,21 @@ class SearchPage(Page):
             "countries": self._chosen_countries(),
             "cities": self.cities.checked(),
             "city_count": self.city_count,
-            "company_age": self.company_age.get(),
-            "min_rating": float(self.min_rating.get()),
-            "min_reviews": self.min_reviews.value(),
-            "max_rating": float(self.max_rating.get()),
-            "max_reviews": self.max_reviews.value(),
-            "max_results": self.max_results.value(),
+            "age_min": age_min,
+            "age_max": age_max,
+            "min_rating": float(min_rating),
+            "max_rating": 0.0 if max_rating >= 5 else float(max_rating),
+            "min_reviews": min_reviews,
+            "max_reviews": -1 if max_reviews == NO_MAX else max_reviews,
+            "min_leads": self.min_leads.value(),
             "website": self.website.get(),
-            "require_phone": self.require_phone.isChecked(),
-            "require_address": self.require_address.isChecked(),
-            "open_now": self.open_now.isChecked(),
-            "open_24h": self.open_24h.isChecked(),
-            "open_weekends": self.open_weekends.isChecked(),
-            "open_at": self.open_at.isChecked(),
+            **{name: getattr(self, name).isChecked() for name in REQUIREMENT_BUTTONS},
             "open_day": hours.DAYS.index(self.open_day.currentText()),
             "open_time": self.open_time.currentText(),
-            "skip_closed": self.skip_closed.isChecked(),
-            "skip_known": self.skip_known.isChecked(),
-            "find_emails": self.find_emails.isChecked(),
-            "find_owner": self.find_owner.isChecked(),
             "smart": self.smart.isChecked(),
-            "fields": [key for key, box in self.detail_boxes.items() if box.isChecked()],
+            # nothing picked still shows who the business is
+            "fields": [key for key, box in self.detail_boxes.items() if box.isChecked()]
+                      or ["name"],
         }
 
     def load_options(self, options: dict) -> None:
@@ -426,20 +506,19 @@ class SearchPage(Page):
         self.countries.set_checked(set(self.countries.keys()), False)
         self.countries.set_checked(set(countries))
         self._rebuild_cities(tick=set(cities))
-        self.company_age.set(options["company_age"])
-        self.min_rating.set(str(options["min_rating"]).removesuffix(".0"))
-        self.max_rating.set(str(options["max_rating"]).removesuffix(".0"))
-        self.min_reviews.setValue(int(options["min_reviews"]))
-        self.max_reviews.setValue(int(options["max_reviews"]))
-        self.max_results.setValue(int(options["max_results"]))
+        self._set_age(int(options["age_min"]), int(options["age_max"]))
+        self.rating.set(float(options["min_rating"]), float(options["max_rating"] or 5.0))
+        self.reviews.set(int(options["min_reviews"]),
+                         NO_MAX if int(options["max_reviews"]) < 0 else int(options["max_reviews"]))
+        self.min_leads.setValue(int(options["min_leads"]))
         self.website.set(options["website"])
-        for name in ("require_phone", "require_address", "skip_closed", "skip_known", "find_emails", "find_owner",
-                     "open_now", "open_24h", "open_weekends", "open_at"):
+        # The website visit first: switching it off would clear the requirements that need it
+        for name in ("find_emails", "find_owner", *REQUIREMENT_BUTTONS):
             getattr(self, name).setChecked(bool(options[name]))
         self.open_day.setCurrentText(hours.DAYS[int(options["open_day"])])
         self.open_time.setCurrentText(options["open_time"])
         for key, box in self.detail_boxes.items():
-            box.setChecked(key in options["fields"] or key == "name")
+            box.setChecked(key in options["fields"])
         self.on_show()  # Smart mode only stays ticked if it is still set up
         self.smart.setChecked(bool(options["smart"]) and self.smart.isEnabled())
 
@@ -451,12 +530,11 @@ class SearchPage(Page):
                 return "Type the place or address to search around."
         elif not options["cities"]:
             return "Choose at least one country and one city."
-        if options["website"] == "no" and options["company_age"] != "any":
+        if options["website"] == "no" and searches.age_filtered(options):
             return "Company age comes from the website, so it can't be used with \"No website\"."
-        if options["max_rating"] and options["max_rating"] < options["min_rating"]:
-            return "The highest rating is below the lowest one."
-        if 0 <= options["max_reviews"] < options["min_reviews"]:
-            return "\"Reviews at most\" is below \"Reviews at least\"."
+        if options["website"] == "no" and any(options[key] for key in searches.FROM_WEBSITE_REQUIREMENTS):
+            return ("Emails, social media, LinkedIn and the owner come from the website, so "
+                    "they can't be required with \"No website\".")
         return None
 
     # --- running ------------------------------------------------------------
@@ -511,10 +589,11 @@ class SearchPage(Page):
             leads_page.select_search(search_id)
         record = searches.get(search_id)
         self.title = record["title"]
-        limit = int(record["options"]["max_results"] or 0)
+        limit = int(record["options"]["min_leads"] or 0)
         self.step = 0
         for tile in (self.tile_web, self.tile_email, self.tile_ai):
             tile.update_value("-")
+        self.limit = limit
         self.tile_best.update_value(f"- of {limit:,}" if limit else "-")
         self.tile_ai.setVisible(bool(record["options"]["smart"]))
 
@@ -523,6 +602,7 @@ class SearchPage(Page):
         self.worker.signals.found.connect(self._on_found)
         self.worker.signals.checked.connect(self._on_checked)
         self.worker.signals.scored.connect(self._on_scored)
+        self.worker.signals.leads.connect(self._on_leads)
         self.worker.signals.progress.connect(self._on_progress)
         self.worker.signals.message.connect(lambda text, level: self.notify(text, level))
         self.worker.signals.finished.connect(self._on_finished)
@@ -578,6 +658,9 @@ class SearchPage(Page):
         if self.step == 3:
             self.progress.set_progress(done, total)
 
+    def _on_leads(self, count: int) -> None:
+        self.tile_best.update_value(f"{count:,} of {self.limit:,}" if self.limit else f"{count:,}")
+
     def _on_finished(self, result: dict) -> None:
         self.worker = None
         self._set_running(False)
@@ -587,7 +670,7 @@ class SearchPage(Page):
         if leads_page is not None:
             leads_page.select_search(self.search_id)
         if result["blocked"]:
-            self.status.setText(f"Paused: Google is limiting requests. The best {found:,} so "
+            self.status.setText(f"Paused: Google is limiting requests. The {found:,} leads so "
                                 "far are in Leads.")
             self.notify("Google asked GeoHarvest to slow down. Everything found so far is saved. "
                         "Wait about 15 minutes, then resume it from Past searches.", "warn", 10000)
@@ -597,14 +680,14 @@ class SearchPage(Page):
                         "saved; fix it on the Smart mode page, then resume from Past searches.",
                         "warn", 10000)
         elif result["status"] == "done":
-            self.status.setText(f"Done: the best {found:,} of {result['listed']:,} businesses "
-                                "Google listed.")
+            self.status.setText(f"Done: {found:,} leads meet your requirements, out of "
+                                f"{result['listed']:,} businesses Google listed.")
             if wanted and found < wanted:
                 self._explain_shortfall(result)
             else:
                 self.notify(f"Search finished: {found:,} leads.", "success")
         else:
-            self.status.setText(f"Stopped. The best {found:,} so far are in Leads; resume it "
+            self.status.setText(f"Stopped. The {found:,} leads so far are in Leads; resume it "
                                 "from Past searches.")
         self.window_.search_finished.emit(self.search_id)
         self.window_.refresh_status()
@@ -614,17 +697,19 @@ class SearchPage(Page):
         reasons = ", ".join(f"{count:,} {reason}" for reason, count in
                             list(result["dropped"].items())[:5])
         self.summary.setText(
-            f"Only {result['found']:,} of the {result['wanted']:,} leads you asked for: Google "
-            f"listed {result['listed']:,} businesses in these places"
+            f"Only {result['found']:,} of the {result['wanted']:,} leads you asked for, after "
+            f"searching deeper inside every city: Google listed {result['listed']:,} businesses "
+            "in these places"
             + (f", and left out were: {reasons}." if reasons else ".")
             + " Widen the search below; it carries on from where it is.")
         options = searches.get(self.search_id)["options"]
         self.more_cities_button.setVisible(bool(self._spare_cities(options)))
-        self.any_age_button.setVisible(options["company_age"] != "any" and any(
-            reason in result["dropped"] for reason in enrich.AGE_REASONS))
+        self.related_button.setVisible(bool(searches.related_types(options["niches"])))
+        self.any_age_button.setVisible(searches.age_filtered(options) and any(
+            searches.is_age_reason(reason) for reason in result["dropped"]))
         self.summary.show()
-        self.widen.setVisible(self.more_cities_button.isVisibleTo(self.widen)
-                              or self.any_age_button.isVisibleTo(self.widen))
+        self.widen.setVisible(any(button.isVisibleTo(self.widen) for button in (
+            self.more_cities_button, self.related_button, self.any_age_button)))
         self.notify(f"Search finished with {result['found']:,} of {result['wanted']:,} leads. "
                     "See why below.", "warn", 6000)
 
@@ -649,9 +734,15 @@ class SearchPage(Page):
         self._widen(lambda options: options.update(
             cities=searches.places_for(options) + self._spare_cities(options)))
 
+    def _add_related(self) -> None:
+        self._widen(lambda options: options.update(
+            niches=options["niches"] + searches.related_types(options["niches"])))
+
     def _any_age(self) -> None:
-        searches.undrop(self.search_id, enrich.AGE_REASONS)
-        self._widen(lambda options: options.update(company_age="any"))
+        searches.undrop(self.search_id, tuple(
+            reason for reason in searches.dropped_counts(self.search_id)
+            if searches.is_age_reason(reason)))
+        self._widen(lambda options: options.update(age_min=0, age_max=-1))
 
     def _on_failed(self, message: str) -> None:
         self.worker = None
