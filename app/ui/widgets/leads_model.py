@@ -8,12 +8,70 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
 
+from app.core import prefs
+from app.core.enrich import STARTUP_YEARS
 from app.core.places import FIELDS
+from app.core.search import SOCIALS, has_link
 from app.ui import theme
 
-NUMERIC = {"rating", "reviews", "latitude", "longitude", "ai_score"}
+NUMERIC = {"quality", "rating", "reviews", "latitude", "longitude", "ai_score"}
+DATES = {"found", "exported", "domain_created"}  # ISO dates, shown in the user's date format
 SORT_ROLE = Qt.ItemDataRole.UserRole
 LEAD_ROLE = Qt.ItemDataRole.UserRole + 1
+DESCENDING = Qt.SortOrder.DescendingOrder
+ASCENDING = Qt.SortOrder.AscendingOrder
+
+# The Sort menu on the Leads page: key -> (column, order). "rank" is the order the search
+# ranked them in (no column sorted).
+SORTS = {
+    "rank": (None, ASCENDING), "quality": ("quality", DESCENDING),
+    "name": ("name", ASCENDING), "name_za": ("name", DESCENDING),
+    "rating": ("rating", DESCENDING), "rating_low": ("rating", ASCENDING),
+    "reviews": ("reviews", DESCENDING), "reviews_few": ("reviews", ASCENDING),
+    "ai": ("ai_score", DESCENDING), "city": ("city", ASCENDING),
+    "newest": ("found", DESCENDING), "oldest": ("found", ASCENDING),
+}
+SORT_MENU = [
+    ("rank", "Best leads first"), ("quality", "Quality score, high to low"),
+    ("ai", "AI score, high to low"), None,
+    ("name", "Name, A to Z"), ("name_za", "Name, Z to A"), ("city", "City, A to Z"), None,
+    ("rating", "Rating, high to low"), ("rating_low", "Rating, low to high"),
+    ("reviews", "Most reviews"), ("reviews_few", "Fewest reviews"), None,
+    ("newest", "Found most recently"), ("oldest", "Found longest ago"),
+]
+
+
+def _age(lead: dict):
+    years = lead.get("age_years")
+    return years if isinstance(years, (int, float)) else None
+
+
+# The Show menu: which leads to list
+SHOWS = {
+    "all": lambda lead: True,
+    "email": lambda lead: bool(lead.get("emails")),
+    "phone": lambda lead: bool(lead.get("phone")),
+    "email_phone": lambda lead: bool(lead.get("emails")) and bool(lead.get("phone")),
+    "website": lambda lead: bool(lead.get("website")),
+    "no_website": lambda lead: not lead.get("website"),
+    "owner": lambda lead: bool(lead.get("owner_name")),
+    "social": lambda lead: any(has_link(lead, key) for key in SOCIALS),
+    "linkedin": lambda lead: has_link(lead, "linkedin") or has_link(lead, "owner_linkedin"),
+    "startup": lambda lead: _age(lead) is not None and _age(lead) < STARTUP_YEARS,
+    "established": lambda lead: _age(lead) is not None and _age(lead) >= STARTUP_YEARS,
+    "good_fit": lambda lead: lead.get("ai_verdict") == "Good fit",
+    "new": lambda lead: not lead.get("exported"),
+}
+SHOW_MENU = [
+    ("all", "All leads"), None,
+    ("email", "With an email"), ("phone", "With a phone number"),
+    ("email_phone", "With an email and a phone"), ("website", "With a website"),
+    ("no_website", "Without a website"), ("owner", "With the owner's name"),
+    ("social", "On social media"), ("linkedin", "On LinkedIn"), None,
+    ("startup", "Startups"), ("established", "Established companies"),
+    ("good_fit", "AI says good fit"), None,
+    ("new", "Not exported yet"),
+]
 
 
 class LeadsModel(QAbstractTableModel):
@@ -47,6 +105,8 @@ class LeadsModel(QAbstractTableModel):
                 return ""
             if isinstance(value, list):
                 return ", ".join(map(str, value))
+            if key in DATES:
+                return prefs.format_date(value)
             return str(value)
         if role == SORT_ROLE:
             if key in NUMERIC:
@@ -115,16 +175,46 @@ class LeadsProxy(QSortFilterProxyModel):
         self.setSourceModel(source)
         self.setSortRole(SORT_ROLE)
         self._needle = ""
+        self._show = SHOWS["all"]
+        self._rating: tuple | None = None   # (low, high); None: any rating
+        self._reviews: tuple | None = None  # (low, high or None for no maximum)
+        self._dates: tuple | None = None    # (first, last) ISO days the lead was found
 
     def set_filter(self, text: str) -> None:
         self._needle = text.strip().lower()
         self.invalidateFilter()
 
+    def set_show(self, key: str) -> None:
+        self._show = SHOWS.get(key, SHOWS["all"])
+        self.invalidateFilter()
+
+    def set_ranges(self, rating: tuple | None, reviews: tuple | None) -> None:
+        self._rating, self._reviews = rating, reviews
+        self.invalidateFilter()
+
+    def set_dates(self, first, last) -> None:
+        self._dates = (first.isoformat(), last.isoformat()) if first and last else None
+        self.invalidateFilter()
+
     def filterAcceptsRow(self, row: int, parent) -> bool:  # noqa: N802 - Qt naming
+        source = self.sourceModel()
+        lead = source.leads[row]
+        if not self._show(lead):
+            return False
+        if self._rating:
+            rating = lead.get("rating")
+            if not isinstance(rating, (int, float)) or                     not self._rating[0] <= rating <= self._rating[1]:
+                return False
+        if self._reviews:
+            count = lead.get("reviews") or 0
+            if count < self._reviews[0] or (self._reviews[1] is not None
+                                            and count > self._reviews[1]):
+                return False
+        if self._dates and not self._dates[0] <= str(lead.get("found") or "")[:10]                 <= self._dates[1]:
+            return False
         if not self._needle:
             return True
-        haystack = self.sourceModel().haystacks[row]
-        return all(word in haystack for word in self._needle.split())
+        return all(word in source.haystacks[row] for word in self._needle.split())
 
     def visible_leads(self) -> list[dict]:
         """The leads in the order and filter shown on screen, for export."""

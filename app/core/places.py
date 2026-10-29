@@ -62,10 +62,14 @@ FIELDS = [
     ("photo", "Photo"),
     ("place_id", "Place ID"),
     ("query", "Found by search"),
+    ("found", "Found on"),
+    ("exported", "Exported on"),
 ]
 HEADERS = dict(FIELDS)
 SERVICE_AREA = "Service area (address hidden on Google)"
 NOT_FOUND = "N/A"  # looked for on the business's website and not there (LinkedIn columns)
+# When GeoHarvest found a lead and when it was last exported; not something to search for
+RECORD_FIELDS = ["found", "exported"]
 # How the columns are grouped where the user picks them (New search, Leads > Columns).
 # Every key of FIELDS appears exactly once.
 FIELD_GROUPS = [
@@ -80,6 +84,7 @@ FIELD_GROUPS = [
     ("Company age", ["company_age", "domain_created", "age_source"]),
     ("Smart mode", ["ai_score", "ai_verdict", "ai_reason"]),
     ("Other", ["photo", "place_id", "query"]),
+    ("Your records", RECORD_FIELDS),
 ]
 
 

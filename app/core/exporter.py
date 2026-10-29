@@ -120,7 +120,19 @@ CRMS = {
         ("Billing State/Province", "state"), ("Billing Zip/Postal Code", "postal_code"),
         ("Billing Country", "country_code"), ("Description", "description"),
         ("Email", "first_email"), ("Contact Name", "owner_name")]),
+    # One row per email, in the columns HomingPigeon's import recognises; the rest
+    # become mail-merge variables there ({City}, {Category}...)
+    "homingpigeon": ("HomingPigeon", [
+        ("Email", "first_email"), ("Company", "name"), ("Contact person", "owner_name"),
+        ("City", "city"), ("Category", "category"), ("Website", "website"),
+        ("Phone", "phone"), ("Rating", "rating"), ("Reviews", "reviews"),
+        ("Google Maps link", "maps_url")]),
 }
+ONE_ROW_PER_EMAIL = {"homingpigeon"}
+
+
+def email_list(lead: dict) -> list[str]:
+    return [email.strip() for email in str(lead.get("emails") or "").split(",") if email.strip()]
 
 
 def _crm_value(lead: dict, key: str):
@@ -136,6 +148,8 @@ def to_crm(leads: list[dict], path: Path, crm: str) -> int:
     with open(path, "w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
         writer.writerow([header for header, _key in columns])
+        if crm in ONE_ROW_PER_EMAIL:
+            leads = [dict(lead, emails=email) for lead in leads for email in email_list(lead)]
         for lead in leads:
             writer.writerow([safe_csv(_crm_value(lead, key)) for _header, key in columns])
     return len(leads)

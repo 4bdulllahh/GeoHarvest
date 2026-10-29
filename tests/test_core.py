@@ -157,7 +157,8 @@ def test_save_dedupes_and_resumes(fresh_db):
     assert searches.get(first)["progress"]["done"] == ["cafe in Lahore, Pakistan"]
 
     searches.update_lead(first, "A", {"emails": "hi@one.pk"})
-    assert searches.leads(first)[0] == {"place_id": "A", "name": "One", "emails": "hi@one.pk"}
+    assert searches.leads(first)[0] == {"place_id": "A", "name": "One", "emails": "hi@one.pk",
+                                        "found": db.now()[:10]}
 
 
 def test_minimum_keeps_every_match_the_website_check_leaves(fresh_db, monkeypatch):
@@ -617,16 +618,43 @@ def test_crm_and_sheets_export(tmp_path):
 
     leads = [{"name": "=Acme", "emails": "a@acme.ae, b@acme.ae", "phone": "+971 4 555 0100",
               "address": "1 Marina Walk, Dubai", "city": "Dubai", "description": "line\tone\ntwo"}]
-    for crm in exporter.CRMS:
+    for crm in set(exporter.CRMS) - exporter.ONE_ROW_PER_EMAIL:
         exporter.to_crm(leads, tmp_path / f"{crm}.csv", crm)
         rows = list(csv.reader((tmp_path / f"{crm}.csv").open(encoding="utf-8-sig")))
         assert len(rows) == 2 and rows[1][0] == "'=Acme"  # never a formula
         assert "a@acme.ae" in rows[1] and "b@acme.ae, " not in rows[1]
+    # HomingPigeon: one row per email, in the columns its import recognises
+    assert exporter.to_crm(leads + [{"name": "No email"}], tmp_path / "hp.csv", "homingpigeon") == 2
+    rows = list(csv.reader((tmp_path / "hp.csv").open(encoding="utf-8-sig")))
+    assert rows[0][:3] == ["Email", "Company", "Contact person"]
+    assert [r[:2] for r in rows[1:]] == [["a@acme.ae", "'=Acme"], ["b@acme.ae", "'=Acme"]]
     hubspot = dict(zip(*csv.reader((tmp_path / "hubspot.csv").open(encoding="utf-8-sig"))))
     assert hubspot["Street address"] == "1 Marina Walk, Dubai"  # no street part: whole address
     text = exporter.to_tsv(leads, ["name", "phone", "description"])
     assert text.splitlines() == ["Name\tPhone\tDescription",
                                  "'=Acme\t'+971 4 555 0100\tline one two"]
+
+
+def test_found_exported_and_show_filters():
+    from app.ui.widgets.leads_model import SHOW_MENU, SHOWS, SORT_MENU, SORTS
+
+    one, two = searches.create({"niches": ["cafe"]}), searches.create({"niches": ["bar"]})
+    lead = {"place_id": "X", "name": "X", "emails": "x@x.pk", "website": "https://x.pk",
+            "age_years": 1}
+    searches.save_leads(one, [lead])
+    searches.save_leads(two, [lead, {"place_id": "Y", "name": "Y", "age_years": 9}])
+    searches.mark_exported(["X"], "2026-10-01")
+    assert [item["exported"] for item in searches.leads(two) if "exported" in item] == ["2026-10-01"]
+    assert searches.leads(one)[0]["exported"] == "2026-10-01"  # every search that has it
+    x, y = searches.leads(two)
+    assert x["found"] == db.now()[:10]
+    picked = {key for key, test in SHOWS.items() if test(x)}
+    assert picked == {"all", "email", "website", "startup"}
+    assert {key for key, test in SHOWS.items() if test(y)} == {"all", "no_website", "established",
+                                                               "new"}
+    # every menu entry has a rule, and every rule a menu entry
+    assert {e[0] for e in SHOW_MENU if e} == set(SHOWS)
+    assert {e[0] for e in SORT_MENU if e} == set(SORTS)
 
 
 def test_proxies_parse_and_rotate(page):

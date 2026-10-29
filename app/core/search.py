@@ -542,9 +542,15 @@ def set_picked(search_id: int, picked: list[dict]) -> None:
     save_leads(search_id, picked)
 
 
+def _lead(row) -> dict:
+    lead = json.loads(row["data"])
+    lead.setdefault("found", row["created"][:10])
+    return lead
+
+
 def leads(search_id: int) -> list[dict]:
-    return [json.loads(r["data"]) for r in
-            db.query("SELECT data FROM leads WHERE search_id = ? ORDER BY id", (search_id,))]
+    return [_lead(r) for r in db.query(
+        "SELECT created, data FROM leads WHERE search_id = ? ORDER BY id", (search_id,))]
 
 
 def count(search_id: int) -> int:
@@ -563,9 +569,19 @@ def all_searches() -> list[dict]:
 def all_leads() -> list[dict]:
     """Every lead from every search, each business once (its most recent copy)."""
     latest: dict[str, dict] = {}
-    for row in db.query("SELECT place_id, data FROM leads ORDER BY id"):
-        latest[row["place_id"]] = json.loads(row["data"])
+    for row in db.query("SELECT place_id, created, data FROM leads ORDER BY id"):
+        latest[row["place_id"]] = _lead(row)
     return list(latest.values())
+
+
+def mark_exported(place_ids: list[str], day: str) -> None:
+    """Stamp the leads in every search that has them, so "Not exported yet" leaves them out."""
+    conn = db.connect()
+    for start in range(0, len(place_ids), 500):
+        chunk = place_ids[start:start + 500]
+        conn.execute(f"UPDATE leads SET data = json_set(data, '$.exported', ?) "
+                     f"WHERE place_id IN ({','.join('?' * len(chunk))})", (day, *chunk))
+    conn.commit()
 
 
 def delete(search_id: int) -> None:

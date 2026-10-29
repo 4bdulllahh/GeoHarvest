@@ -8,7 +8,7 @@ from app.core import db, geo, hours, scraper
 from app.core import search as searches
 from app.i18n import t
 from app.ui.pages.base import Page
-from app.core.places import FIELD_GROUPS, HEADERS
+from app.core.places import FIELD_GROUPS, HEADERS, RECORD_FIELDS
 from app.ui.widgets.common import (Card, Columns, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
                                    confirm_button, danger_button, flow_row, hint, muted, row,
                                    secondary_button, select_button)
@@ -272,6 +272,8 @@ class SearchPage(Page):
                           "table or the Excel file. With none picked, Name is included.")
         self.detail_boxes: dict[str, object] = {}
         for group, keys in FIELD_GROUPS:
+            if keys is RECORD_FIELDS:
+                continue  # dates GeoHarvest keeps; picked under Leads > Columns
             container, flow = flow_row(spacing=14)
             for key in keys:
                 box = select_button(HEADERS[key], key in last["fields"])

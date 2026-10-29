@@ -17,12 +17,16 @@ from app.core.places import FIELD_GROUPS, FIELDS, HEADERS
 from app.i18n import t
 from app.ui import theme
 from app.ui.pages.base import Page
-from app.ui.widgets.common import (Card, copy_to_clipboard, danger_button, flow_row, hint, muted,
-                                   open_url, primary_button, row, secondary_button, select_button,
-                                   wrap_row)
+from app.ui.pages.search import NO_MAX, RATING_STEPS, REVIEW_STEPS, rating_label, reviews_label
+from app.ui.widgets.common import (Card, Columns, MenuButton, copy_to_clipboard, danger_button,
+                                   column, field_label, flow_row, hint, muted, open_url, primary_button,
+                                   row, secondary_button, select_button, wrap_row)
+from app.ui.widgets.date_range import DateRange
 from app.ui.widgets.dialogs import ConfirmDialog
 from app.ui.widgets.inputs import Debouncer, combo, line_edit
-from app.ui.widgets.leads_model import LEAD_ROLE, LeadsModel, LeadsProxy
+from app.ui.widgets.leads_model import (LEAD_ROLE, SHOW_MENU, SORT_MENU, SORTS, LeadsModel,
+                                       LeadsProxy)
+from app.ui.widgets.range_slider import RangeSlider
 from app.ui.widgets.tables import DataTable
 from app.workers.ai import AIScoreWorker
 from app.workers.base import Task
@@ -181,25 +185,52 @@ class LeadsPage(Page):
             exports.addAction(f"CSV for {name}", lambda c=crm: self.export(c))
         exports.addSeparator()
         exports.addAction("Copy for Google Sheets", self.copy_for_sheets)
+        exports.addAction("Copy the emails shown",
+                          lambda: self._copy_contacts(self.proxy.visible_leads(), "emails"))
+        exports.addAction("Copy the phone numbers shown",
+                          lambda: self._copy_contacts(self.proxy.visible_leads(), "phones"))
         self.csv_button.setMenu(exports)
         self.columns_button = secondary_button("Columns...", self.choose_columns)
         self.delete_button = danger_button("Delete search...", self.delete_search)
         self.delete_leads_button = secondary_button("Delete selected", self.delete_selected)
         self.score_button = secondary_button("Score with AI", self.score_with_ai)
         self.score_worker = None
+        self.show_button = MenuButton(SHOW_MENU, "all", prefix="Show: ",
+                                      on_change=self._change_show)
+        self.show_button.setToolTip("Show only some leads, such as the ones with an email, or "
+                                    "the ones not exported yet")
+        self.sort_button = MenuButton(SORT_MENU, "rank", prefix="Sort: ",
+                                      on_change=self._change_sort)
+        self.dates = DateRange(on_change=self._change_dates,
+                               labels=("Found: any date", "Found: {start} to {end}"))
+        self.dates.button.setToolTip("Show only the leads found between two dates")
+        self.ranges_button = select_button("Rating and reviews", on_change=self._toggle_ranges)
         self.root.addWidget(row(self.picker, self.filter, stretch=1))
-        self.root.addWidget(wrap_row(self.excel_button, self.csv_button, self.score_button,
-                                     self.delete_button))
+        self.root.addWidget(wrap_row(self.show_button, self.sort_button, self.dates,
+                                     self.ranges_button, self.excel_button, self.csv_button))
+
+        self.rating = RangeSlider(RATING_STEPS, 0, 5.0, rating_label)
+        self.reviews = RangeSlider(REVIEW_STEPS, 0, NO_MAX, reviews_label)
+        for slider in (self.rating, self.reviews):
+            slider.changed.connect(lambda *_values: self._apply_ranges())
+        self.ranges = Card(padding=12)
+        self.ranges.add(Columns(column(field_label("Rating"), self.rating),
+                                column(field_label("Number of reviews"), self.reviews),
+                                stack_below=640, spacing=32))
+        self.ranges.setVisible(False)
+        self.root.addWidget(self.ranges)
 
         card = Card(padding=12)
         self.count_label = muted("", wrap=False)
-        card.add(row(self.count_label, self.columns_button, self.delete_leads_button, stretch=0))
+        card.add(row(self.count_label, self.score_button, self.columns_button,
+                     self.delete_leads_button, self.delete_button, stretch=0))
         self.model = LeadsModel(self)
         self.proxy = LeadsProxy(self.model, self)
         self.table = DataTable(self.proxy, "No leads yet. Start a search on the New search page.",
                                multi_select=True)
         self.table.view.setSortingEnabled(True)
-        self.table.view.sortByColumn(-1, self.table.view.horizontalHeader().sortIndicatorOrder())
+        self.table.view.horizontalHeader().sortIndicatorChanged.connect(self._sorted_by_heading)
+        self._change_sort(db.get_setting("leads_sort", "rank"))
         self.table.double_clicked.connect(self._open_row)
         self.table.set_context_menu(self._menu)
         self.table.selection_changed.connect(self._update_count)
@@ -207,7 +238,9 @@ class LeadsPage(Page):
                   context=Qt.ShortcutContext.WidgetShortcut)
         card.add(self.table, 1)
         card.add(hint("Double-click a row to see everything about that business. Right-click "
-                      "for more. Export saves exactly the rows and columns shown, in this order."))
+                      "for more. Export saves exactly the rows and columns shown, in this order. "
+                      "To export only what you haven't exported before, pick Show: Not exported "
+                      "yet."))
         self.root.addWidget(card, 1)
 
         self.debounce = Debouncer(200, self)
@@ -299,7 +332,7 @@ class LeadsPage(Page):
     def _update_count(self, *_args) -> None:
         shown, total = self.proxy.rowCount(), self.model.rowCount()
         self.count_label.setText(f"{total:,} leads" if shown == total
-                                 else f"{shown:,} of {total:,} leads match the filter")
+                                 else f"{shown:,} of {total:,} leads shown")
         has_rows = shown > 0
         self.excel_button.setEnabled(has_rows)
         self.csv_button.setEnabled(has_rows)
@@ -332,9 +365,82 @@ class LeadsPage(Page):
                 value = lead[key]
                 menu.addAction(label, lambda v=value: copy_to_clipboard(
                     ", ".join(v) if isinstance(v, list) else str(v)))
+        chosen = [lead for row in self.table.selected_rows() if (lead := self._lead_at(row))]
+        if len(chosen) > 1:
+            menu.addSeparator()
+            menu.addAction(f"Copy the emails of the {len(chosen):,} selected",
+                           lambda: self._copy_contacts(chosen, "emails"))
+            menu.addAction(f"Copy the phone numbers of the {len(chosen):,} selected",
+                           lambda: self._copy_contacts(chosen, "phones"))
         menu.addSeparator()
         menu.addAction("Delete selected", self.delete_selected)
         return menu
+
+    # --- show, sort, dates, rating and reviews -------------------------------
+    def _change_show(self, key: str) -> None:
+        self.proxy.set_show(key)
+        self.table.view.scrollToTop()
+        self._update_count()
+
+    def _change_sort(self, key: str) -> None:
+        column_key, order = SORTS.get(key, SORTS["rank"])
+        self.sort_button.set(key if key in SORTS else "rank")
+        column = self.model.keys.index(column_key) if column_key else -1
+        self.table.view.sortByColumn(column, order)
+        self.table.view.scrollToTop()
+        db.set_setting_soft("leads_sort", self.sort_button.get())
+
+    def _sorted_by_heading(self, column: int, order) -> None:
+        """A click on a column heading sorts too; the Sort button says so when it can."""
+        column_key = self.model.keys[column] if 0 <= column < len(self.model.keys) else None
+        match = next((key for key, value in SORTS.items() if value == (column_key, order)), None)
+        if match is None and column_key is None:
+            match = "rank"
+        if match:
+            self.sort_button.set(match)
+
+    def _change_dates(self, first, last) -> None:
+        self.proxy.set_dates(first, last)
+        self.table.view.scrollToTop()
+        self._update_count()
+
+    def _toggle_ranges(self, on: bool) -> None:
+        self.ranges.setVisible(on)
+        if not on:  # hidden filters would be confusing; closing the panel lets go of them
+            self.rating.set(0, 5.0)
+            self.reviews.set(0, NO_MAX)
+            self._apply_ranges()
+
+    def _apply_ranges(self) -> None:
+        low, high = self.rating.get()
+        fewest, most = self.reviews.get()
+        self.proxy.set_ranges(None if (low, high) == (0, 5.0) else (low, high),
+                              None if (fewest, most) == (0, NO_MAX) else
+                              (fewest, None if most == NO_MAX else most))
+        self._update_count()
+
+    def _copy_contacts(self, leads: list[dict], kind: str) -> None:
+        """Every email, or every phone number, one per line: ready to paste into a mailer,
+        a dialler or a spreadsheet column. Each appears once."""
+        if kind == "emails":
+            values = [email for lead in leads for email in exporter.email_list(lead)]
+        else:
+            values = [phone for lead in leads
+                      if (phone := lead.get("phone_international") or lead.get("phone"))]
+        values = list(dict.fromkeys(values))
+        what = "emails" if kind == "emails" else "phone numbers"
+        if not values:
+            self.notify(f"None of these leads has {what}.", "warn")
+            return
+        copy_to_clipboard("\n".join(values))
+        self.notify(f"Copied {len(values):,} {what}, one per line.", "success")
+
+    def _mark_exported(self, leads: list[dict]) -> None:
+        today = date.today().isoformat()
+        place_ids = [lead["place_id"] for lead in leads]
+        searches.mark_exported(place_ids, today)
+        for place_id in place_ids:
+            self.model.update(place_id, {"exported": today})
 
     # --- actions ------------------------------------------------------------
     def copy_for_sheets(self) -> None:
@@ -342,6 +448,7 @@ class LeadsPage(Page):
         if not leads:
             return
         copy_to_clipboard(exporter.to_tsv(leads, self._shown_keys()))
+        self._mark_exported(leads)
         open_url("https://sheets.new")
         self.notify(f"Copied {len(leads):,} leads. A new Google Sheet is opening in your "
                     "browser: click cell A1 and press Ctrl+V.", "success", 10000)
@@ -352,6 +459,11 @@ class LeadsPage(Page):
         if not leads:
             return
         crm = exporter.CRMS.get(kind)
+        per_email = kind in exporter.ONE_ROW_PER_EMAIL
+        if per_email and not any(lead.get("emails") for lead in leads):
+            self.notify("None of the leads shown has an email. Pick Show: With an email, or "
+                        "search with Find emails on.", "warn", 8000)
+            return
         suffix = "xlsx" if kind == "xlsx" else "csv"
         title = self.picker.currentText().split("  (")[0] if self.current_id else "All leads"
         safe = "".join(c for c in title if c.isalnum() or c in " ,-_")[:80].strip()
@@ -365,7 +477,9 @@ class LeadsPage(Page):
         self.notify(f"Exporting {len(leads):,} leads...", "info", 2000)
 
         def done(count: int) -> None:
-            self.notify(f"Saved {count:,} leads to {Path(path).name}", "success", 6000)
+            self._mark_exported(leads)
+            self.notify(f"Saved {count:,} {'emails' if per_email else 'leads'} to "
+                        f"{Path(path).name}", "success", 6000)
 
         def failed(message: str) -> None:
             self.notify(f"Could not save the file: {message}. Is it open in Excel?", "error", 8000)
