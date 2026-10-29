@@ -522,6 +522,18 @@ def test_update_version_and_release_parsing(tmp_path):
     assert updater.update_command(Path("C:/tmp/GeoHarvest-Setup.exe"), Path("C:/Apps/GeoHarvest")) == [
         str(Path("C:/tmp/GeoHarvest-Setup.exe")), "--update", "--target", str(Path("C:/Apps/GeoHarvest"))]
 
+    # Setup (standard library only) reads releases the same way, to install the newest
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent / "installer"))
+    import setup_app
+
+    assert setup_app.parse_latest({"tag_name": "v0.2.0", "assets": [
+        {"name": "GeoHarvest-v0.2.0-windows.zip", "size": 10, "browser_download_url": "https://dl/zip",
+         "digest": "sha256:ABC"}]}) == {"tag": "v0.2.0", "url": "https://dl/zip", "size": 10,
+                                        "sha256": "abc"}
+    assert setup_app.parse_latest({"tag_name": "v0.2.0", "assets": []}) is None
+    assert setup_app.version_tuple("v0.3.0-beta") > setup_app.version_tuple("v0.2.2 beta")
+
 
 # --- 0.2.1 filters, area search, owner ---------------------------------------
 def test_opening_hours():

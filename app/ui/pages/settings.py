@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app import config
 from app.core import credentials, db, prefs, scraper
+from app.i18n import t
 from app.services import updater
 from app.ui.pages.base import Page
 from app.ui.widgets.common import (ChoiceButtons, FormRow, Section, danger_button, hint, muted,
@@ -68,10 +69,10 @@ class SettingsPage(Page):
                          "the next search."))
         layout.addWidget(proxies)
 
-        updates = Section("Updates", f"You have GeoHarvest {config.APP_VERSION}.")
-        updates.add(checkbox("Check for a new version when GeoHarvest opens",
-                             bool(db.get_setting("check_updates", True)),
-                             on_change=lambda on: db.set_setting("check_updates", bool(on))))
+        updates = Section("Updates", t("You have GeoHarvest {version}. Each time it opens, "
+                                       "GeoHarvest checks for a newer version and installs it "
+                                       "by itself, waiting while a search runs.",
+                                       version=config.APP_VERSION))
         updates.add(row(secondary_button("Check now",
                                          lambda: window.check_for_update(tell_if_none=True)),
                         secondary_button("Open the GitHub page",

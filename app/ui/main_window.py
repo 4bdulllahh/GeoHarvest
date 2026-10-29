@@ -6,6 +6,7 @@ re-render the stylesheet string and Qt repaints once.
 """
 from __future__ import annotations
 
+import sys
 from typing import Callable
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
@@ -125,6 +126,7 @@ class MainWindow(QMainWindow):
         self._pages: dict[str, QWidget] = {}
         self._nav: dict[str, NavButton] = {}
         self.current: str | None = None
+        self._update_download = None  # the newest release, while it downloads
 
         self._build()
         self._size_to_screen()
@@ -440,32 +442,74 @@ class MainWindow(QMainWindow):
             self.setUpdatesEnabled(True)
 
     # --- updates ------------------------------------------------------------
+    # Every start: ask GitHub for the newest release, download it in the background and
+    # install it (the app closes and reopens) as soon as no search is running. Always the
+    # newest release, never one version after another (user's choice, 0.3).
     def check_for_update_soon(self, delay_ms: int = 2500) -> None:
         """Ask GitHub for a newer release once the window is up. Silent when offline."""
-        if db.get_setting("check_updates", True):
-            QTimer.singleShot(delay_ms, self.check_for_update)
+        QTimer.singleShot(delay_ms, self.check_for_update)
 
     def check_for_update(self, tell_if_none: bool = False) -> None:
         from app.services import updater
         from app.workers.base import Task
 
+        if self._update_download is not None:
+            if tell_if_none:
+                toast(self, t("The new version is downloading; it installs when it's done."))
+            return
+
         def result(release) -> None:
-            if release is not None:
-                self._offer_update(release)
-            elif tell_if_none:
-                toast(self, t("You have the latest version ({version}).",
-                              version=config.APP_VERSION), "success")
+            if release is None:
+                if tell_if_none:
+                    toast(self, t("You have the latest version ({version}).",
+                                  version=config.APP_VERSION), "success")
+            elif updater.can_update_itself(release):
+                self._download_update(release)
+            elif not getattr(sys, "frozen", False) or tell_if_none:
+                # From source, or GitHub is still attaching the download: say so only
+                toast(self, t("GeoHarvest {tag} is out. Get it from the GitHub page.",
+                              tag=release.tag), "info", 8000)
 
         Task(updater.available_update).start(on_result=result)
 
-    def _offer_update(self, release) -> None:
-        if QApplication.activeModalWidget() is not None:
-            # Something else is asking the user a question; don't stack a popup on it
-            QTimer.singleShot(5000, lambda: self._offer_update(release))
-            return
-        from app.ui.widgets.update_dialog import UpdateDialog
+    def _download_update(self, release) -> None:
+        from app.ui.widgets.update_dialog import UpdateDownloadWorker
 
-        UpdateDialog.offer(self, release)
+        worker = UpdateDownloadWorker(release)
+        self._update_download = worker
+        tag = release.tag
+
+        def progress(received: int, total: int, _detail: str) -> None:
+            if total:
+                self.set_status(middle=t("Downloading GeoHarvest {tag}: {percent}%", tag=tag,
+                                         percent=received * 100 // total))
+
+        def failed(message: str) -> None:
+            self._update_download = None
+            self.set_status(middle="")
+            toast(self, t("The update to {tag} didn't download ({message}). GeoHarvest tries "
+                          "again next time it opens.", tag=tag, message=message), "warn", 8000)
+
+        def downloaded(setup) -> None:
+            self._update_download = None
+            self.set_status(middle="")
+            self._install_update(release, setup)
+
+        worker.signals.progress.connect(progress)
+        worker.signals.failed.connect(failed)
+        worker.signals.finished.connect(downloaded)
+        worker.start()
+
+    def _install_update(self, release, setup) -> None:
+        """Install now, unless a search is running or a question is open: then wait."""
+        if self.busy_page_reason() or QApplication.activeModalWidget() is not None:
+            self.set_status(middle=t("GeoHarvest {tag} is ready: it installs when the search "
+                                     "ends.", tag=release.tag))
+            QTimer.singleShot(15000, lambda: self._install_update(release, setup))
+            return
+        from app.ui.widgets.update_dialog import UpdatingNotice
+
+        UpdatingNotice(self, release, setup).exec()
 
     def quit_app(self) -> None:
         """Close without questions (the updater is waiting for us to exit)."""

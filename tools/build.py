@@ -47,9 +47,10 @@ DROP = [QT + "bin/opengl32sw.dll", QT + "bin/Qt6Pdf.dll", QT + "bin/Qt6Network.d
         QT + "plugins/platforms/qoffscreen.dll"] + [
         QT + f"plugins/imageformats/q{name}.dll"
         for name in ("pdf", "gif", "icns", "jpeg", "tga", "tiff", "wbmp", "webp")]
-# Parts of Setup's own Python/Tk it never uses: HTTPS, time zones, translations, demos
+# Parts of Setup's own Python/Tk it never uses: HTTPS (PowerShell does it), OpenSSL hashes
+# (hashlib falls back to its built-in SHA-256), time zones, translations, demos
 SETUP_EXCLUDE = ["PyQt6", "numpy", "PIL", "httpx", "openpyxl", "anthropic", "ssl", "_ssl",
-                 "hashlib", "_hashlib", "unicodedata", "decimal", "_decimal", "bz2", "_bz2",
+                 "_hashlib", "unicodedata", "decimal", "_decimal", "bz2", "_bz2",
                  "email", "http", "xml", "pydoc", "unittest", "asyncio", "multiprocessing"]
 SETUP_DROP = ["_tcl_data/tzdata", "_tcl_data/msgs", "_tk_data/msgs", "_tk_data/images",
               "_tk_data/demos"]

@@ -15,6 +15,8 @@ updates (and uninstalls, unless the user ticks "also delete").
     ... --uninstall --confirmed [--delete-data]   remove without asking (tests)
     ... --target DIR                           install somewhere else (tests: no shortcuts,
                                                nothing in Settings > Apps)
+    ... --latest                               install without first looking for a newer release
+                                               (the newest Setup, started by an older one)
     ... /SILENT /DIR=DIR                       what GeoHarvest 0.1.1's updater sends: update
                                                without reopening the app (its script does that)
 
@@ -23,9 +25,12 @@ Standard library only, so Setup stays small.
 from __future__ import annotations
 
 import ctypes
+import hashlib
+import json
 import math
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -401,6 +406,110 @@ class InstallJob(Job):
         return "Done"
 
 
+# =============================================================================
+# The newest release: an old Setup installs the newest GeoHarvest instead of itself
+# =============================================================================
+RELEASES_API = "https://api.github.com/repos/4bdulllahh/GeoHarvest/releases/latest"
+ASSET_PATTERN = re.compile(r"^GeoHarvest-v[\w.\-]+-windows\.zip$")
+FETCH_DIR = Path(tempfile.gettempdir()) / f"{APP_NAME}-newest-setup"
+# Setup carries no SSL of its own (it keeps Setup small), so Windows PowerShell does the HTTPS
+PS_WEB = ("[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+          "$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = "
+          "[Text.Encoding]::UTF8; ")
+
+
+def version_tuple(text: str) -> tuple[int, ...]:
+    """'v0.3.0 beta' -> (0, 3, 0); only the numbers count, like the app's updater."""
+    numbers = [int(n) for n in re.findall(r"\d+", text)[:3]]
+    return (*numbers, *[0] * (3 - len(numbers)))
+
+
+def parse_latest(data: dict) -> dict | None:
+    """The release's tag and its Windows zip (url, size, sha256), or None without a zip."""
+    for asset in data.get("assets") or []:
+        if ASSET_PATTERN.match(str(asset.get("name") or "")):
+            digest = str(asset.get("digest") or "")
+            return {"tag": str(data.get("tag_name") or ""),
+                    "url": str(asset.get("browser_download_url") or ""),
+                    "size": int(asset.get("size") or 0),
+                    "sha256": digest.split(":", 1)[1].lower() if digest.startswith("sha256:")
+                    else ""}
+    return None
+
+
+def latest_release() -> dict | None:
+    """The newest published release, or None when offline or GitHub doesn't answer."""
+    try:
+        reply = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             PS_WEB + f"(Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Headers "
+                      f"@{{'User-Agent'='{APP_NAME}-Setup'}} '{RELEASES_API}').Content"],
+            capture_output=True, timeout=25, creationflags=NO_WINDOW)
+        return parse_latest(json.loads(reply.stdout.decode("utf-8", "replace")))
+    except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
+        return None
+
+
+class FetchJob(Job):
+    """Download the newest release's zip and unpack its Setup, which then takes over."""
+
+    steps = [("download", "Download the newest version", 90),
+             ("unpack", "Check it and unpack it", 10)]
+
+    def __init__(self, events: queue.Queue, install_dir: Path, release: dict):
+        super().__init__(events, install_dir)
+        self.release = release
+        self.archive = FETCH_DIR / "newest.zip"
+        self.setup: Path | None = None
+
+    def step_download(self) -> str:
+        shutil.rmtree(FETCH_DIR, ignore_errors=True)
+        FETCH_DIR.mkdir(parents=True, exist_ok=True)
+        self.log(f"Downloading {self.release['url']}")
+        target = str(self.archive).replace("'", "''")
+        process = subprocess.Popen(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             PS_WEB + f"Invoke-WebRequest -UseBasicParsing -Headers @{{'User-Agent'='{APP_NAME}-"
+                      f"Setup'}} '{self.release['url']}' -OutFile '{target}'"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
+        total = self.release["size"]
+        while process.poll() is None:
+            if self.cancel_event.is_set():
+                process.kill()
+                raise Cancelled()
+            got = self.archive.stat().st_size if self.archive.exists() else 0
+            if total:
+                self.progress(got / total, f"Downloading: {human_mb(got)} of {human_mb(total)}")
+            time.sleep(0.3)
+        if process.returncode or not self.archive.exists():
+            error = process.stderr.read().decode("utf-8", "replace").strip().splitlines()
+            raise StepFailed(f"The download didn't finish ({error[-1] if error else 'no answer'}).")
+        return human_mb(self.archive.stat().st_size)
+
+    def step_unpack(self) -> str:
+        if self.release["sha256"]:
+            digest = hashlib.sha256()
+            with open(self.archive, "rb") as source:
+                for block in iter(lambda: source.read(1 << 20), b""):
+                    digest.update(block)
+            if digest.hexdigest() != self.release["sha256"]:
+                raise StepFailed("The download was damaged on the way.")
+            self.log("The download matches the checksum GitHub publishes.")
+        staged = (FETCH_DIR / "files").resolve()
+        with zipfile.ZipFile(self.archive) as bundle:
+            for member in bundle.infolist():
+                target = (staged / member.filename).resolve()
+                if staged not in target.parents or member.is_dir():
+                    continue  # never write outside the folder
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(member) as source, open(target, "wb") as out:
+                    shutil.copyfileobj(source, out)
+        self.setup = next(staged.rglob(SETUP_EXE), None)
+        if self.setup is None:
+            raise StepFailed("The download didn't contain GeoHarvest's Setup.")
+        return "Ready"
+
+
 class UninstallJob(Job):
     steps = UNINSTALL_STEPS
 
@@ -540,7 +649,8 @@ class StepRow(tk.Frame):
 
 class SetupWindow:
     def __init__(self, uninstall: bool, install_dir: Path, register: bool, confirmed: bool = False,
-                 delete_data: bool = False, auto_update: bool = False, reopen: bool = True):
+                 delete_data: bool = False, auto_update: bool = False, reopen: bool = True,
+                 check_latest: bool = False):
         self.uninstall = uninstall
         self.auto_update = auto_update  # started by the app's "Update now": no questions
         self.reopen = reopen            # False when an older app's script reopens it instead
@@ -548,6 +658,7 @@ class SetupWindow:
         self.register = register
         self.confirmed = confirmed
         self.preset_delete_data = delete_data
+        self.welcome_note = ""  # why Setup installs its own version after all
         self.events: queue.Queue = queue.Queue()
         self.job: Job | None = None
         self.busy = False
@@ -598,6 +709,8 @@ class SetupWindow:
             self.root.after(300, self.start_uninstall)
         elif uninstall:
             self.page_confirm_uninstall()
+        elif check_latest:
+            self.page_checking()
         else:
             self.page_welcome()
 
@@ -712,6 +825,38 @@ class SetupWindow:
         self.root.after(33, self._animate)
 
     # -- pages: install ----------------------------------------------------------
+    def page_checking(self) -> None:
+        """Ask GitHub for the newest release first, so an old download installs the newest."""
+        self._clear()
+        self._heading("Getting ready", "Checking for the newest version of GeoHarvest...")
+        self._button("Cancel", self.root.destroy)
+        threading.Thread(target=lambda: self.events.put(("latest", latest_release())),
+                         daemon=True).start()
+
+    def got_latest(self, release: dict | None) -> None:
+        if not release or not release["url"] or                 version_tuple(release["tag"]) <= version_tuple(self.new_version):
+            self.page_welcome()  # this is the newest, or GitHub can't be reached: install it
+            return
+        self.page_progress(FetchJob(self.events, self.install_dir, release),
+                           f"Getting {APP_NAME} {release['tag']}",
+                           f"This Setup is for {self.new_version}, but {release['tag']} is out, so "
+                           f"Setup is downloading it for you. It opens by itself when it's ready.")
+
+    def hand_over(self) -> None:
+        """Start the newest release's Setup and close this one."""
+        try:
+            subprocess.Popen([str(self.job.setup), "--latest"], cwd=str(self.job.setup.parent),
+                             env=child_env(), close_fds=True)
+        except OSError as error:
+            self.fetch_failed(f"Its Setup didn't start ({error}).")
+            return
+        self.root.destroy()
+
+    def fetch_failed(self, message: str) -> None:
+        self.welcome_note = (f"Setup couldn't get the newest version: {message} You can install "
+                             f"{self.new_version} now; it updates itself the first time it opens.")
+        self.page_welcome()
+
     def page_welcome(self) -> None:
         self._clear()
         s = self.scale
@@ -733,6 +878,11 @@ class SetupWindow:
             subtitle = "Find business leads on Google Maps. Setup takes less than a minute."
             action = "Install"
         self._heading(title, subtitle)
+        if self.welcome_note:
+            note = tk.Label(self.body, text=self.welcome_note, bg=BG, fg=ERROR,
+                            font=self.fonts["small"], justify="left", anchor="w")
+            note.pack(anchor="w", fill="x")
+            note.bind("<Configure>", lambda e: note.configure(wraplength=e.width))
 
         outer, card = self._card()
         outer.pack(fill="x", pady=(int(8 * s), 0))
@@ -869,7 +1019,9 @@ class SetupWindow:
             while True:
                 event = self.events.get_nowait()
                 kind = event[0]
-                if kind == "log":
+                if kind == "latest":
+                    self.got_latest(event[1])
+                elif kind == "log":
                     self._append_log(event[1])
                 elif kind == "progress":
                     self.bar_fraction = event[1]
@@ -884,7 +1036,13 @@ class SetupWindow:
                 elif kind in ("finished", "failed", "cancelled"):
                     self.busy = False
                     self.bob_speed = 0.09
-                    if kind == "failed":
+                    if isinstance(self.job, FetchJob):
+                        if kind == "finished":
+                            self.hand_over()
+                        else:
+                            self.fetch_failed(event[1] if kind == "failed" else
+                                              "you pressed Cancel.")
+                    elif kind == "failed":
                         self.show_failure(event[1], event[2])
                     elif kind == "cancelled":
                         self.show_cancelled()
@@ -1171,7 +1329,11 @@ def main() -> int:
     window = SetupWindow(uninstall, install_dir, register, confirmed="--confirmed" in args,
                          delete_data="--delete-data" in args,
                          auto_update=("--update" in args or legacy) and not uninstall,
-                         reopen=not legacy)
+                         reopen=not legacy,
+                         # A normal install first looks for a newer release; the newest Setup
+                         # it starts (--latest), updates and test folders (--target) don't
+                         check_latest=not ({"--uninstall", "--update", "--latest", "--target"}
+                                           & set(args)) and not legacy)
     window.run()
 
     if uninstall and window.uninstalled and install_dir.exists():
