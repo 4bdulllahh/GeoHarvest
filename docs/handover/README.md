@@ -18,14 +18,15 @@ re-asks.
 
 ## Where things stand
 
-**Phase: beta testing (since 2026-10-16). Current version: v0.3.0 beta (2026-10-29).**
+**Phase: beta testing (since 2026-10-16). Current version: v0.3.1 beta (2026-10-30).**
 Version numbers follow the user's GitHub tags: keep `APP_VERSION` (app/config.py) equal to the
 tag's numbers. Don't start new features unless the user asks.
 
-v0.3.0 is pushed, with `docs/releases/v0.3.0-beta.md`, the README and fresh screenshots.
-`dist/GeoHarvest-v0.3.0-beta-windows.zip` is built locally (packaged self-test OK). The user
-publishes release `v0.3.0` and tests it. **Next agreed: v0.3.1**, a backup installer for Smart
-App Control PCs (see [roadmap.md](roadmap.md)).
+v0.3.1 (performance: batches, maximum leads, the website-reading freeze fixed, Smart mode
+additions) is pushed, with `docs/releases/v0.3.1-beta.md`, the README and fresh screenshots.
+`dist/GeoHarvest-v0.3.1-beta-windows.zip` is built locally. The user publishes release
+`v0.3.1` and tests it, especially on the tester's older laptop. **Next: v0.3.2**, the backup
+installer for Smart App Control PCs (see [roadmap.md](roadmap.md)).
 
 ## The product
 
@@ -45,6 +46,20 @@ computer. The UI copies HomingPigeon (https://github.com/4bdulllahh/HomingPigeon
 local folder `../Email-Sender`): same theme module, sidebar, cards, status bar, worker pattern.
 
 ## Working with the user
+
+**How every request goes** (the user's own process, 2026-10-30). When they finish writing a
+batch of fixes and features:
+
+1. Go through every item and read the code it touches. Come back first: say what you found and
+   recommend, and ask what is open. No code yet.
+2. Once they give a thumbs up to everything, make all the changes, with tests.
+3. Commit and push to GitHub.
+4. Bump the version (`APP_VERSION`) and build a new dist zip (`python tools/build.py`).
+5. Write release notes: `docs/releases/<tag>.md` plus a short paste-ready paragraph.
+6. Update every md file that needs it (this folder, changelog, roadmap...).
+7. Update the GitHub README: new features and fresh screenshots (`python tools/screenshot.py`).
+
+Steps 2 to 7 are one job once they say yes: no need to ask again for the commit, push or build.
 
 - Ask questions with the AskUserQuestion form, not as a text list.
 - After every milestone: update the right file here (and [changelog.md](changelog.md)), commit,

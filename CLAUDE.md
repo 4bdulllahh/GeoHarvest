@@ -20,6 +20,9 @@ the part you are changing.** Don't read every file: the table there says which o
 - Users update in place and keep their data: old saved options are converted in
   `search.options_with_defaults`, never dropped.
 - Commit and push at the end of each milestone, then ask before the next one.
+- **Every request: review and ask first, build only after the user's thumbs up**, then commit,
+  push, version bump + zip, release notes, docs and README screenshots. The steps are in
+  "Working with the user" in [docs/handover/README.md](docs/handover/README.md).
 
 ## Everyday commands
 

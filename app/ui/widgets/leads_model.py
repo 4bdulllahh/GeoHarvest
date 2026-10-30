@@ -60,7 +60,9 @@ SHOWS = {
     "linkedin": lambda lead: has_link(lead, "linkedin") or has_link(lead, "owner_linkedin"),
     "startup": lambda lead: _age(lead) is not None and _age(lead) < STARTUP_YEARS,
     "established": lambda lead: _age(lead) is not None and _age(lead) >= STARTUP_YEARS,
-    "good_fit": lambda lead: lead.get("ai_verdict") == "Good fit",
+    "good_fit": lambda lead: lead.get("ai_verdict") == "Good fit",  # Hot: AI score 80+
+    "warm": lambda lead: lead.get("ai_verdict") == "Maybe",
+    "cold": lambda lead: lead.get("ai_verdict") == "Poor fit",
     "new": lambda lead: not lead.get("exported"),
 }
 SHOW_MENU = [
@@ -70,7 +72,8 @@ SHOW_MENU = [
     ("no_website", "Without a website"), ("owner", "With the owner's name"),
     ("social", "On social media"), ("linkedin", "On LinkedIn"), None,
     ("startup", "Startups"), ("established", "Established companies"),
-    ("good_fit", "AI says good fit"), None,
+    ("good_fit", "AI: hot leads"), ("warm", "AI: warm leads"), ("cold", "AI: cold leads"),
+    None,
     ("new", "Not exported yet"),
 ]
 
@@ -118,8 +121,9 @@ class LeadsModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole:
             if key == "status" and value and value != "Open":
                 return theme.qcolor("error")
-            if key == "ai_verdict" and value:
-                return theme.qcolor({"Good fit": "success", "Maybe": "warning"}.get(value, "error"))
+            if key in ("ai_verdict", "ai_tag") and value:
+                return theme.qcolor({"Good fit": "success", "Hot": "success", "Maybe": "warning",
+                                     "Warm": "warning"}.get(value, "error"))
         return None
 
     # --- loading ------------------------------------------------------------

@@ -46,7 +46,8 @@ DEFAULT_OPTIONS = {
     "open_time": "20:00",
     "skip_closed": True,
     "skip_known": True,       # leave out businesses found by an earlier search
-    "min_leads": 0,           # 0: everything found; else keep searching until this many fit
+    "min_leads": 0,           # 0: any; else search deeper until this many fit
+    "max_leads": 0,           # 0: any (worked out by leads_wanted); stop at this many
     "find_emails": True,      # visit websites for emails and social links
     "find_owner": False,      # owner's name from the website and domain record, LinkedIn link
     "smart": False,           # score every lead with the user's AI
@@ -109,6 +110,23 @@ def options_with_defaults(options: dict) -> dict:
         if "min_leads" not in options:
             merged["min_leads"] = limit
     return merged
+
+
+# Most leads one search finds: a cap so a big search can't freeze an older PC
+MAX_LEADS = 3000
+NO_MAX_ANY = 1200   # both boxes on "Any"
+NO_MAX_TIMES = 3    # a minimum with no maximum finds up to 3x the minimum...
+NO_MAX_CAP = 1500   # ...but never more than this
+
+
+def leads_wanted(options: dict) -> tuple[int, int]:
+    """(minimum, maximum) leads to find: the user's maximum, else one worked out from the
+    minimum. The minimum never goes above the maximum."""
+    low = int(options["min_leads"] or 0)
+    high = int(options["max_leads"] or 0) or (
+        min(NO_MAX_TIMES * low, NO_MAX_CAP) if low else NO_MAX_ANY)
+    high = min(high, MAX_LEADS)
+    return min(low, high), high
 
 
 # Company age quick choices: (lowest, highest) whole years, -1 for no maximum

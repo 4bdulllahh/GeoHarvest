@@ -106,9 +106,10 @@ class GuidePage(Page):
                        "businesses you can actually reach: with an email for cold email, a phone "
                        "for calls, or a rating, size and age that fits what you sell.",
                 "how": "Under Requirements, use a Quick setup or switch on what you need, and set "
-                       "Minimum leads: GeoHarvest keeps searching deeper until it has that many. "
-                       "Save it as a preset to use it again.",
-                "done": any(o.get("min_leads") or o.get("website", "any") != "any" or
+                       "the minimum and maximum leads: GeoHarvest stops at the maximum, and digs "
+                       "deeper only to reach the minimum. Save it as a preset to use it again.",
+                "done": any(o.get("min_leads") or o.get("max_leads") or
+                            o.get("website", "any") != "any" or
                             any(v for k, v in o.items() if k.startswith("require_"))
                             for o in options),
                 "action": lambda: self.go("search"),

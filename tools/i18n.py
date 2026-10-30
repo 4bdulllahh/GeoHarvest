@@ -43,7 +43,7 @@ SKIP_NAMES = {
 }
 
 # Lists of labels in modules otherwise only searched for t("...") calls
-NAMED_TEXT = {"search.py": {"USE_CASE_NAMES"}}
+NAMED_TEXT = {"search.py": {"USE_CASE_NAMES"}, "ai.py": {"EXAMPLES"}}
 
 # [(heading, [terms])]: the headings are wording; the terms are what GeoHarvest searches
 # Google Maps for, so they stay as typed (Google understands English everywhere)

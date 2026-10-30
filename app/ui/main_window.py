@@ -23,11 +23,11 @@ from app.ui.widgets.common import restyle, separator, toast
 
 # (key, icon, title, subtitle, module, class)
 NAV_ITEMS = [
+    ("guide", "guide", "Start here", "How it all works", "guide", "GuidePage"),
     ("search", "search", "New search", "Find businesses", "search", "SearchPage"),
     ("leads", "leads", "Leads", "Everything found", "leads", "LeadsPage"),
     ("history", "history", "Past searches", "Reopen or resume", "history", "HistoryPage"),
     ("smart", "smart", "Smart mode", "AI checks each lead", "smart", "SmartPage"),
-    ("guide", "guide", "Start here", "How it all works", "guide", "GuidePage"),
 ]
 MIN_WIDTH = 760       # the narrowest the window goes (pages stack and wrap to fit)
 COMPACT_BELOW = 1000  # narrower than this, the menu shows icons only...

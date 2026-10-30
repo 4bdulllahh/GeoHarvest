@@ -25,6 +25,36 @@ from app.core import credentials, db
 
 BATCH_SIZE = 8
 GOOD_FIT, MAYBE = 80, 50
+# What the AI can add besides the score, when the user switches it on:
+# setting -> (lead field, what to ask for; the word before ":" is the reply's key)
+EXTRAS = {
+    "ai_opener": ("ai_opener", "opener: a friendly first line for a cold email or call to "
+                               "this business, at most 25 words, specific to it"),
+    "ai_needs": ("ai_needs", "needs: what this business seems to be missing that the seller "
+                             "could help with (e.g. no website, few reviews), at most 15 words"),
+    "ai_channel": ("ai_channel", "channel: the best way to reach it, one of Email, Phone, "
+                                 "WhatsApp, Instagram, Facebook, LinkedIn, Contact form, Visit"),
+}
+LANGUAGE_NAMES = {"ar": "Arabic", "de": "German", "es": "Spanish", "fr": "French"}
+# Ready-made ideal customers to start from, on the Smart mode page
+EXAMPLES = [
+    ("Web design", "Small local businesses with no website, or an old, slow one that does not "
+                   "work well on phones. Owner-run, with good reviews, so they can afford a new "
+                   "site. Not chains or franchises."),
+    ("SEO and Google ranking", "Businesses with a website but few Google reviews or a low "
+                               "rating, in busy areas where customers search online. Not big "
+                               "brands that have their own marketing team."),
+    ("Social media marketing", "Shops, cafes, salons and clinics with few or no social media "
+                               "pages, or pages that look inactive. They sell to local "
+                               "customers and would gain from being seen online."),
+    ("Accounting and bookkeeping", "Small and new companies, ideally under 3 years old, with a "
+                                   "website and an email address. Owner-run, not part of a "
+                                   "group with its own finance department."),
+    ("Recruiting", "Growing companies with 10 or more staff, a careers or team page, and good "
+                   "reviews. Not one-person businesses."),
+    ("Software and booking apps", "Clinics, salons, gyms and restaurants that take bookings by "
+                                  "phone only, with no online booking on their website."),
+]
 
 
 @dataclass(frozen=True)
@@ -86,15 +116,20 @@ Score 0-100: 80 or more is a strong fit, 50-79 a possible fit, below 50 a poor f
 The reason is one plain sentence of at most 25 words that a salesperson can act on.
 Use only the details given; do not invent facts. Answer with JSON only."""
 
-SCHEMA = {
-    "type": "object",
-    "properties": {"results": {"type": "array", "items": {
-        "type": "object",
-        "properties": {"id": {"type": "integer"}, "score": {"type": "integer"},
-                       "reason": {"type": "string"}},
-        "required": ["id", "score", "reason"], "additionalProperties": False}}},
-    "required": ["results"], "additionalProperties": False,
-}
+def reply_key(extra: str) -> str:
+    return EXTRAS[extra][1].split(":")[0]
+
+
+def schema(extras: list[str] = ()) -> dict:
+    """The reply's JSON shape, with a text field for each extra asked for."""
+    names = ["id", "score", "reason"] + [reply_key(key) for key in extras]
+    properties = {name: {"type": "string"} for name in names}
+    properties.update(id={"type": "integer"}, score={"type": "integer"})
+    return {"type": "object",
+            "properties": {"results": {"type": "array", "items": {
+                "type": "object", "properties": properties, "required": names,
+                "additionalProperties": False}}},
+            "required": ["results"], "additionalProperties": False}
 
 LEAD_FIELDS = ("name", "category", "categories", "rating", "reviews", "price", "status", "city",
                "website", "company_age", "claimed", "description", "attributes", "hours")
@@ -121,37 +156,101 @@ def settings() -> dict | None:
         "model": db.get_setting("ai_model", "") or provider.model,
         "key": credentials.load_secret(credentials.ai_key_name(provider.key)),
         "profile": db.get_setting("ai_profile", ""),
+        "dealbreakers": db.get_setting("ai_dealbreakers", ""),
         "min_score": int(db.get_setting("ai_min_score", 0) or 0),
+        "max_leads": int(db.get_setting("ai_max_leads", 0) or 0),    # 0: every lead
+        "per_minute": int(db.get_setting("ai_per_minute", 0) or 0),  # 0: no limit
+        "contact_only": bool(db.get_setting("ai_contact_only", False)),
+        "read_site": bool(db.get_setting("ai_read_site", False)),
+        "extras": [key for key in EXTRAS if db.get_setting(key, False)],
+        "language": LANGUAGE_NAMES.get(db.get_setting("language", "") or "", ""),
     }
+
+
+def worth_checking(cfg: dict, lead: dict) -> bool:
+    """With "only leads I can contact" on, a lead needs a phone number or an email."""
+    return not cfg.get("contact_only") or bool(lead.get("phone") or lead.get("emails"))
+
+
+class Pace:
+    """At most ``per_minute`` requests a minute (0: no limit), so a free key's limit is
+    never hit."""
+
+    def __init__(self, per_minute: int):
+        self.gap = 60 / per_minute if per_minute else 0
+        self.last = -self.gap
+
+    def wait(self, cancelled=lambda: False) -> None:
+        while not cancelled() and time.monotonic() < self.last + self.gap:
+            time.sleep(max(0.0, min(0.25, self.last + self.gap - time.monotonic())))
+        self.last = time.monotonic()
+
+
+# --- saved ideal customers ----------------------------------------------------
+def profiles() -> dict[str, dict]:
+    """The user's saved ideal customers, by name, in the order saved: each one's
+    description ("profile") and deal-breakers ("never")."""
+    return dict(db.get_setting("ai_profiles", {}) or {})
+
+
+def save_profile(name: str, profile: str, never: str = "") -> None:
+    saved = profiles()
+    saved.pop(name, None)  # saving over one moves it to the end
+    saved[name] = {"profile": profile, "never": never}
+    db.set_setting("ai_profiles", saved)
+
+
+def delete_profile(name: str) -> None:
+    saved = profiles()
+    saved.pop(name, None)
+    db.set_setting("ai_profiles", saved)
 
 
 def verdict(score: int) -> str:
     return "Good fit" if score >= GOOD_FIT else "Maybe" if score >= MAYBE else "Poor fit"
 
 
+def tag(score: int) -> str:
+    return "Hot" if score >= GOOD_FIT else "Warm" if score >= MAYBE else "Cold"
+
+
 # --- prompt -----------------------------------------------------------------
-def describe(lead: dict) -> dict:
+def describe(lead: dict, read_site: bool = False) -> dict:
     """The parts of a lead worth an AI's attention, kept short."""
     facts = {k: lead[k] for k in LEAD_FIELDS if lead.get(k) not in (None, "", [])}
+    if read_site and lead.get("site_text"):
+        facts["website_text"] = lead["site_text"]
     for key in ("description", "attributes", "hours"):
         if key in facts:
             facts[key] = str(facts[key])[:300]
     facts["has_email"] = bool(lead.get("emails"))
+    facts["has_phone"] = bool(lead.get("phone"))
     facts["social_media"] = [n for n in ("facebook", "instagram", "linkedin", "twitter",
                                          "youtube", "tiktok") if lead.get(n)]
     return facts
 
 
-def build_prompt(profile: str, searched_for: str, leads: list[dict]) -> str:
-    items = [{"id": i, **describe(lead)} for i, lead in enumerate(leads)]
-    return (f"Searched for: {searched_for}\n\n"
-            f"Ideal customer: {profile.strip() or 'Any genuine business of this kind.'}\n\n"
-            f"Businesses:\n{json.dumps(items, ensure_ascii=False)}\n\n"
-            'Reply with {"results": [{"id": <id>, "score": <0-100>, "reason": "<sentence>"}]} '
-            "covering every business.")
+def build_prompt(cfg: dict, searched_for: str, leads: list[dict]) -> str:
+    items = [{"id": i, **describe(lead, cfg.get("read_site", False))}
+             for i, lead in enumerate(leads)]
+    extras = cfg.get("extras", [])
+    profile = (cfg.get("profile") or "").strip() or "Any genuine business of this kind."
+    text = f"Searched for: {searched_for}\n\nIdeal customer: {profile}\n\n"
+    if (cfg.get("dealbreakers") or "").strip():
+        text += ("Never a fit (score 0 if a business is one of these): "
+                 f"{cfg['dealbreakers'].strip()}\n\n")
+    if extras:
+        text += "Also give, for each business:\n" + "".join(
+            f"- {EXTRAS[key][1]}\n" for key in extras) + "\n"
+    if cfg.get("language"):
+        text += f"Write the reason and every other text in {cfg['language']}.\n\n"
+    shape = '"id": <id>, "score": <0-100>, "reason": "<sentence>"' + "".join(
+        f', "{reply_key(key)}": "<text>"' for key in extras)
+    return (text + f"Businesses:\n{json.dumps(items, ensure_ascii=False)}\n\n"
+            'Reply with {"results": [{' + shape + '}]} covering every business.')
 
 
-def parse_reply(text: str, leads: list[dict]) -> dict[str, dict]:
+def parse_reply(text: str, leads: list[dict], extras: list[str] = ()) -> dict[str, dict]:
     """place_id -> AI fields. Tolerates code fences and chatter around the JSON."""
     match = re.search(r"\{.*\}", text or "", re.S)
     if not match:
@@ -167,9 +266,11 @@ def parse_reply(text: str, leads: list[dict]) -> dict[str, dict]:
         except (KeyError, TypeError, ValueError):
             continue
         if 0 <= index < len(leads):
-            scored[leads[index]["place_id"]] = {
-                "ai_score": score, "ai_verdict": verdict(score),
+            fields = scored[leads[index]["place_id"]] = {
+                "ai_score": score, "ai_verdict": verdict(score), "ai_tag": tag(score),
                 "ai_reason": str(item.get("reason", "")).strip()[:300]}
+            for key in extras:
+                fields[EXTRAS[key][0]] = str(item.get(reply_key(key), "")).strip()[:300]
     return scored
 
 
@@ -229,7 +330,8 @@ def _claude(cfg: dict, prompt: str) -> str:
     import anthropic
 
     client = anthropic.Anthropic(api_key=cfg["key"], max_retries=4, timeout=180)
-    output_config: dict = {"format": {"type": "json_schema", "schema": SCHEMA}}
+    output_config: dict = {"format": {"type": "json_schema",
+                                      "schema": schema(cfg.get("extras", []))}}
     if cfg["model"].startswith(CLAUDE_EFFORT_MODELS):
         output_config["effort"] = "low"  # scoring is classification: low effort holds quality
     request = {"model": cfg["model"], "max_tokens": 16000, "system": SYSTEM,
@@ -268,8 +370,8 @@ def score(cfg: dict, searched_for: str, leads: list[dict]) -> dict[str, dict]:
         raise AIError("Pick a model on the Smart mode page first.", fatal=True)
     if not cfg.get("base_url") and cfg["kind"] != "anthropic":
         raise AIError("Enter the AI service's address on the Smart mode page.", fatal=True)
-    text = CALLERS[cfg["kind"]](cfg, build_prompt(cfg.get("profile", ""), searched_for, leads))
-    return parse_reply(text, leads)
+    text = CALLERS[cfg["kind"]](cfg, build_prompt(cfg, searched_for, leads))
+    return parse_reply(text, leads, cfg.get("extras", []))
 
 
 def list_models(cfg: dict) -> list[str]:

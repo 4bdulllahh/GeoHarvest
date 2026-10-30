@@ -19,6 +19,10 @@ FIELDS = [
     ("ai_score", "AI score"),
     ("ai_verdict", "AI verdict"),
     ("ai_reason", "AI reason"),
+    ("ai_tag", "AI tag"),
+    ("ai_opener", "AI opening line"),
+    ("ai_needs", "What they need"),
+    ("ai_channel", "Best way to reach"),
     ("category", "Category"),
     ("owner_name", "Owner"),
     ("owner_source", "Owner found in"),
@@ -82,7 +86,8 @@ FIELD_GROUPS = [
     ("Location", ["address", "street", "neighborhood", "city", "postal_code", "state",
                   "country_code", "latitude", "longitude", "timezone", "maps_url"]),
     ("Company age", ["company_age", "domain_created", "age_source"]),
-    ("Smart mode", ["ai_score", "ai_verdict", "ai_reason"]),
+    ("Smart mode", ["ai_score", "ai_verdict", "ai_reason", "ai_tag", "ai_opener", "ai_needs",
+                    "ai_channel"]),
     ("Other", ["photo", "place_id", "query"]),
     ("Your records", RECORD_FIELDS),
 ]
@@ -129,6 +134,14 @@ def _attributes(place) -> str:
     return ", ".join(dict.fromkeys(names))
 
 
+def _international(place) -> str:
+    """"+971 56 219 7745": Google sends the number in several formats, and [178][0][3] is
+    the local one ("0562197745") when the search is made from the business's own country."""
+    formats = dict((kind, text) for text, kind in at(place, 178, 0, 1) or [] if text)
+    plus = at(place, 178, 0, 3) or ""
+    return formats.get(2) or (plus if plus.startswith("+") else "")
+
+
 def _status(place) -> str:
     text = json.dumps([at(place, 203), at(place, 88), at(place, 118)], ensure_ascii=False)
     for status in ("Permanently closed", "Temporarily closed"):
@@ -152,7 +165,7 @@ def parse(place: list, query: str = "") -> dict | None:
         "category": categories[0] if categories else "",
         "categories": ", ".join(categories),
         "phone": at(place, 178, 0, 0) or "",
-        "phone_international": at(place, 178, 0, 3) or "",
+        "phone_international": _international(place),
         "website": at(place, 7, 0) or "",
         "domain": at(place, 7, 1) or "",
         "rating": at(place, 4, 7),

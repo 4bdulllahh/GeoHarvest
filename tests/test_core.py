@@ -36,7 +36,12 @@ def test_parse_real_result(page):
         "Monal Lahore", "Haveli Restaurant", "Café Aylanto", "The Garden Spice"]
     haveli = leads[1]
     assert haveli["place_id"] == "ChIJ-4k3_J0cGTkRSqffwzEB0yI"
-    assert haveli["phone_international"] == "+923008414899"
+    assert haveli["phone_international"] == "+92 300 8414899"
+    # Searched from the UAE, a UAE number's plain copy is the local one
+    uae = [None] * 179
+    uae[178] = [["056 219 7745", [["056 219 7745", 1], ["+971 56 219 7745", 2]], None,
+                 "0562197745"]]
+    assert places._international(uae) == "+971 56 219 7745"
     assert haveli["website"] == "http://www.haveli.com.pk/"
     assert haveli["domain"] == "haveli.com.pk"
     assert haveli["rating"] == 4.2 and haveli["reviews"] == 19259
@@ -175,7 +180,7 @@ def test_minimum_keeps_every_match_the_website_check_leaves(fresh_db, monkeypatc
         def __init__(self, wayback):
             pass
 
-        def enrich(self, lead, find_contacts, find_owner=False):
+        def enrich(self, lead, find_contacts, find_owner=False, site_text=False):
             young = int(lead["place_id"].rsplit("-", 1)[1]) % 2 == 0
             return {"enriched": True, "young": young, "age_years": 1 if young else 5}
 
@@ -450,7 +455,7 @@ def test_ai_prompt_and_reply_parsing():
 
     leads = [{"place_id": "A", "name": "One", "emails": "a@b.c", "instagram": "x", "hours": "h" * 900},
              {"place_id": "B", "name": "Two"}]
-    prompt = ai.build_prompt("Clinics with a website", "dentist in Lahore", leads)
+    prompt = ai.build_prompt({"profile": "Clinics with a website"}, "dentist in Lahore", leads)
     assert '"id": 0' in prompt and '"has_email": true' in prompt and '"instagram"' in prompt
     assert "h" * 301 not in prompt  # long fields are cut down
 
@@ -458,10 +463,28 @@ def test_ai_prompt_and_reply_parsing():
             '{"id": 1, "score": 30, "reason": "Closed"}, {"id": 7, "score": 90, "reason": "?"},' \
             '{"id": "x"}]}\n```'
     assert ai.parse_reply(reply, leads) == {
-        "A": {"ai_score": 100, "ai_verdict": "Good fit", "ai_reason": "Great"},
-        "B": {"ai_score": 30, "ai_verdict": "Poor fit", "ai_reason": "Closed"},
+        "A": {"ai_score": 100, "ai_verdict": "Good fit", "ai_tag": "Hot", "ai_reason": "Great"},
+        "B": {"ai_score": 30, "ai_verdict": "Poor fit", "ai_tag": "Cold", "ai_reason": "Closed"},
     }
-    assert ai.verdict(50) == "Maybe" and ai.verdict(49) == "Poor fit"
+    assert ai.verdict(50) == "Maybe" and ai.verdict(49) == "Poor fit" and ai.tag(50) == "Warm"
+
+    # The extras: deal-breakers, website text, opening line etc., in the app's language
+    cfg = {"profile": "", "dealbreakers": "chains", "read_site": True, "language": "German",
+           "extras": ["ai_opener", "ai_channel"]}
+    prompt = ai.build_prompt(cfg, "dentist", [{**leads[1], "site_text": "Welcome to Two"}])
+    assert "Never a fit (score 0 if a business is one of these): chains" in prompt
+    assert '"website_text": "Welcome to Two"' in prompt and "in German" in prompt
+    assert '"opener": "<text>", "channel": "<text>"' in prompt
+    assert ai.schema(cfg["extras"])["properties"]["results"]["items"]["required"] == [
+        "id", "score", "reason", "opener", "channel"]
+    reply = '{"results": [{"id": 0, "score": 85, "reason": "Gut", "opener": "Hallo", ' \
+            '"channel": "Phone"}]}'
+    assert ai.parse_reply(reply, leads, cfg["extras"])["A"] == {
+        "ai_score": 85, "ai_verdict": "Good fit", "ai_tag": "Hot", "ai_reason": "Gut",
+        "ai_opener": "Hallo", "ai_channel": "Phone"}
+    assert not ai.worth_checking({"contact_only": True}, {"website": "x.com"})
+    assert ai.worth_checking({"contact_only": True}, {"phone": "1"})
+    assert ai.worth_checking({"contact_only": False}, {})
     with pytest.raises(ai.AIError):
         ai.parse_reply("no json here", leads)
 
@@ -484,7 +507,8 @@ def test_ai_openai_style_call_retries_rate_limits(monkeypatch):
     monkeypatch.setattr(ai.time, "sleep", lambda seconds: None)
     cfg = {"kind": "openai", "base_url": "https://api.groq.com/openai/v1", "model": "m",
            "key": "k", "profile": ""}
-    assert ai.test(cfg) == {"ai_score": 85, "ai_verdict": "Good fit", "ai_reason": "Fits"}
+    assert ai.test(cfg) == {"ai_score": 85, "ai_verdict": "Good fit", "ai_tag": "Hot",
+                            "ai_reason": "Fits"}
     assert len(calls) == 2
     assert calls[0][0].endswith("/chat/completions") and calls[0][1] == {"Authorization": "Bearer k"}
 
@@ -755,3 +779,77 @@ def test_theme_files_and_menu_order(fresh_db, tmp_path):
     assert prefs.ordered(["a", "b", "c"], ["c", "gone", "a"]) == ["c", "a", "b"]
     db.set_setting("nav_hidden", ["search", "smart"])
     assert prefs.hidden_pages() == {"smart"}  # New search can never be hidden
+
+
+# --- 0.3.1: min and max leads, batches, speed ----------------------------------
+def test_leads_wanted_follows_min_and_max():
+    def wanted(low, high=0):
+        return searches.leads_wanted({"min_leads": low, "max_leads": high})
+
+    assert wanted(0) == (0, 1200)                       # both on Any
+    assert wanted(200) == (200, 600)                    # 3x the minimum...
+    assert wanted(500) == (500, 1500) and wanted(750) == (750, 1500)  # ...at most 1,500
+    assert wanted(10, 50) == (10, 50) and wanted(80, 50) == (50, 50)  # min never above max
+    assert wanted(0, 9000) == (0, searches.MAX_LEADS)
+    assert searches.options_with_defaults({})["max_leads"] == 0
+
+
+def test_email_search_stays_fast_on_huge_pages():
+    """A picture inside a page is a long run with no "@": it once froze the app for minutes."""
+    import time
+
+    from app.core import enrich
+
+    began = time.monotonic()
+    assert enrich.find_emails("data:image/png;base64," + "A" * 1_000_000 + " hi@acme.com") == [
+        "hi@acme.com"]
+    assert time.monotonic() - began < 1
+
+
+def test_batches_stop_at_the_maximum_and_spread_over_the_searches(fresh_db, monkeypatch):
+    from app.workers import scrape
+
+    fetched = []
+
+    def fake_search(client, query, cancelled):
+        for start in range(0, 120, 20):
+            fetched.append((query, start))
+            yield [{"place_id": f"{query}-{n}", "status": "Open", "country_code": "PK",
+                    "query": query} for n in range(start, start + 20)]
+
+    monkeypatch.setattr(scrape.scraper, "search", fake_search)
+    monkeypatch.setattr(scrape.scraper, "MapsClient",
+                        lambda: type("C", (), {"close": lambda self: None})())
+    db.set_setting("parallel_searches", 2)
+    cities = ["Lahore, Pakistan", "Karachi, Pakistan", "Multan, Pakistan"]
+    search_id = searches.create({"niches": ["cafe"], "countries": ["Pakistan"], "cities": cities,
+                                 "find_emails": False, "max_leads": 150})
+    result = scrape.ScrapeWorker(search_id).work()
+    assert result["status"] == "done" and result["found"] == searches.count(search_id) == 150
+    # Each city's first page came before any city's third: the cities take turns
+    first_pages = [i for i, (_q, start) in enumerate(fetched) if start == 0]
+    assert len(first_pages) == 3 and max(first_pages) < min(
+        i for i, (_q, start) in enumerate(fetched) if start == 40)
+    # Two batches of 100, not every page Google has (3 x 6 pages)
+    assert len(fetched) < 18
+
+
+def test_smart_mode_limits_and_profiles(fresh_db, monkeypatch):
+    import time
+
+    from app.core import ai
+
+    ai.save_profile("SEO", "Few reviews")
+    ai.save_profile("Web", "No website")
+    ai.save_profile("SEO", "Few reviews, busy area", "chains")
+    assert ai.profiles() == {"Web": {"profile": "No website", "never": ""},
+                             "SEO": {"profile": "Few reviews, busy area", "never": "chains"}}
+    ai.delete_profile("Web")
+    assert list(ai.profiles()) == ["SEO"]
+
+    pace = ai.Pace(600)  # one request every 0.1 s
+    began = time.monotonic()
+    for _ in range(3):
+        pace.wait()
+    assert 0.15 < time.monotonic() - began < 1
+    assert all(text.strip() for _name, text in ai.EXAMPLES)

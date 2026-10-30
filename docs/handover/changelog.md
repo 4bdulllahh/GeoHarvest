@@ -2,6 +2,32 @@
 
 What went into each version and how it was tested, newest first. Add to it with every change. The user-facing release notes are in `docs/releases/`.
 
+## v0.3.1 beta (2026-10-30)
+
+A performance update, asked for after the user's tester on an older laptop saw "Not
+Responding" and crashes (and the user's own PC lagged at 40% of checking emails). Agreed by
+form, all built in one go:
+- **The freeze:** `enrich.EMAIL` backtracked quadratically on long runs with no "@" (base64
+  pictures inside pages): 1 MB took minutes holding the GIL. Fixed and tested (1 MB: 0.01 s).
+  Site text for Smart mode is only extracted when asked for.
+- **Batches of 100** with searches taking turns a page at a time; leads appear after each batch.
+  Website visits at once follow the Speed setting (6/12/16).
+- **Maximum leads** next to Minimum: user's rules (both Any 1,200; 3x min up to 1,500; typed
+  max up to 3,000). Minimum = dig deeper only while under it.
+- **Phone (international)** from Google's own international copy (kind 2), all countries.
+- **Start here** first in the default menu order.
+- **Smart mode:** opening line, what they need, best way to reach, Hot/Warm/Cold tag, Never a
+  fit, saved descriptions, example descriptions, read the website, at most N leads, requests a
+  minute, only leads with a phone or email, Try it on my leads, replies in the app's language.
+- The user's working process (review and ask, then build, push, zip, notes, docs, README) is
+  written in `docs/handover/README.md` and `CLAUDE.md`.
+
+Tested: 55 tests (new: min/max rules, email speed on 1 MB, batches stop at the max and take
+turns, Smart mode prompt/extras/schema/profiles/pace, international phone); i18n check
+complete in ar/de/es/fr; live search (Dubai + Abu Dhabi cafes with an email, max 40: 40 leads
+from both cities in 34 s, international phones right); screenshots of every page. Not tested:
+Smart mode additions with a real AI key, a large live search, an older PC.
+
 ## v0.3.0 beta (2026-10-29)
 
 **v0.3.0 (started 2026-10-29).** The user tested v0.2.2 and asked for a big batch.

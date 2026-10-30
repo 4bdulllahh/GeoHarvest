@@ -47,8 +47,11 @@ HOURS = ("Monday: 9 AM-8 PM; Tuesday: 9 AM-8 PM; Wednesday: 9 AM-8 PM; Thursday:
 TIMEZONES = {"Dubai": "Asia/Dubai", "Abu Dhabi": "Asia/Dubai", "New York": "America/New_York",
              "Austin": "America/Chicago", "Berlin": "Europe/Berlin"}
 # The columns the README's main picture shows
-HERO_COLUMNS = ["name", "ai_score", "ai_verdict", "ai_reason", "owner_name", "phone", "emails",
+HERO_COLUMNS = ["name", "ai_score", "ai_tag", "ai_reason", "owner_name", "phone", "emails",
                 "rating", "reviews", "city"]
+OPENERS = ["Loved the reviews about your friendly team. Have you thought about online booking?",
+           "Your clinic's 4.8 stars stand out in {city}; a faster website could show it off.",
+           "Saw you opened recently in {city}: congratulations! Quick idea for new patients."]
 
 
 def demo_leads(count: int = 60) -> list[dict]:
@@ -60,11 +63,15 @@ def demo_leads(count: int = 60) -> list[dict]:
         slug = name.lower().replace(" ", "")
         score = rng.choice([92, 88, 85, 81, 76, 64, 58, 41, 33])
         verdict = "Good fit" if score >= 80 else "Maybe" if score >= 50 else "Poor fit"
+        tag = {"Good fit": "Hot", "Maybe": "Warm", "Poor fit": "Cold"}[verdict]
         years = rng.choice([1, 2, 4, 7, 11, 15])
         leads.append({
             "place_id": f"demo{i}", "name": name, "category": "Dentist",
             "ai_score": score, "ai_verdict": verdict, "ai_reason": rng.choice(REASONS[verdict]),
-            "phone": phone.format(100 + i), "emails": f"hello@{slug}.example",
+            "ai_tag": tag, "ai_opener": rng.choice(OPENERS).format(city=city),
+            "ai_channel": rng.choice(["Email", "Phone", "WhatsApp", "Instagram"]),
+            "phone": phone.format(100 + i), "phone_international": phone.format(100 + i),
+            "emails": f"hello@{slug}.example",
             "website": f"https://{slug}.example", "domain": f"{slug}.example",
             "instagram": f"https://instagram.com/{slug}" if i % 3 else "",
             "facebook": f"https://facebook.com/{slug}" if i % 2 else "",
@@ -114,10 +121,18 @@ def main() -> None:
     db.set_setting("ai_provider", "gemini")
     db.set_setting("ai_profile", "Independent dental clinics with a website but little social "
                                  "media, who might want help getting more patients online.")
+    db.set_setting("ai_dealbreakers", "Hospital departments and big dental chains")
+    db.set_setting("ai_profiles", {
+        "Dentists for SEO": {"profile": "Dental clinics with few reviews.", "never": ""},
+        "Clinics for booking app": {"profile": "Clinics that book by phone only.", "never": ""}})
+    for key in ("ai_opener", "ai_needs", "ai_channel", "ai_contact_only"):
+        db.set_setting(key, True)
+    db.set_setting("ai_per_minute", 12)
+    db.set_setting("ai_max_leads", 300)
     db.set_setting("last_options", {
         "niches": ["dentist", "dental clinic"], "where": "area", "area_place": "Dubai Marina",
         "area_km": 5, "max_reviews": 150, "open_weekends": True, "find_emails": True,
-        "find_owner": True})
+        "find_owner": True, "min_leads": 100, "max_leads": 300})
 
     theme.apply_preferences()
     app.setStyleSheet(theme.stylesheet())
@@ -139,7 +154,7 @@ def main() -> None:
         page.select_search(sid)
         page.table.view.sortByColumn(1, Qt.SortOrder.DescendingOrder)
         # Narrower columns (long text is cut short with "...") so the contact columns fit too
-        widths = {"name": 190, "ai_score": 80, "ai_verdict": 90, "ai_reason": 220,
+        widths = {"name": 190, "ai_score": 80, "ai_tag": 80, "ai_reason": 220,
                   "owner_name": 135, "phone": 135, "emails": 245}
         QTimer.singleShot(100, lambda: [page.table.view.setColumnWidth(
             page.model.keys.index(key), width) for key, width in widths.items()])
@@ -147,7 +162,12 @@ def main() -> None:
     def search_filters():
         window.show_page("search")
         page = window.page("search")
-        scroll_to(page, page.open_at, 40)
+        scroll_to(page, page.max_leads, 260)
+
+    def smart_extras():
+        window.show_page("smart")
+        page = window.page("smart")
+        scroll_to(page, page.contact_only, 40)
 
     def search_running():
         window.show_page("search")
@@ -155,14 +175,14 @@ def main() -> None:
         page.findChild(ScrollPage).verticalScrollBar().setValue(0)
         page.stats.show()
         page.progress.show()
-        page.progress.set_progress(298, 450)
-        page.tile_found.update_value("1,412")
-        page.tile_places.update_value("16 of 16")
-        page.tile_web.update_value("298 of 450")
-        page.tile_email.update_value("187")
-        page.tile_phone.update_value("1,290")
+        page.progress.set_progress(358, 400)
+        page.tile_found.update_value("412")
+        page.tile_places.update_value("9 of 16")
+        page.tile_web.update_value("358 of 400")
+        page.tile_email.update_value("201")
+        page.tile_phone.update_value("377")
         page.tile_ai.hide()
-        page.tile_best.update_value("- of 300")
+        page.tile_best.update_value("118 of 300")
         page.status.setText("Step 2 of 3: Checking websites")
         page.start_button.hide()
         page.stop_button.show()
@@ -213,6 +233,7 @@ def main() -> None:
         ("columns", lambda: dialog_shot("columns", ColumnsDialog(
             window, set(HERO_COLUMNS), {"price", "photo"}, lambda _chosen: None)), None),
         ("smart", lambda: window.show_page("smart"), save_window),
+        ("smart-extras", smart_extras, save_window),
         ("settings", settings_proxies, save_window),
         ("history", history_loaded, save_window),  # last: its toast would show on later shots
     ]

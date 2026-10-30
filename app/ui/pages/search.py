@@ -181,14 +181,21 @@ class SearchPage(Page):
             fields.append(field)
         which.add(Columns(*fields, stack_below=640, spacing=32))
 
-        self.min_leads = spin(0, 100000, int(last["min_leads"]), " leads", "Everything found")
+        self.min_leads = spin(0, searches.MAX_LEADS, int(last["min_leads"]), " leads", "Any")
         self.min_leads.setFixedWidth(200)
-        count_row = FormRow("Minimum leads", "GeoHarvest keeps searching until at least this "
-                                             "many businesses meet your requirements, digging "
-                                             "deeper into each city if it has to. Every match "
-                                             "it finds on the way is kept, best first.")
-        count_row.add(self.min_leads)
-        which.add(count_row)
+        self.max_leads = spin(0, searches.MAX_LEADS, int(last["max_leads"]), " leads", "Any")
+        self.max_leads.setFixedWidth(200)
+        min_row = FormRow("Minimum leads", "If Google runs out first, GeoHarvest digs deeper "
+                                           "into each city until at least this many meet your "
+                                           "requirements.")
+        min_row.add(self.min_leads)
+        max_row = FormRow("Maximum leads", "GeoHarvest stops here and keeps the best. Any: 3 "
+                                           "times the minimum, at most 1,500 (1,200 if both are "
+                                           "Any), so older PCs stay smooth.")
+        max_row.add(self.max_leads)
+        self.leads_hint = hint("")
+        which.add(Columns(min_row, max_row, stack_below=640, spacing=32))
+        which.add(self.leads_hint)
 
         website_row = FormRow("Website", "\"No website\" finds businesses you could build a "
                                          "site for. Emails, social media, company age and the "
@@ -295,7 +302,9 @@ class SearchPage(Page):
         layout.addWidget(details)
         self.find_emails.toggled.connect(self._website_details)
         self.find_emails.toggled.connect(lambda _on: self._update_plan())
-        self.min_leads.valueChanged.connect(lambda _value: self._update_plan())
+        self.min_leads.valueChanged.connect(lambda _value: self._leads_changed(self.min_leads))
+        self.max_leads.valueChanged.connect(lambda _value: self._leads_changed(self.max_leads))
+        self._leads_changed(None)
         self._website_details(self.find_emails.isChecked())
         layout.addStretch(1)
 
@@ -418,6 +427,17 @@ class SearchPage(Page):
         if self.min_leads.value():
             text += " " + t("Asking for a minimum can make it search deeper and take longer.")
         return text
+
+    def _leads_changed(self, moved) -> None:
+        """Minimum and maximum never cross: the other box follows the one moved."""
+        low, high = self.min_leads.value(), self.max_leads.value()
+        if low and high and low > high:
+            (self.max_leads if moved is self.min_leads else self.min_leads).setValue(
+                low if moved is self.min_leads else high)
+            return  # setValue comes back here
+        low, high = searches.leads_wanted({"min_leads": low, "max_leads": high})
+        self.leads_hint.setText(t("This search finds at most {high:,} leads.", high=high))
+        self._update_plan()
 
     def _tick_details(self, on: bool) -> None:
         for box in self.detail_boxes.values():
@@ -543,6 +563,7 @@ class SearchPage(Page):
             "min_reviews": min_reviews,
             "max_reviews": -1 if max_reviews == NO_MAX else max_reviews,
             "min_leads": self.min_leads.value(),
+            "max_leads": self.max_leads.value(),
             "website": self.website.get(),
             **{name: getattr(self, name).isChecked() for name in REQUIREMENT_BUTTONS},
             "open_day": hours.DAYS.index(self.open_day.currentText()),
@@ -576,6 +597,7 @@ class SearchPage(Page):
         self.reviews.set(int(options["min_reviews"]),
                          NO_MAX if int(options["max_reviews"]) < 0 else int(options["max_reviews"]))
         self.min_leads.setValue(int(options["min_leads"]))
+        self.max_leads.setValue(int(options["max_leads"]))
         self.website.set(options["website"])
         # The website visit first: switching it off would clear the requirements that need it
         for name in ("find_emails", "find_owner", *REQUIREMENT_BUTTONS):
@@ -655,12 +677,12 @@ class SearchPage(Page):
             leads_page.select_search(search_id)
         record = searches.get(search_id)
         self.title = record["title"]
-        limit = int(record["options"]["min_leads"] or 0)
+        _low, limit = searches.leads_wanted(record["options"])
         self.step = 0
         for tile in (self.tile_web, self.tile_email, self.tile_ai):
             tile.update_value("-")
         self.limit = limit
-        self.tile_best.update_value(t("- of {limit:,}", limit=limit) if limit else "-")
+        self.tile_best.update_value(t("- of {limit:,}", limit=limit))
         self.tile_ai.setVisible(bool(record["options"]["smart"]))
 
         self.worker = ScrapeWorker(search_id)
@@ -726,16 +748,14 @@ class SearchPage(Page):
             self.progress.set_progress(done, total)
 
     def _on_leads(self, count: int) -> None:
-        self.tile_best.update_value(t("{count:,} of {limit:,}",
-                                      count=count,
-                                      limit=self.limit) if self.limit else f"{count:,}")
+        self.tile_best.update_value(t("{count:,} of {limit:,}", count=count, limit=self.limit))
 
     def _on_finished(self, result: dict) -> None:
         self.worker = None
         self._set_running(False)
         found, wanted = result["found"], result["wanted"]
-        self.tile_best.update_value(t("{found:,} of {wanted:,}",
-                                      found=found, wanted=wanted) if wanted else f"{found:,}")
+        self.tile_best.update_value(t("{found:,} of {wanted:,}", found=found,
+                                      wanted=result["most"]))
         leads_page = self.window_.page("leads")
         if leads_page is not None:
             leads_page.select_search(self.search_id)

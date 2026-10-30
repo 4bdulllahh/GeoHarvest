@@ -31,6 +31,7 @@ What to do when the user or testers come back with problems, what usually causes
 | Smart mode errors with Gemini or Claude | Never tested with a real key (only a fake OpenAI-style server). Check `app/core/ai.py` reply parsing. |
 | No emails for many leads | Normal for businesses with only Facebook or Instagram (those block plain requests), or with no website. |
 | Update now didn't work | 0.1.0 and 0.1.1 can't update to 0.1.2 by themselves. Install 0.1.2 by hand once. |
+| "Not Responding" / the app closes while checking websites, mostly on older PCs (0.3.0 and older) | The email search on pages with pictures stored inside them. Fixed in 0.3.1, which also searches in batches of 100. Suggest Settings > Search speed > Gentle |
 | "I asked for 400 and got fewer" (0.2.2+) | Read the summary under the tiles: it lists why businesses were left out (`search.dropped_counts`). Usually the places are too small for the filters; the widen buttons help |
 | "LinkedIn says N/A" | Normal: the business's website doesn't link a LinkedIn page or profile. LinkedIn and free search engines block automatic lookups |
 | Address "Service area (address hidden on Google)" | Normal: the business hides its address on Google. "Must show its address" leaves these out |
@@ -43,7 +44,9 @@ What to do when the user or testers come back with problems, what usually causes
 **Never tested for real** (watch for these in feedback):
 - Setup installing into the default folder over an Inno-installed 0.1.1
 - 0.1.1's updater running the new Setup (the `/SILENT` path)
-- Smart mode with real Gemini or Claude keys
+- Smart mode with real Gemini or Claude keys, and 0.3.1's opening lines, needs, best way to
+  reach, deal-breakers, website text and answer language
+- 0.3.1's batches on a large search (1,000+ leads) and on an older PC
 - Searches from an EU IP
 - Windows 10 (only built and run on Windows 11)
 - Everything in "What the user should test in v0.2.2" above

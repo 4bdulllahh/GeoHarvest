@@ -27,11 +27,13 @@ class AIScoreWorker(Worker):
             raise ai.AIError("Set up Smart mode first.")
         searched_for = ", ".join(searches.get(self.search_id)["options"]["niches"])
         done = scored_count = 0
+        pace = ai.Pace(cfg["per_minute"])
         for start in range(0, len(self.leads), ai.BATCH_SIZE):
             if self.cancelled:
                 break
             batch = self.leads[start: start + ai.BATCH_SIZE]
             try:
+                pace.wait(lambda: self.cancelled)
                 scored = ai.score(cfg, searched_for, batch)
             except ai.AIError as error:
                 if error.fatal:

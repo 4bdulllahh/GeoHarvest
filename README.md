@@ -13,7 +13,7 @@ customer. Export to Excel, to your CRM, or straight into Google Sheets. No accou
 subscription, nothing to pay: everything runs on your own computer.
 
 **Download:** [latest release](https://github.com/4bdulllahh/GeoHarvest/releases/latest) ·
-**Version:** 0.3.0 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
+**Version:** 0.3.1 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
 
 [![Build](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml/badge.svg)](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/4bdulllahh/GeoHarvest?label=download&color=3b86dd)](https://github.com/4bdulllahh/GeoHarvest/releases/latest)
@@ -66,20 +66,33 @@ subscription, nothing to pay: everything runs on your own computer.
   - **Opening hours**: open now, open 24 hours, open on weekends, or open on a day and time you
     pick, each in the business's own time zone.
   - Leave out closed businesses and businesses you found in earlier searches.
-- **Minimum leads.** Say how many leads you need: GeoHarvest keeps searching, digging deeper
-  into each city, until at least that many businesses meet your requirements, and keeps every
-  match it finds, best first.
+- **Minimum and maximum leads.** GeoHarvest stops at the maximum and keeps the best ones. If
+  Google runs out first, it digs deeper into each city until it has at least the minimum. Left
+  on Any, the maximum is 3 times the minimum (at most 1,500), so a big search never overloads
+  your PC.
+- **Smooth on older PCs.** Searches run in batches of 100: find, check the websites, add the
+  ones that fit to your leads, then the next 100, with cities and business types taking turns.
+  Pick Gentle speed on an older laptop.
 - **For cold email, cold calling or your own database.** **Quick setup** sets the requirements
   for each in one click, and **presets** save your own for next time.
 - **Only the details you need.** Click any detail to leave it out before a search (Details to
   include) or after it (Columns): selected ones are highlighted, the rest greyed out. Exports
   contain only the selected columns.
 - **Smart mode (optional).** Connect an AI and describe your ideal customer in plain words. The
-  AI checks every business is genuine and gives it a score from 0 to 100, a verdict (Good fit,
-  Maybe, Poor fit) and a one-line reason, and can leave out poor fits for you. Works with free
-  AIs (Google Gemini, Groq, OpenRouter, Mistral), paid ones (Claude, OpenAI, DeepSeek) and
-  **AI running on your own computer** (Ollama, LM Studio). You bring your own key; GeoHarvest
-  has none built in.
+  AI checks every business is genuine and gives it a score from 0 to 100, **Hot, Warm or
+  Cold**, and a one-line reason, and can leave out poor fits for you.
+  - It can write an **opening line** for a cold email or call, say **what each business seems
+    to need**, and pick the **best way to reach it** (email, phone, WhatsApp, Instagram...).
+  - **Never a fit:** list what you never want (chains, government offices...) and those score 0.
+  - **Saved descriptions** to switch between ideal customers, ready-made **examples**, and
+    **Try it on my leads** to tune your description before a big search.
+  - It can **read the start of each business's website** for better judgement, and answers in
+    the language GeoHarvest is set to.
+  - **Limits** for your key: at most N leads per search, at most N requests a minute (free keys
+    stay inside their limits), only leads with a phone or email.
+  - Works with free AIs (Google Gemini, Groq, OpenRouter, Mistral), paid ones (Claude, OpenAI,
+    DeepSeek) and **AI running on your own computer** (Ollama, LM Studio). You bring your own
+    key; GeoHarvest has none built in.
 - **Live results.** Leads appear while the search runs, with tiles counting leads, searches,
   websites checked, emails, phones and AI scores. The form estimates how long a search will
   take, and Windows tells you when it is done if you are working in another window.
@@ -87,7 +100,7 @@ subscription, nothing to pay: everything runs on your own computer.
   website, owner, social media, reviews...), with the breakdown in the lead's window.
 - **Find the leads you want.** **Sort** by best lead, quality or AI score, name, city, rating,
   reviews or date found. **Show** only leads with an email, a phone, a website, the owner's
-  name, social media, LinkedIn, good fits, or those **not exported yet**. Filter by the date
+  name, social media, LinkedIn, hot, warm or cold leads, or those **not exported yet**. Filter by the date
   found, rating and reviews, or by typing. **Copy the emails or phone numbers** in one click.
 - **Everything about a business in one window.** Double-click a lead to see every detail, with
   clickable links, **Copy all** and **Open in Google Maps**.
@@ -123,7 +136,7 @@ subscription, nothing to pay: everything runs on your own computer.
 
 | Requirements: sliders, must haves and opening hours | A search running, with live tiles |
 | --- | --- |
-| <img src="docs/screenshots/filters.png" alt="Requirements: Quick setup, company age, rating and reviews sliders with reviews up to 150, Minimum leads, website any, has or none, must-have buttons, and Open on weekends selected" width="420" /> | <img src="docs/screenshots/search-running.png" alt="A search in step 2 of 3: 1,412 businesses found, 16 of 16 searches done, 298 of 450 websites checked, 187 with an email, 1,290 with a phone, best leads still to be picked out of 300" width="420" /> |
+| <img src="docs/screenshots/filters.png" alt="Requirements: Quick setup, company age, rating and reviews sliders with reviews up to 150, Minimum leads 100 and Maximum leads 300 side by side, website any, has or none, and the must-have buttons" width="420" /> | <img src="docs/screenshots/search-running.png" alt="A search in batches, step 2 of 3: 412 businesses found, 9 of 16 searches done, 358 of 400 websites checked, 201 with an email, 377 with a phone, 118 of 300 leads so far" width="420" /> |
 
 | Everything about one business | Columns: select the details to show |
 | --- | --- |
@@ -133,7 +146,9 @@ subscription, nothing to pay: everything runs on your own computer.
 
 | Smart mode: your AI, your ideal customer | Settings: everyday use, speed and proxies |
 | --- | --- |
-| <img src="docs/screenshots/smart.png" alt="Smart mode: AI providers from Google Gemini to LM Studio on this PC, the key box, the model and the ideal customer description" width="420" /> | <img src="docs/screenshots/settings.png" alt="Settings: first page, date and time formats, the finished-search notification, search speed, and the proxies box with three example proxies, 3 of 3 working" width="420" /> |
+| <img src="docs/screenshots/smart.png" alt="Smart mode: AI providers from Google Gemini to LM Studio on this PC, the key box, the model, saved descriptions, Fill in an example, the ideal customer description and Never a fit" width="420" /> | <img src="docs/screenshots/settings.png" alt="Settings: first page, date and time formats, the finished-search notification, search speed, and the proxies box with three example proxies, 3 of 3 working" width="420" /> |
+
+<p align="center"><img src="docs/screenshots/smart-extras.png" alt="Smart mode, further down: What the AI adds (opening line, what each business needs, best way to reach, read the website) and Limits (at most 300 leads per search, 12 requests a minute, only leads with a phone or email), with Try it on my leads" width="860" /></p>
 
 <p align="center"><img src="docs/screenshots/history.png" alt="Past searches: an area search and a five-city search, with Load, Resume and Run again, and the Search loaded toast" width="860" /></p>
 
@@ -181,7 +196,7 @@ certificate costs money every year), so Windows SmartScreen doesn't recognise it
 
 **"Smart App Control blocked an app"?** Some Windows 11 PCs block every program that isn't
 code-signed, with no Run anyway. GeoHarvest can't be installed on those PCs yet; a backup
-installer for them is coming in 0.3.1.
+installer for them is coming in 0.3.2.
 
 Your searches, leads and settings are kept in `%APPDATA%\GeoHarvest`, outside the app folder,
 so updating never loses them. To remove GeoHarvest, use **Settings > Uninstall GeoHarvest** or
@@ -235,13 +250,13 @@ places).
   circle with map views at most 5 km across (up to 8 x 8), searches each one with the map put
   there, stops paging a view as soon as a page has nothing inside it, and keeps only the
   businesses inside the circle.
-- **Three steps, one after the other.** 1: search Google and keep every business that passes
-  the filters that need only Google's data (rating, reviews, website, phone, address, opening
-  hours, closed businesses). 2: visit the websites of the most promising ones for emails,
-  social media, company age and the owner. 3: score each lead (phone, website, email, rating,
-  reviews, owner, social media, claimed listing...; averaged with the AI score in Smart mode)
-  and rank the best first. If fewer than **Minimum leads** meet your requirements, GeoHarvest
-  goes back to step 1 and digs deeper into each city, until it has enough or Google runs out.
+- **Batches of three steps.** 1: search Google, the cities and business types taking turns a
+  page at a time, until about 100 more businesses pass the filters that need only Google's data
+  (rating, reviews, website, phone, address, opening hours, closed businesses). 2: visit their
+  websites for emails, social media, company age and the owner. 3: Smart mode's AI checks them.
+  The ones that fit become leads straight away, best first, then the next batch starts, until
+  **Maximum leads** is reached. If Google runs out below **Minimum leads**, GeoHarvest digs
+  deeper into each city, until it has enough or Google has nothing left.
 - **If there aren't enough**, GeoHarvest says why ("71 company age unknown, 44 older than 3
   years...") and offers to add more cities or allow any company age, carrying on from where it
   stopped.
@@ -277,9 +292,9 @@ places).
 ## Testing the beta
 
 The most useful feedback: what you searched for and what went wrong or looked odd, anything
-confusing, and what you wish it did. New in 0.3.0 and worth trying: a **Quick setup** with
-**Minimum leads** set high, the **Show** and **Sort** menus on the Leads page, the themes, and
-the app in another language. Post it as a
+confusing, and what you wish it did. New in 0.3.1 and worth trying: a big search on an
+**older PC** (does it stay smooth?), **Maximum leads**, and Smart mode's **opening lines**,
+**Never a fit** and **Try it on my leads**. Post it as a
 [GitHub issue](https://github.com/4bdulllahh/GeoHarvest/issues/new). If the app crashed,
 attach `%APPDATA%\GeoHarvest\logs\crash.log`; if Setup failed, attach
 `%TEMP%\GeoHarvest-setup-log.txt` (Setup's **Open log file** button shows it).
@@ -319,7 +334,9 @@ decisions behind it, and where each feature lives.
   from websites, hidden addresses fixed
 - [x] **v0.3.0**: Requirements with sliders, Minimum leads, Quick setup and presets, quality
   score, Show and Sort, themes, five languages, backups, updates that install by themselves
-- [ ] **v0.3.1**: a backup installer for PCs with Smart App Control
+- [x] **v0.3.1**: no more freezing on older PCs, searches in batches, Maximum leads,
+  international phone numbers, Smart mode opening lines, needs, Hot/Warm/Cold, limits and more
+- [ ] **v0.3.2**: a backup installer for PCs with Smart App Control
 - [ ] **Ideas for later**: emails from Facebook pages, a map view of results, and a Mac version
 
 ## Legal

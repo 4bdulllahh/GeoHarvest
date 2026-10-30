@@ -29,6 +29,7 @@ STARTUP_YEARS = 3
 MAX_PAGES = 4
 MAX_BYTES = 2_000_000
 MAX_EMAILS = 5
+SITE_TEXT = 1200  # characters of the home page Smart mode may read
 
 SOCIAL = {
     "facebook": re.compile(
@@ -46,7 +47,11 @@ SOCIAL = {
 }
 # A person's profile, as a small business often links its owner's or its team's
 PROFILE = re.compile(r"(?:https?:)?//(?:[a-z]{2,3}\.)?linkedin\.com/in/[\w\-%.]+", re.I)
-EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}")
+# Starts only where a run of address characters starts, and an address's name part is at
+# most 64 long: without both, a long run with no "@" (a picture inside a page) took
+# minutes and froze the app
+EMAIL = re.compile(r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}"
+                   r"@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}")
 CFEMAIL = re.compile(r'data-cfemail="([0-9a-fA-F]+)"')
 HREF = re.compile(r'href\s*=\s*["\']([^"\'#]+)', re.I)
 CONTACT_WORDS = ("contact", "about", "impressum", "kontakt", "contacto", "contato", "team",
@@ -266,11 +271,11 @@ class Enricher:
                     break
             return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
 
-    def crawl(self, url: str) -> dict:
+    def crawl(self, url: str, keep_text: bool = False) -> dict:
         emails: list[str] = []
         socials: dict[str, str] = {}
         profiles: list[str] = []
-        owner = None
+        owner, text = None, ""
         queue, seen = [url], set()
         while queue and len(seen) < MAX_PAGES:
             page_url = queue.pop(0)
@@ -286,7 +291,10 @@ class Enricher:
             owner = owner or find_owner(page)
             if page_url == url:
                 queue += contact_links(page, url)
-        return {"emails": emails, "socials": socials, "profiles": profiles, "owner": owner}
+            if page_url == url and keep_text:
+                text = " ".join(html.unescape(TAGS.sub(" ", page)).split())[:SITE_TEXT]
+        return {"emails": emails, "socials": socials, "profiles": profiles, "owner": owner,
+                "text": text}
 
     def domain_created(self, domain: str) -> tuple[date | None, str]:
         """When the domain was registered, else first archived; and which of the two."""
@@ -327,8 +335,10 @@ class Enricher:
             return datetime.strptime(rows[1][0][:8], "%Y%m%d").date()
         return None
 
-    def enrich(self, lead: dict, find_contacts: bool = True, find_owner: bool = False) -> dict:
-        """The new fields for one lead (does not modify it)."""
+    def enrich(self, lead: dict, find_contacts: bool = True, find_owner: bool = False,
+               site_text: bool = False) -> dict:
+        """The new fields for one lead (does not modify it). ``site_text``: keep the start of
+        the home page's text, for Smart mode to read."""
         fields: dict = {"enriched": True}
         website = lead.get("website") or ""
         if PROFILE.match(website):  # a freelancer's own profile given as the website
@@ -341,9 +351,12 @@ class Enricher:
             return fields
         if not website:
             return fields
-        found = {"owner": None, "profiles": []}
+        found = {"owner": None, "profiles": [], "text": ""}
+        if find_contacts or site_text:
+            found = self.crawl(website, keep_text=site_text)
+        if site_text and found["text"]:
+            fields["site_text"] = found["text"]
         if find_contacts:
-            found = self.crawl(website)
             domain = (lead.get("domain") or urlsplit(website).netloc).lower()
             own = [e for e in found["emails"] if e.endswith("@" + domain.removeprefix("www."))]
             emails = own + [e for e in found["emails"] if e not in own]
