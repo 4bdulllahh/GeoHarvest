@@ -171,7 +171,7 @@ def test_minimum_keeps_every_match_the_website_check_leaves(fresh_db, monkeypatc
     from app.core import enrich
     from app.workers import scrape
 
-    def fake_search(client, query, cancelled):
+    def fake_search(client, query, cancelled, **_):
         for start in range(0, 100, 20):
             yield [{"place_id": f"{query}-{n}", "status": "Open", "country_code": "PK",
                     "website": "x.pk"} for n in range(start, start + 20)]
@@ -219,7 +219,7 @@ def test_short_searches_dig_deeper_into_the_city(fresh_db, monkeypatch):
     """Google stops at about 120 per search; the city is then searched again in map views."""
     from app.workers import scrape
 
-    def fake_search(client, query, cancelled):
+    def fake_search(client, query, cancelled, **_):
         if "@" in query:  # a map view: 10 more, all with a phone
             cell = query.rsplit("@", 1)[1]
             yield [{"place_id": f"{cell}-{n}", "status": "Open", "country_code": "AE",
@@ -811,7 +811,7 @@ def test_batches_stop_at_the_maximum_and_spread_over_the_searches(fresh_db, monk
 
     fetched = []
 
-    def fake_search(client, query, cancelled):
+    def fake_search(client, query, cancelled, **_):
         for start in range(0, 120, 20):
             fetched.append((query, start))
             yield [{"place_id": f"{query}-{n}", "status": "Open", "country_code": "PK",
@@ -832,6 +832,148 @@ def test_batches_stop_at_the_maximum_and_spread_over_the_searches(fresh_db, monk
         i for i, (_q, start) in enumerate(fetched) if start == 40)
     # Two batches of 100, not every page Google has (3 x 6 pages)
     assert len(fetched) < 18
+
+
+def fake_google(block_after: int = 10 ** 9):
+    """A client: 6 pages of 20 per search, limiting us after ``block_after`` requests."""
+    import threading
+
+    class Client:
+        gap = 0.0
+
+        def __init__(self):
+            self.asked, self.lock = [], threading.Lock()
+
+        def close(self):
+            pass
+
+        def fetch(self, query, offset=0, view=None):
+            with self.lock:
+                if len(self.asked) >= block_after:
+                    raise scraper.Blocked("limit")
+                self.asked.append((query, offset))
+            return [query, offset]
+
+    return Client()
+
+
+@pytest.fixture
+def fake_pages(monkeypatch):
+    real_at = places.at
+    monkeypatch.setattr(places, "at", lambda resp, *path: [1000, 74.3, 31.5]
+                        if isinstance(resp[0], str) else real_at(resp, *path))
+    monkeypatch.setattr(places, "results", lambda resp: [] if resp[1] >= 120 else [
+        (resp[0], resp[1], n) for n in range(20)])
+    monkeypatch.setattr(places, "parse", lambda raw, label: {
+        "place_id": repr(raw), "status": "Open", "country_code": "PK", "address": "x",
+        "query": label})
+
+
+def many_places(**options) -> dict:
+    return {"niches": ["cafe", "gym", "spa"], "countries": ["Pakistan"], "find_emails": False,
+            "cities": [f"City{n}, Pakistan" for n in range(5)], **options}
+
+
+def test_a_search_that_reaches_its_maximum_covers_every_place_and_type(fresh_db, fake_pages,
+                                                                       monkeypatch):
+    from app.workers import scrape
+
+    client = fake_google()
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: client)
+    search_id = searches.create(many_places(max_leads=300))
+    assert scrape.ScrapeWorker(search_id).work()["found"] == 300
+    leads = searches.leads(search_id)
+    assert {lead["query"].split(" in ")[1] for lead in leads} == {
+        f"City{n}, Pakistan" for n in range(5)}
+    assert {lead["query"].split(" in ")[0] for lead in leads} == {"cafe", "gym", "spa"}
+
+
+def test_spread_keeps_every_query_once():
+    queries = searches.build_queries(many_places())
+    spread = searches.spread(queries, 3)
+    assert sorted(spread) == sorted(queries)
+    assert len({q.split(" in ")[1] for q in spread[:5]}) == 5  # every place before any twice
+    assert searches.spread([], 0) == []
+
+
+def test_google_limit_waits_then_resuming_asks_for_no_page_twice(fresh_db, fake_pages, monkeypatch):
+    import time
+
+    from app.workers import scrape
+
+    search_id = searches.create(many_places(max_leads=3000))
+    everything, runs = [], 0
+    while searches.get(search_id)["status"] != "done":
+        runs += 1
+        assert runs < 12
+        client = fake_google(block_after=20)
+        monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: client)
+        before = time.time()
+        result = scrape.ScrapeWorker(search_id).work()
+        everything += client.asked
+        record = searches.get(search_id)
+        if result["status"] != "done":
+            assert result["blocked"] and result["status"] == record["status"] == "waiting"
+            assert record["progress"]["resume_at"] >= before + 15 * 60
+    assert runs > 1 and len(everything) == len(set(everything))
+    assert searches.count(search_id) == 15 * 6 * 20  # nothing lost along the way
+    assert not searches.get(search_id)["progress"].get("at")  # all finished, nothing left to resume
+
+
+def test_the_wait_gets_longer_only_if_google_limits_again_soon(fresh_db):
+    search_id = searches.create(many_places())
+    waited = []
+    for pages in (5, 5, 5, 5, searches.CLEAR_AFTER_PAGES, 5):
+        searches.wait_for_google(search_id, 1000.0, pages)
+        waited.append((searches.get(search_id)["progress"]["resume_at"] - 1000) / 60)
+    assert waited == [15, 30, 60, 60, 15, 30]
+    assert searches.get(search_id)["status"] == "waiting"
+    assert searches.google_gap(4, waits=1) == 2 * searches.google_gap(4)
+
+
+def test_websites_still_get_checked_after_google_limits_the_search(fresh_db, fake_pages, monkeypatch):
+    from app.core import enrich
+    from app.workers import scrape
+
+    class Visits:
+        def __init__(self, wayback):
+            pass
+
+        def enrich(self, lead, find_contacts, find_owner=False, site_text=False):
+            return {"enriched": True, "emails": "a@b.pk"}
+
+        def close(self):
+            pass
+
+    client = fake_google(block_after=2)
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: client)
+    monkeypatch.setattr(enrich, "Enricher", Visits)
+    search_id = searches.create(many_places(find_emails=True))
+    assert scrape.ScrapeWorker(search_id).work()["status"] == "waiting"
+    assert searches.leads(search_id) and all(l["emails"] for l in searches.leads(search_id))
+
+
+def test_pause_stop_and_closing_leave_the_right_status(fresh_db, fake_pages, monkeypatch):
+    from app.workers import scrape
+
+    client = fake_google()
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: client)
+    for ending, expected in (("paused", "paused"), ("stopped", "stopped"), ("running", "running")):
+        search_id = searches.create(many_places(max_leads=3000))
+        worker = scrape.ScrapeWorker(search_id)
+        worker.stop(ending)
+        assert worker.work()["status"] == expected
+        assert searches.get(search_id)["status"] == expected
+
+
+def test_searches_saved_before_page_positions_still_resume(fresh_db, fake_pages, monkeypatch):
+    from app.workers import scrape
+
+    client = fake_google()
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: client)
+    search_id = searches.create(many_places(niches=["cafe"], cities=["Lahore, Pakistan"]))
+    searches._save_progress(search_id, {"done": [], "capped": ["old"], "deepened": []})
+    assert scrape.ScrapeWorker(search_id).work()["status"] == "done"
 
 
 def test_smart_mode_limits_and_profiles(fresh_db, monkeypatch):

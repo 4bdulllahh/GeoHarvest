@@ -3,10 +3,11 @@
 Before starting a new batch or a release, read this and ask the user whether to include any
 open item. Move items to [changelog.md](changelog.md) when they ship.
 
-## Next: v0.3.2, a backup installer for Smart App Control PCs
+## Next: v0.3.3, a backup installer for Smart App Control PCs
 
 Agreed with the user on 2026-10-29 for v0.3.1, then moved to v0.3.2 when the user asked for
-the performance update first (2026-10-30). READ ME FIRST and the README say it's coming. Smart App Control on some Windows 11 PCs blocks every unsigned
+the performance update first (2026-10-30), then to v0.3.3 when v0.3.2 became the pause and
+resume update (2026-11-03). READ ME FIRST and the README say it's coming. Smart App Control on some Windows 11 PCs blocks every unsigned
 program, with no "Run anyway".
 
 HomingPigeon's `installer/install-if-blocked.bat` can't be copied as is. It only has to get
@@ -33,6 +34,9 @@ unsigned PyInstaller `GeoHarvest.exe`, which SAC blocks too. What it needs:
   `%APPDATA%\GeoHarvest\logs\crash.log` if it still closes.
 - Leads saved before 0.3.1 keep a local number in Phone (international).
 - The status line says "Step 2 of 3" but not which batch: add a batch number if testers ask.
+- A search with no internet ends as "stopped" (Resume by hand); only Google's limits and closing
+  the app carry on by themselves. Add a retry if testers lose connection on long runs.
+- The estimate's "up to N businesses" ignores Maximum leads (it said 15,840 with a maximum of 600).
 - The translations were written by Claude and not yet checked by native speakers.
 
 ## Ideas for later

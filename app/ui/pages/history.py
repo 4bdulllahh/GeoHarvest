@@ -12,7 +12,8 @@ from app.ui.widgets.dialogs import ConfirmDialog
 from app.ui.widgets.tables import DataTable
 
 STATUS = {"done": "Finished", "stopped": "Stopped, can resume", "running": "Running now",
-          "failed": "Stopped by an error"}
+          "failed": "Stopped by an error", "paused": "Paused", "waiting": "Waiting for Google",
+          "interrupted": "Stopped when GeoHarvest closed"}
 HEADERS = ["Search", "Leads", "Status", "Started", "Last activity"]
 
 
@@ -60,10 +61,11 @@ class HistoryPage(Page):
 
         self.open_button = primary_button("Load", self.load)
         self.resume_button = secondary_button("Resume", self.resume)
+        self.pause_button = secondary_button("Pause", lambda: self._pause())
         self.again_button = secondary_button("Run again", self.run_again)
         self.delete_button = danger_button("Delete...", self.delete)
-        self.root.addWidget(row(self.open_button, self.resume_button, self.again_button, None,
-                                self.delete_button))
+        self.root.addWidget(row(self.open_button, self.resume_button, self.pause_button,
+                                self.again_button, None, self.delete_button))
         card = Card(padding=12)
         card.add(self.table, 1)
         card.add(hint("Resume carries on where the search stopped: finished cities are skipped "
@@ -86,11 +88,19 @@ class HistoryPage(Page):
 
     def _update_buttons(self) -> None:
         item = self._selected()
-        busy = self._search_page().worker is not None
+        page = self._search_page()
+        busy = page.worker is not None
         for button in (self.open_button, self.again_button, self.delete_button):
             button.setEnabled(item is not None)
+        running = busy and item is not None and page.search_id == item["id"]
+        self.pause_button.setVisible(running)
+        self.resume_button.setVisible(not running)
         self.resume_button.setEnabled(item is not None and item["status"] != "done" and not busy)
         self.again_button.setEnabled(item is not None and not busy)
+
+    def _pause(self) -> None:
+        self._search_page().pause()
+        self.pause_button.setEnabled(False)
 
     def load(self) -> None:
         """Put this search's leads on the Leads page, staying here."""
@@ -134,5 +144,6 @@ class HistoryPage(Page):
                                  confirm_text="Delete", danger=True):
             return
         searches.delete(item["id"])
+        page.pick_up()  # it may have been the one waiting to carry on
         self.on_show()
         self.window_.refresh_status()

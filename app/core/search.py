@@ -84,12 +84,24 @@ LISTED_PER_SEARCH = 120
 SECONDS_PER_SEARCH = 6
 SECONDS_PER_VISIT = 4
 VISITS_AT_ONCE = 16
+# Seconds between Google requests, by the Speed setting (parallel searches). With no gap,
+# long searches ran at 2 to 8 requests a second and Google limited them
+GAP_BY_SPEED = {2: 1.2, 4: 0.6, 8: 0.3}
+DEFAULT_GAP = 0.6
+# After Google limits a search: minutes to wait, longer each time it happens again soon
+GOOGLE_WAITS = (15, 30, 60)
+CLEAR_AFTER_PAGES = 30  # this many pages before the next limit: the wait starts over
+
+
+def google_gap(parallel: int, waits: int = 0) -> float:
+    """Seconds between Google requests; twice that for a search Google has limited."""
+    return GAP_BY_SPEED.get(parallel, DEFAULT_GAP) * (2 if waits else 1)
 
 
 def estimate(searches: int, parallel: int, visit_websites: bool) -> tuple[int, int, int]:
     """(up to how many businesses, fewest minutes, most minutes): a rough guide only."""
     listed = searches * LISTED_PER_SEARCH
-    seconds = searches * SECONDS_PER_SEARCH / max(1, parallel)
+    seconds = searches * SECONDS_PER_SEARCH * max(1 / max(1, parallel), google_gap(parallel))
     if visit_websites:  # about half the businesses listed have a website worth visiting
         seconds += listed / 2 * SECONDS_PER_VISIT / VISITS_AT_ONCE
     minutes = seconds / 60
@@ -386,9 +398,19 @@ def deep_queries(search_id: int, options: dict) -> list[str]:
     return added
 
 
+def spread(queries: list[str], per_place: int) -> list[str]:
+    """Every place once, then every place again with the next business type. In the order
+    build_queries makes them, a search that reaches its maximum early found everything in
+    the first city."""
+    rows = [queries[i:i + per_place] for i in range(0, len(queries), max(1, per_place))]
+    return [line[(place + turn) % per_place] for turn in range(per_place)
+            for place, line in enumerate(rows)]
+
+
 def all_queries(search_id: int, options: dict) -> list[str]:
     """The searches the options make, then the deeper ones added while it ran."""
-    return build_queries(options) + get(search_id)["progress"].get("deep", [])
+    niches = sum(bool(n.strip()) for n in options["niches"])
+    return spread(build_queries(options), niches) + get(search_id)["progress"].get("deep", [])
 
 
 # Close cousins of common business types, for "Add related business types"
@@ -488,7 +510,26 @@ def mark_query_done(search_id: int, query: str, capped: bool = False) -> None:
         done.append(query)
     rest = [q for q in progress.get("capped", []) if q != query]
     progress["capped"] = rest + [query] if capped else rest
+    progress.get("at", {}).pop(query, None)
     _save_progress(search_id, progress)
+
+
+def remember_page(search_id: int, query: str, offset: int, view: list) -> None:
+    """Which page a search under way has reached, so resuming carries on from there."""
+    progress = get(search_id)["progress"]
+    progress.setdefault("at", {})[query] = [offset, view]
+    _save_progress(search_id, progress)
+
+
+def wait_for_google(search_id: int, since: float, pages: int) -> None:
+    """Google limited this search at ``since`` (seconds), after ``pages`` pages: note when
+    to carry on. The wait gets longer if it happens again before many pages were fetched."""
+    progress = get(search_id)["progress"]
+    waits = 0 if pages >= CLEAR_AFTER_PAGES else progress.get("waits", 0)
+    progress["waits"] = waits + 1
+    progress["resume_at"] = since + GOOGLE_WAITS[min(waits, len(GOOGLE_WAITS) - 1)] * 60
+    _save_progress(search_id, progress)
+    set_status(search_id, "waiting")
 
 
 def _save_progress(search_id: int, progress: dict) -> None:
@@ -674,5 +715,23 @@ def delete_leads(place_ids: list[str], search_id: int = 0) -> None:
 
 
 def recover_interrupted() -> None:
-    """At start-up nothing is running, so a 'running' search was cut off by closing the app."""
-    db.execute("UPDATE searches SET status = 'stopped' WHERE status = 'running'")
+    """At start-up nothing is running, so a 'running' search was cut off by closing the app
+    or a crash. The newest one is marked to carry on by itself; any older ones just stop."""
+    rows = db.query("SELECT id FROM searches WHERE status = 'running' ORDER BY id DESC")
+    for index, row in enumerate(rows):
+        set_status(row["id"], "stopped" if index else "interrupted")
+
+
+# Waiting to carry on: interrupted (by closing the app, starts by itself when it opens),
+# waiting (for Google, starts by itself when the time is up), paused (by the user)
+HELD = ("interrupted", "waiting", "paused")
+
+
+def unfinished() -> dict | None:
+    """The search to offer on New search: the newest one held, else the newest search if
+    it was stopped before finishing."""
+    marks = ",".join("?" * len(HELD))
+    row = db.query_one(f"SELECT id FROM searches WHERE status IN ({marks}) ORDER BY id DESC",
+                       HELD) or db.query_one("SELECT id FROM searches WHERE status = 'stopped' AND "
+                                             "id = (SELECT MAX(id) FROM searches)")
+    return get(row["id"]) if row else None

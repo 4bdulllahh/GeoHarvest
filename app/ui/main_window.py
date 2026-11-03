@@ -152,10 +152,13 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(20_000, self._auto_backup)  # well after startup, off the UI thread
 
     def _first_page(self) -> str:
+        from app.core import search as searches
+
+        unfinished = searches.unfinished()
+        if unfinished and unfinished["status"] in searches.HELD:
+            return "search"  # it shows where that search has got to, and carries on
         start = db.get_setting("start_page", None)
         if start is None:  # never chosen: a newcomer starts with the guide
-            from app.core import search as searches
-
             start = "search" if searches.all_searches() else "guide"
         if start == "last":
             start = db.get_setting("last_page", "search")
@@ -676,9 +679,9 @@ class MainWindow(QMainWindow):
 
             if not ConfirmDialog.ask(
                 self, "A search is still running",
-                "Closing now stops it. Every lead found so far is saved, and you can resume "
-                "the search from Past searches next time.\n\nClose anyway?",
-                confirm_text="Close and stop", danger=True,
+                "Every lead found so far is saved, and the search carries on by itself the "
+                "next time you open GeoHarvest.\n\nClose now?",
+                confirm_text="Close",
             ):
                 event.ignore()
                 return

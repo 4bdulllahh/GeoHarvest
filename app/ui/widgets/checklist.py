@@ -32,10 +32,15 @@ class CheckList(QWidget):
         self.list.setUniformItemSizes(True)
         self.list.setFixedHeight(height)
         self.list.itemChanged.connect(self._item_changed)
+        self.list.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+        self.list.itemPressed.connect(self._pressed)
+        self.list.itemClicked.connect(self._clicked)
+        self.list.itemDoubleClicked.connect(self._flip)  # a quick second click counts too
         layout.addWidget(self.list)
         self.count = hint("")
         layout.addWidget(self.count)
         self._quiet = False
+        self._switch_flipped = False
 
     # --- contents -----------------------------------------------------------
     def set_items(self, items: list[tuple[str, str]], checked: set[str]) -> None:
@@ -75,9 +80,25 @@ class CheckList(QWidget):
         self.changed.emit()
 
     # --- internals ----------------------------------------------------------
+    def _pressed(self, _item: QListWidgetItem) -> None:
+        """Qt says "pressed" for a press on the words, but not for one on the switch."""
+        self._switch_flipped = False
+
+    def _clicked(self, item: QListWidgetItem) -> None:
+        """A click on the words ticks it too. Qt has already flipped a click on the switch."""
+        if not self._switch_flipped:
+            self._flip(item)
+        self._switch_flipped = False
+
+    @staticmethod
+    def _flip(item: QListWidgetItem) -> None:
+        item.setCheckState(Qt.CheckState.Unchecked if item.checkState() == Qt.CheckState.Checked
+                           else Qt.CheckState.Checked)
+
     def _item_changed(self, item: QListWidgetItem) -> None:
         if self._quiet:
             return
+        self._switch_flipped = True
         self.toggled.emit(item.data(KEY), item.checkState() == Qt.CheckState.Checked)
         self._update_count()
         self.changed.emit()

@@ -1,7 +1,7 @@
 """Smart mode: connect an AI and describe the ideal customer it scores leads against."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QInputDialog, QLineEdit, QMenu, QSpinBox, QVBoxLayout, QWidget
 
 from app.core import ai, credentials, db
@@ -12,7 +12,7 @@ from app.ui.widgets.common import (ChoiceButtons, FormRow, Section, clear_layout
                                    ghost_button, hint, muted, open_url, primary_button, row,
                                    secondary_button, small_button, wrap_row)
 from app.ui.widgets.dialogs import ConfirmDialog
-from app.ui.widgets.inputs import checkbox, combo, get_text, line_edit, password_edit, set_text, \
+from app.ui.widgets.inputs import Combo, checkbox, get_text, line_edit, password_edit, set_text, \
     text_box
 from app.workers.base import Task
 
@@ -31,7 +31,21 @@ def number(low: int, high: int, value: int, special: str) -> QSpinBox:
     box.setValue(value)
     box.setSpecialValueText(t(special))
     box.setFixedWidth(130)
+    box.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # the wheel alone must not change it
     return box
+
+
+class ModelBox(Combo):
+    """The model drop-down. With nothing listed yet, its arrow asks for the list first."""
+
+    wanted = pyqtSignal()
+
+    def showPopup(self) -> None:  # noqa: N802 - Qt naming
+        if self.count():
+            super().showPopup()
+        else:
+            self.wanted.emit()
+
 
 PROFILE_EXAMPLE = ("For example: independent dental clinics (not hospital chains) with a website "
                    "but little social media, rated under 4.5 stars, that might want help "
@@ -72,11 +86,15 @@ class SmartPage(Page):
         self.url_row.add(self.base_url)
         choose.add(self.url_row)
 
-        model_row = FormRow("Model", "Press 'Load models' to see what your key can use.")
-        self.model = combo([], translate=False)
+        model_row = FormRow("Model", "Click the arrow to see what your key can use, or type a "
+                                     "model's name.")
+        self.model = ModelBox(False)
+        self.model.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.model.setEditable(True)
         self.model.setMinimumWidth(380)
-        self.load_button = secondary_button("Load models", self.load_models)
+        self.model.wanted.connect(self._models_wanted)
+        self.key.editingFinished.connect(self._load_quietly)
+        self.load_button = secondary_button("Load models", lambda: self.load_models())
         model_row.add(row(self.model, self.load_button, None))
         choose.add(model_row)
         layout.addWidget(choose)
@@ -110,6 +128,7 @@ class SmartPage(Page):
         self.min_score.setRange(1, 100)
         self.min_score.setValue(min_score or 50)
         self.min_score.setFixedWidth(90)
+        self.min_score.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         low.add(row(self.drop_low, self.min_score, None))
         low.add(hint("Scores: 80 and up is a good fit (Hot), 50 to 79 maybe (Warm), below 50 a "
                      "poor fit (Cold). Leave this off to keep every lead and sort by AI score on "
@@ -183,6 +202,23 @@ class SmartPage(Page):
         self.model.clear()
         self.model.lineEdit().setText((db.get_setting("ai_model", "") if same else "")
                                       or provider.model)
+        self._load_quietly()
+
+    def _load_quietly(self) -> None:
+        """Fill the drop-down in the background as soon as there is a key to ask with."""
+        provider = self._current()
+        ready = self.key.text().strip() if provider.needs_key else self.base_url.text().strip()
+        if ready and not self.model.count() and self.load_button.isEnabled():
+            self.load_models(quiet=True)
+
+    def _models_wanted(self) -> None:
+        if not self.load_button.isEnabled():
+            return  # already on its way
+        if self._current().needs_key and not self.key.text().strip():
+            self.notify("Paste your key first, then the list of models opens here.", "warn")
+            self.key.setFocus()
+            return
+        self.load_models(open_list=True)
 
     def _toggle_key(self) -> None:
         hidden = self.key.echoMode() == QLineEdit.EchoMode.Password
@@ -212,26 +248,35 @@ class SmartPage(Page):
                                   name=ai.BY_KEY[cfg['provider']].name, model=cfg['model']))
 
     # --- actions ------------------------------------------------------------
-    def load_models(self) -> None:
+    def load_models(self, quiet: bool = False, open_list: bool = False) -> None:
         cfg = self._form_config()
         self.load_button.setEnabled(False)
         self.load_button.setText(t("Loading..."))
 
         def done(models: list) -> None:
+            if cfg["provider"] != self._current().key:
+                return  # the user has picked another provider since
             typed = self.model.lineEdit().text()
             self.model.clear()
             self.model.addItems(models)
-            self.model.lineEdit().setText(typed if typed in models or not models else models[0])
-            self.notify(t("{count} models available.", count=len(models)) if models else
-                        "No models found. Is a model downloaded and loaded?",
-                        "success" if models else "warn")
+            keep = quiet or typed in models or not models  # quiet: never change a saved choice
+            self.model.lineEdit().setText(typed if keep else models[0])
+            if open_list and models:
+                self.model.showPopup()
+            if not quiet:
+                self.notify(t("{count} models available.", count=len(models)) if models else
+                            "No models found. Is a model downloaded and loaded?",
+                            "success" if models else "warn")
+
+        def failed(message: str) -> None:
+            if not quiet:
+                self.notify(message, "error", 8000)
 
         def finish() -> None:
             self.load_button.setEnabled(True)
             self.load_button.setText(t("Load models"))
 
-        Task(ai.list_models, cfg).start(on_result=self.guard(done),
-                                        on_error=self.guard(lambda m: self.notify(m, "error", 8000)),
+        Task(ai.list_models, cfg).start(on_result=self.guard(done), on_error=self.guard(failed),
                                         on_done=self.guard(finish))
 
     def save(self) -> dict:

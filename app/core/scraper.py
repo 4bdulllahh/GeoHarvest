@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import itertools
 import json
+import random
 import re
 import threading
+import time
 from typing import Callable, Iterator
 
 import httpx
@@ -103,6 +105,20 @@ class MapsClient:
         self.clients = [self._client(proxy) for proxy in proxies] or [self._client(None)]
         self._turn = itertools.cycle(range(len(self.clients)))
         self._lock = threading.Lock()
+        self.gap = 0.0     # seconds between requests, shared by every thread (see _pace)
+        self._next = 0.0   # when the next request may go
+
+    def _pace(self) -> None:
+        """Space requests out, a little unevenly: Google limits steady streams sooner. Each
+        proxy is its own connection to Google, so more proxies share the gap."""
+        if not self.gap:
+            return
+        with self._lock:
+            now = time.monotonic()
+            slot = max(now, self._next)
+            self._next = slot + self.gap * random.uniform(0.7, 1.3) / len(self.clients)
+        if slot > now:
+            time.sleep(slot - now)
 
     def _client(self, proxy: str | None) -> httpx.Client:
         # From an EU or UK connection Google first redirects to its cookie-consent page;
@@ -120,6 +136,7 @@ class MapsClient:
     def fetch(self, query: str, offset: int = 0, view: list | None = None) -> list:
         """One results page, through the next proxy in turn. A proxy that Google limits or
         that does not answer is skipped; Blocked only when every proxy was limited."""
+        self._pace()
         with self._lock:
             first = next(self._turn)
         blocked: Blocked | None = None
@@ -180,17 +197,29 @@ def near_place(lead: dict, query: str, view: list | None) -> None:
     lead["country_code"] = lead["country_code"] or geo.country_code(geo.resolve(country) or "")
 
 
-def search(client: MapsClient, query: str,
-           cancelled: Callable[[], bool] = lambda: False) -> Iterator[list[dict]]:
-    """Yield the leads on each page of one search until Google runs out of new ones."""
+def search(client: MapsClient, query: str, cancelled: Callable[[], bool] = lambda: False,
+           start: list | None = None,
+           remember: Callable[[int, list], None] | None = None) -> Iterator[list[dict]]:
+    """Yield the leads on each page of one search until Google runs out of new ones.
+
+    ``remember`` is told (offset, map view) of the page after each one it yields; passing
+    that back as ``start`` carries on there, so resuming doesn't ask Google for a page twice.
+    """
     area = AREA.match(query)
     if area:
         label = area.group(1)
         text = label.split(" near ", 1)[0]  # the business type; the map says where
         view = [int(area.group(4)), float(area.group(3)), float(area.group(2))]
-        response = client.fetch(text, 0, view)
     else:
         label = text = query
+        view = None
+    offset = 0
+    if start:
+        offset, view = start
+        response = client.fetch(text, offset, view)
+    elif area:
+        response = client.fetch(text, 0, view)
+    else:
         response = client.fetch(query)
         view = places.at(response, 1, 0)
     seen: set[str] = set()
@@ -214,10 +243,11 @@ def search(client: MapsClient, query: str,
                        <= reach for lead in page if lead.get("latitude") is not None)
 
     page = new_leads(response)
-    offset = 0
     while page:
-        yield page
         offset += PAGE_SIZE
+        if remember and view:
+            remember(offset, view)
+        yield page
         if not view or offset > MAX_OFFSET or cancelled() or (area and leaves_view(page)):
             return
         page = new_leads(client.fetch(text, offset, view))

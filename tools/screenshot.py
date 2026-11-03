@@ -104,6 +104,12 @@ def main() -> None:
 
     db.init()
     countries = ["United Arab Emirates", "United States", "Germany"]
+    other = searches.create({"niches": ["real estate agency"], "where": "area",
+                             "area_place": "Downtown Dubai", "area_km": 5, "area_lat": 25.19,
+                             "area_lng": 55.27})
+    searches.save_leads(other, [{**lead, "place_id": f"re{i}"} for i, lead in
+                                enumerate(demo_leads(25))])
+    searches.set_status(other, "stopped")
     sid = searches.create({"niches": ["dentist"], "countries": countries,
                            "cities": ["Dubai, United Arab Emirates",
                                       "Abu Dhabi, United Arab Emirates",
@@ -112,12 +118,6 @@ def main() -> None:
                            "fields": HERO_COLUMNS})
     searches.save_leads(sid, demo_leads())
     searches.set_status(sid, "done")
-    other = searches.create({"niches": ["real estate agency"], "where": "area",
-                             "area_place": "Downtown Dubai", "area_km": 5, "area_lat": 25.19,
-                             "area_lng": 55.27})
-    searches.save_leads(other, [{**lead, "place_id": f"re{i}"} for i, lead in
-                                enumerate(demo_leads(25))])
-    searches.set_status(other, "stopped")
     db.set_setting("ai_provider", "gemini")
     db.set_setting("ai_profile", "Independent dental clinics with a website but little social "
                                  "media, who might want help getting more patients online.")
@@ -186,6 +186,7 @@ def main() -> None:
         page.status.setText("Step 2 of 3: Checking websites")
         page.start_button.hide()
         page.stop_button.show()
+        page.pause_button.show()
 
     def leads_exports():
         """The Leads page with the More exports menu open, drawn into one picture."""

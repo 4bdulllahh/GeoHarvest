@@ -2,6 +2,32 @@
 
 What went into each version and how it was tested, newest first. Add to it with every change. The user-facing release notes are in `docs/releases/`.
 
+## v0.3.2 beta (2026-11-03)
+
+The user's batch after testing 0.3.1: Google's limit stopping long searches, no pause, a manual
+trip to Past searches to resume, plus scroll, wording and list fixes. They said "add them" before
+the review was shown, so the open choices were made by default (listed in search.md's "Pause,
+resume, carrying on" row).
+- **Pause, Resume, Stop** on New search; Pause in Past searches; statuses paused, waiting,
+  interrupted.
+- **Carrying on by itself:** after Google's limit (countdown; 15, 30, 60 minutes; websites and AI
+  keep going meanwhile) and after closing the app or a crash. All state in the database.
+- **Pacing:** `MapsClient.gap`, and page positions saved so resuming repeats nothing.
+- **Bugs found while testing:** batches filled up from the first city (`search.spread`); a query
+  cut short by a limit or Stop was marked done, losing its remaining pages (also in 0.3.1, a race
+  there); wheel over a number box changed it; long status text cut off (it wraps now).
+- **Requests:** the wheel stays inside a list at its end, a click on a row's words ticks it, the
+  model drop-down works, "On" is now "At a set time" and picking a day or time switches it on.
+- Installer moved to v0.3.3.
+
+Tested: 73 tests (new: `tests/test_ui.py`; resume repeats no page and loses none, wait lengths,
+fair batches, websites after a limit, statuses); i18n check complete in ar/de/es/fr; the whole
+flow in the real window with a fake Google (start, pause, resume, limit, countdown, close,
+reopen, stop, resume to the end: 720 of 720 leads). Live: the dev connection was already limited
+by Google (the /sorry redirect on the first request), so a real search only proved that a real
+limit is recognised and starts the wait. Not tested: paging, pacing or resuming against real
+Google, a real mouse wheel or touchpad, the model list with a real key, a real app close.
+
 ## v0.3.1 beta (2026-10-30)
 
 A performance update, asked for after the user's tester on an older laptop saw "Not

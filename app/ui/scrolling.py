@@ -30,7 +30,7 @@ class ScrollFilter(QObject):
     def eventFilter(self, obj, event):  # noqa: N802 - Qt naming
         kind = event.type()
         if kind == QEvent.Type.Wheel:
-            return self.smooth and self._wheel(obj, event)
+            return self._wheel(obj, event)
         if isinstance(obj, QScrollBar):
             if kind == QEvent.Type.Enter:
                 _set_hot(obj, True)
@@ -42,7 +42,7 @@ class ScrollFilter(QObject):
 
     def _wheel(self, obj, event) -> bool:
         delta = event.angleDelta().y()
-        if (not delta or not event.pixelDelta().isNull() or event.angleDelta().x()
+        if (not delta or event.angleDelta().x()
                 or event.modifiers() != Qt.KeyboardModifier.NoModifier):
             return False
         # Qt shows the wheel to the window (a QWindow, not a widget) before the
@@ -52,15 +52,23 @@ class ScrollFilter(QObject):
         widget = obj
         while widget is not None:
             if isinstance(widget, (QComboBox, QAbstractSpinBox)):
-                return False
+                if widget.hasFocus():
+                    return False
+                event.ignore()  # the pointer merely passing over: Qt offers it to the page
+                return True
             if isinstance(widget, QAbstractScrollArea):
                 bar = widget.verticalScrollBar()
                 if bar.maximum() > bar.minimum():
                     target = self._target(bar)
-                    if (delta < 0 and target < bar.maximum()) or (delta > 0 and target > bar.minimum()):
-                        step = QApplication.wheelScrollLines() * bar.singleStep()
-                        self._scroll(bar, target - round(delta / 120 * step))
+                    if not ((delta < 0 and target < bar.maximum())
+                            or (delta > 0 and target > bar.minimum())):
+                        event.accept()  # at its end: the page behind it stays where it is
                         return True
+                    if not self.smooth or not event.pixelDelta().isNull():
+                        return False  # Qt scrolls it the plain way
+                    step = QApplication.wheelScrollLines() * bar.singleStep()
+                    self._scroll(bar, target - round(delta / 120 * step))
+                    return True
             widget = widget.parentWidget()
         return False
 

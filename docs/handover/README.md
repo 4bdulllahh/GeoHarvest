@@ -18,15 +18,16 @@ re-asks.
 
 ## Where things stand
 
-**Phase: beta testing (since 2026-10-16). Current version: v0.3.1 beta (2026-10-30).**
+**Phase: beta testing (since 2026-10-16). Current version: v0.3.2 beta (2026-11-03).**
 Version numbers follow the user's GitHub tags: keep `APP_VERSION` (app/config.py) equal to the
 tag's numbers. Don't start new features unless the user asks.
 
-v0.3.1 (performance: batches, maximum leads, the website-reading freeze fixed, Smart mode
-additions) is pushed, with `docs/releases/v0.3.1-beta.md`, the README and fresh screenshots.
-`dist/GeoHarvest-v0.3.1-beta-windows.zip` is built locally. The user publishes release
-`v0.3.1` and tests it, especially on the tester's older laptop. **Next: v0.3.2**, the backup
-installer for Smart App Control PCs (see [roadmap.md](roadmap.md)).
+v0.3.2 (pause and resume, carrying on by itself after Google's limits and after closing the
+app, spaced-out requests, fair batches, scroll and list fixes) is pushed, with
+`docs/releases/v0.3.2-beta.md`, the README and fresh screenshots.
+`dist/GeoHarvest-v0.3.2-beta-windows.zip` is built locally. The user publishes release
+`v0.3.2` and tests it on a long search. **Next: v0.3.3**, the backup installer for Smart App
+Control PCs (see [roadmap.md](roadmap.md)).
 
 ## The product
 

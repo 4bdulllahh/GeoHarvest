@@ -26,7 +26,7 @@ What to do when the user or testers come back with problems, what usually causes
 | Setup won't open, or a "Failed to load Python DLL" error | They ran `GeoHarvest-Setup.exe` from inside the zip. Extract it first (READ ME FIRST.txt says so). |
 | "Windows protected your PC" | The app isn't code-signed. More info > Run anyway. |
 | Setup says files are missing, or the app vanished | Antivirus quarantined something. Ask which antivirus they use. |
-| "Google asked GeoHarvest to slow down" | Google rate-limited their connection (`scraper.Blocked`). Wait 15 min, resume, use Gentle speed. |
+| "Google asked GeoHarvest to slow down" | Google rate-limited their connection (`scraper.Blocked`). Since 0.3.2 it counts down and starts again by itself (15, 30, then 60 min). If it keeps happening: Gentle speed, or proxies. A limit can outlast 15 minutes: on 2026-11-03 the dev connection got the /sorry redirect on its first request. |
 | Few or no results in the EU/UK | Google's consent page. The `CONSENT`/`SOCS` cookies were never tested from an EU IP. |
 | Smart mode errors with Gemini or Claude | Never tested with a real key (only a fake OpenAI-style server). Check `app/core/ai.py` reply parsing. |
 | No emails for many leads | Normal for businesses with only Facebook or Instagram (those block plain requests), or with no website. |
@@ -47,6 +47,10 @@ What to do when the user or testers come back with problems, what usually causes
 - Smart mode with real Gemini or Claude keys, and 0.3.1's opening lines, needs, best way to
   reach, deal-breakers, website text and answer language
 - 0.3.1's batches on a large search (1,000+ leads) and on an older PC
+- 0.3.2's spaced-out requests against Google's real limits: do testers see fewer limits, and are
+  big searches now too slow? Tune `search.GAP_BY_SPEED` from their reports
+- 0.3.2's wheel behaviour with a real mouse and touchpad (tests can't send a real wheel event, so
+  moving on to the page behind a number box was checked only by reading Qt's code)
 - Searches from an EU IP
 - Windows 10 (only built and run on Windows 11)
 - Everything in "What the user should test in v0.2.2" above

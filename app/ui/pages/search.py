@@ -1,7 +1,9 @@
 """New search: what to look for, where, which businesses, and the run itself."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+import time
+
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QHBoxLayout, QInputDialog, QMenu, QSpinBox, QVBoxLayout, QWidget
 
 from app.core import db, geo, hours, scraper
@@ -10,8 +12,9 @@ from app.i18n import t
 from app.ui.pages.base import Page
 from app.core.places import FIELD_GROUPS, HEADERS, RECORD_FIELDS
 from app.ui.widgets.common import (Card, Columns, small_button, ChoiceButtons, FormRow, ProgressRow, Section, StatTile,
-                                   confirm_button, danger_button, flow_row, hint, muted, row,
-                                   secondary_button, select_button, clear_layout, wrap_row)
+                                   confirm_button, danger_button, flow_row, hint, muted,
+                                   primary_button, row, secondary_button, select_button,
+                                   clear_layout, wrap_row)
 from app.ui.widgets.dialogs import ConfirmDialog
 from app.ui.widgets.checklist import CheckList
 from app.ui.widgets.inputs import combo, line_edit
@@ -64,6 +67,7 @@ def spin(low: int, high: int, value: int, suffix: str = "", special: str = "") -
     if special:
         box.setSpecialValueText(special)
     box.setFixedWidth(150)
+    box.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # scrolling past it must not change it
     return box
 
 
@@ -241,9 +245,11 @@ class SearchPage(Page):
         self.open_now = select_button("Now", last["open_now"])
         self.open_24h = select_button("24 hours", last["open_24h"])
         self.open_weekends = select_button("On weekends", last["open_weekends"])
-        self.open_at = select_button("On", last["open_at"])
+        self.open_at = select_button("At a set time", last["open_at"])
         self.open_day = combo(hours.DAYS, hours.DAYS[int(last["open_day"])], translate=False)
         self.open_time = combo(TIMES, last["open_time"], translate=False)
+        for box in (self.open_day, self.open_time):  # choosing a time means wanting it
+            box.activated.connect(lambda _index: self.open_at.setChecked(True))
         container, flow = flow_row(spacing=10)
         for box in (self.open_now, self.open_24h, self.open_weekends,
                     row(self.open_at, self.open_day, muted("at", wrap=False), self.open_time)):
@@ -327,13 +333,18 @@ class SearchPage(Page):
         self.progress = ProgressRow()
         self.progress.hide()
         bar.add(self.progress)
-        self.status = muted("Ready when you are.", wrap=False)
+        self.status = muted("Ready when you are.")
         self.start_button = confirm_button("Start search", self.start)
-        self.stop_button = danger_button("Stop", self.stop)
+        self.stop_button = danger_button("Stop", self.stop_search)
         self.stop_button.hide()
+        self.pause_button = secondary_button("Pause", self.pause)
+        self.pause_button.hide()
+        self.resume_button = primary_button("Resume", self.resume)
+        self.resume_button.hide()
         self.open_button = secondary_button("Open leads", self.open_leads)
         self.open_button.hide()
-        bar.add(row(self.status, self.open_button, self.stop_button, self.start_button, stretch=0))
+        bar.add(row(self.status, self.open_button, self.stop_button, self.pause_button,
+                    self.start_button, self.resume_button, stretch=0))
         # When a search comes up short: why, and ways to widen it
         self.summary = hint("")
         self.summary.hide()
@@ -348,6 +359,13 @@ class SearchPage(Page):
         bar.add(self.widen)
         self.root.addWidget(bar)
         self.load_options(last)
+        self.resume_at = 0.0  # when a search waiting for Google carries on
+        self.countdown = QTimer(self)
+        self.countdown.setInterval(1000)
+        self.countdown.timeout.connect(self._tick)
+        # After the window is up: the state is in the database, so this also covers reopening
+        # the app and rebuilding the page (a new language, text size, F5)
+        QTimer.singleShot(800, self.guard(self.pick_up))
 
     # --- form ---------------------------------------------------------------
     def _country_toggled(self, key: str, on: bool) -> None:
@@ -671,6 +689,10 @@ class SearchPage(Page):
 
         if self.worker is not None:
             return
+        if self.search_id != search_id and self.countdown.isActive():
+            searches.set_status(self.search_id, "stopped")  # another search takes its place
+        self.countdown.stop()
+        self.window_.set_status(middle="")
         self.search_id = search_id
         leads_page = self.window_.page("leads")
         if leads_page is not None:  # the Leads page always shows the latest search
@@ -700,16 +722,114 @@ class SearchPage(Page):
         self.worker.start()
 
     def stop(self) -> None:
+        """The app is closing: the search is left marked as running, so it carries on by
+        itself next time."""
         if self.worker is not None:
-            self.worker.stop()
+            self.worker.stop("running")
+
+    def stop_search(self) -> None:
+        """The Stop button. Stays in Past searches, and can still be resumed by hand."""
+        if self.worker is None:  # paused, or waiting for Google
+            searches.set_status(self.search_id, "stopped")
+            self.pick_up()
+            return
+        self.worker.stop()
+        self.stop_button.setEnabled(False)
+        self.pause_button.setEnabled(False)
+        self.stop_button.setText(t("Stopping..."))
+
+    def pause(self) -> None:
+        if self.worker is not None:
+            self.worker.stop("paused")
             self.stop_button.setEnabled(False)
-            self.stop_button.setText(t("Stopping..."))
+            self.pause_button.setEnabled(False)
+            self.pause_button.setText(t("Pausing..."))
+
+    def resume(self) -> None:
+        """Carry on with the search on show."""
+        record = searches.get(self.search_id) if self.search_id is not None else None
+        if record is None:  # deleted in the meantime
+            self.pick_up()
+            return
+        self.load_options(record["options"])
+        self.run(record["id"])
+
+    def pick_up(self) -> None:
+        """Show the unfinished search, if there is one; one cut off by closing the app
+        carries on by itself."""
+        if self.worker is not None:
+            return
+        self.countdown.stop()
+        self.window_.set_status(middle="")
+        record = searches.unfinished()
+        if record is None:
+            self.search_id = None
+            for widget in (self.stats, self.progress, self.open_button, self.resume_button,
+                           self.stop_button, self.pause_button):
+                widget.hide()
+            self.start_button.show()
+            self.status.setText(t("Ready when you are."))
+        elif record["status"] == "interrupted":
+            self.search_id = record["id"]
+            self.notify("Carrying on with your last search.", "info")
+            self.resume()
+        else:
+            self._show_unfinished(record)
+
+    def _show_unfinished(self, record: dict) -> None:
+        """A search not running: how far it got, and the buttons to carry on or end it."""
+        self.search_id = record["id"]
+        self.title = record["title"]
+        status, options = record["status"], record["options"]
+        if status in searches.HELD:
+            self.load_options(options)  # the form shows the search that is carrying on
+        self._set_running(False)
+        fits = searches.candidates(record["id"])
+        found = searches.count(record["id"])
+        done = len(record["progress"].get("done", []))
+        total = len(searches.all_queries(record["id"], options))
+        self.limit = searches.leads_wanted(options)[1]
+        self._on_found(len(fits), sum(bool(lead.get("phone")) for lead in fits))
+        self.tile_places.update_value(t("{done:,} of {total:,}", done=done, total=total))
+        self._on_leads(found)
+        self.tile_ai.setVisible(bool(options["smart"]))
+        self.resume_button.show()
+        self.stop_button.setVisible(status in ("paused", "waiting"))
+        self.start_button.setVisible(status != "waiting")
+        self.found = found
+        self.resume_button.setText(t("Resume now") if status == "waiting" else t("Resume"))
+        if status == "waiting":
+            self.resume_at = float(record["progress"].get("resume_at", 0))
+            self.countdown.start()
+            self._tick()
+        elif status == "paused":
+            self.status.setText(t("Paused. The {found:,} leads so far are in Leads. Press Resume "
+                                  "to carry on, even after closing GeoHarvest.", found=found))
+        else:
+            self.status.setText(t("Stopped. The {found:,} leads so far are in Leads; press "
+                                  "Resume to carry on.", found=found))
+
+    def _tick(self) -> None:
+        left = round(self.resume_at - time.time())
+        if left <= 0:
+            self.countdown.stop()
+            self.resume()
+            return
+        clock = f"{left // 60}:{left % 60:02d}"
+        self.status.setText(t("Google asked GeoHarvest to slow down. Carrying on by itself in "
+                              "{clock}. The {found:,} leads so far are in Leads.",
+                              clock=clock, found=self.found))
+        self.window_.set_status(middle=t("Carrying on in {clock}", clock=clock))
 
     def _set_running(self, running: bool) -> None:
         self.start_button.setVisible(not running)
+        self.resume_button.hide()
         self.stop_button.setVisible(running)
         self.stop_button.setEnabled(True)
         self.stop_button.setText(t("Stop"))
+        self.pause_button.setVisible(running)
+        self.pause_button.setEnabled(True)
+        self.pause_button.setText(t("Pause"))
         self.open_button.setVisible(True)
         self.summary.hide()
         self.widen.hide()
@@ -764,17 +884,13 @@ class SearchPage(Page):
                                    t("Search paused"),
                                    t("{found:,} leads for {title}.", found=found,
                                      title=searches.title(searches.get(self.search_id)["options"])))
-        if result["blocked"]:
-            self.status.setText(t("Paused: Google is limiting requests. The {found:,} leads "
-                                  "so far are in Leads.", found=found))
-            self.notify("Google asked GeoHarvest to slow down. Everything found so far is saved. "
-                        "Wait about 15 minutes, then resume it from Past searches.", "warn", 10000)
-        elif result.get("ai_error"):
+        if result.get("ai_error"):
             self.status.setText(t("Smart mode stopped: {error}", error=result["ai_error"]))
             self.notify(t("Smart mode stopped: {ai_error} Leads found so far are saved; fix "
-                          "it on the Smart mode page, then resume from Past searches.",
+                          "it on the Smart mode page, then press Resume.",
                           ai_error=result['ai_error']),
                         "warn", 10000)
+            self.resume_button.show()
         elif result["status"] == "done":
             self.status.setText(t("Done: {found:,} leads meet your requirements, out of "
                                   "{listed:,} businesses Google listed.",
@@ -783,9 +899,8 @@ class SearchPage(Page):
                 self._explain_shortfall(result)
             else:
                 self.notify(t("Search finished: {found:,} leads.", found=found), "success")
-        else:
-            self.status.setText(t("Stopped. The {found:,} leads so far are in Leads; resume "
-                                  "it from Past searches.", found=found))
+        else:  # paused, stopped or waiting for Google
+            self._show_unfinished(searches.get(self.search_id))
         self.window_.search_finished.emit(self.search_id)
         self.window_.refresh_status()
 
@@ -847,6 +962,7 @@ class SearchPage(Page):
         if self.search_id is not None:
             searches.set_status(self.search_id, "stopped")
         self.status.setText(t("The search stopped because of an error."))
+        self.resume_button.setVisible(self.search_id is not None)
         self.notify(t("The search stopped: {message}", message=message), "error", 8000)
 
     def open_leads(self) -> None:

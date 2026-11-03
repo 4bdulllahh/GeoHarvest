@@ -43,8 +43,8 @@ class SettingsPage(Page):
         speed.add(ChoiceButtons(SPEEDS, str(db.get_setting("parallel_searches", 4)),
                                 on_change=lambda v: db.set_setting("parallel_searches", int(v))))
         speed.add(hint("Fast finishes big searches sooner, but Google is more likely to ask "
-                       "GeoHarvest to slow down. If that happens, the search pauses and you can "
-                       "resume it later from Past searches. Applies to the next search."))
+                       "GeoHarvest to slow down. If that happens, the search waits and then "
+                       "carries on by itself. Applies to the next search."))
         layout.addWidget(speed)
 
         proxies = Section("Proxies (optional)",

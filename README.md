@@ -13,7 +13,7 @@ customer. Export to Excel, to your CRM, or straight into Google Sheets. No accou
 subscription, nothing to pay: everything runs on your own computer.
 
 **Download:** [latest release](https://github.com/4bdulllahh/GeoHarvest/releases/latest) ·
-**Version:** 0.3.1 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
+**Version:** 0.3.2 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
 
 [![Build](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml/badge.svg)](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/4bdulllahh/GeoHarvest?label=download&color=3b86dd)](https://github.com/4bdulllahh/GeoHarvest/releases/latest)
@@ -110,11 +110,13 @@ subscription, nothing to pay: everything runs on your own computer.
     CRM's own column names, and into **HomingPigeon** (one row per email) for cold email.
   - **Copy for Google Sheets**: copies the leads and opens a new sheet; press Ctrl+V.
   - Safe against spreadsheet formula tricks hidden in business names.
-- **Nothing is ever lost.** Every result is saved the moment it arrives. Stop a search, close
-  the app, or have Google ask GeoHarvest to slow down, and **Resume** carries on exactly where
-  it stopped.
-- **Past searches.** Load any search's leads, resume it, run it again or delete it. Delete
-  single leads you don't want.
+- **Nothing is ever lost.** Every result is saved the moment it arrives, along with the page
+  each search has reached, so **Resume** carries on exactly where it stopped.
+- **Pause, resume and carry on by itself.** Pause a search, close the app and continue any time.
+  If Google asks GeoHarvest to slow down, it counts down and starts again by itself. Close the
+  app mid-search and it carries on the next time you open it.
+- **Past searches.** Load any search's leads, pause or resume it, run it again or delete it.
+  Delete single leads you don't want.
 - **Backups.** Back up your searches, leads, presets and settings to a file, and restore them
   on this PC or a new one. GeoHarvest also backs up by itself once a week.
 - **Proxies (optional).** For people who search a lot: paste HTTP or SOCKS5 proxies in Settings
@@ -159,8 +161,8 @@ subscription, nothing to pay: everything runs on your own computer.
    **Requirements**, set **Minimum leads** and the details to include. Press **Start search**.
 2. **Watch it work.** The search runs in three steps: searching Google, checking websites,
    picking the best leads. The tiles count businesses found, searches, websites checked,
-   emails, phones, AI scores (in Smart mode) and the leads found. Press **Stop** whenever you
-   like; you keep everything found so far, and **Resume** in Past searches carries on later.
+   emails, phones, AI scores (in Smart mode) and the leads found. Press **Pause** or **Stop**
+   whenever you like; you keep everything found so far, and **Resume** carries on later.
    If there weren't enough businesses, it tells you why and offers to add more cities.
 3. **Leads.** The page opens on your latest search. Use **Show** and **Sort**, double-click a
    lead for its details, delete the ones you don't want, and use **Columns** to choose what
@@ -273,9 +275,8 @@ places).
   clinic, orthodontist`). Strict filters (Startups, must have a phone and a website) can leave
   small cities with only a few; the summary after the search says what was left out and why.
 - **"Google asked GeoHarvest to slow down."** Very large searches from one internet connection
-  can hit Google's limits. GeoHarvest pauses, keeps everything found, and you can resume from
-  Past searches after about 15 minutes. **Gentle** speed in Settings, or proxies, make this
-  less likely.
+  can hit Google's limits. GeoHarvest keeps everything found, counts down (usually 15 minutes)
+  and starts again by itself. **Gentle** speed in Settings, or proxies, make this less likely.
 - **Company age is an estimate** based on the website's domain. Some registries (`.pk`, `.de`,
   `.ae`) don't publish dates; for those GeoHarvest uses the first time the site appeared in the
   Internet Archive, which is slower, so it only does that when you filter by age. If neither
@@ -292,9 +293,9 @@ places).
 ## Testing the beta
 
 The most useful feedback: what you searched for and what went wrong or looked odd, anything
-confusing, and what you wish it did. New in 0.3.1 and worth trying: a big search on an
-**older PC** (does it stay smooth?), **Maximum leads**, and Smart mode's **opening lines**,
-**Never a fit** and **Try it on my leads**. Post it as a
+confusing, and what you wish it did. New in 0.3.2 and worth trying: a **long search** (how often does
+Google still ask it to slow down, and does it start again by itself?), **Pause** and **Resume**,
+and closing the app mid-search and reopening it. Post it as a
 [GitHub issue](https://github.com/4bdulllahh/GeoHarvest/issues/new). If the app crashed,
 attach `%APPDATA%\GeoHarvest\logs\crash.log`; if Setup failed, attach
 `%TEMP%\GeoHarvest-setup-log.txt` (Setup's **Open log file** button shows it).
@@ -336,7 +337,9 @@ decisions behind it, and where each feature lives.
   score, Show and Sort, themes, five languages, backups, updates that install by themselves
 - [x] **v0.3.1**: no more freezing on older PCs, searches in batches, Maximum leads,
   international phone numbers, Smart mode opening lines, needs, Hot/Warm/Cold, limits and more
-- [ ] **v0.3.2**: a backup installer for PCs with Smart App Control
+- [x] **v0.3.2**: pause and resume, carrying on by itself after Google's limits and after
+  closing the app, requests spaced out, leads from every city, scrolling inside lists
+- [ ] **v0.3.3**: a backup installer for PCs with Smart App Control
 - [ ] **Ideas for later**: emails from Facebook pages, a map view of results, and a Mac version
 
 ## Legal

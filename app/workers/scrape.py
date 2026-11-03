@@ -14,9 +14,10 @@ of websites at once. Once Google has nothing left, the search goes deeper only w
 under the minimum: each city search Google cut short is run again in small map views
 (``search.deep_queries``).
 
-Everything is saved the moment it arrives and a query is only marked done once all
-its pages are in, so pressing Stop, closing the app or Google pushing back loses
-nothing: resuming carries on, and Stop still keeps what is ready.
+Everything is saved the moment it arrives, with the page each query has reached, so
+pressing Pause or Stop, closing the app or Google pushing back loses nothing: resuming
+carries on from there. When Google pushes back the websites and AI still finish (they don't
+touch Google), then the search waits and the Search page starts it again when the time is up.
 """
 from __future__ import annotations
 
@@ -53,25 +54,35 @@ class ScrapeWorker(Worker):
         self.signals = ScrapeSignals()
         self.search_id = search_id
         self._stop = threading.Event()
-        self.blocked = False
+        self.ending = "stopped"       # the search's status after stop()
+        self.blocked = False          # Google limited us: no more Google in this run
+        self.blocked_at = 0.0
+        self.fetched = 0              # Google pages in this run
         self.tried: set[str] = set()  # websites visited in this run, whatever happened
         self.pages: dict = {}         # searches under way: query -> its pages still to come
+        self.following: dict = {}     # where each query goes next, once its page is saved
         self.failed: set[str] = set()  # searches that failed once in this run
         self.ai_checked = 0           # leads Smart mode checked in this run
 
-    def stop(self) -> None:
+    def stop(self, ending: str = "stopped") -> None:
         """Finish the pages in flight, keep what is ready, then end normally (unlike
-        cancel(), which goes silent)."""
+        cancel(), which goes silent). ``ending``: stopped, paused, or running when the app
+        is closing, so it carries on by itself next time."""
+        self.ending = ending
         self._stop.set()
 
     def work(self) -> dict:
-        options = searches.get(self.search_id)["options"]
+        record = searches.get(self.search_id)
+        options = record["options"]
         low, high = searches.leads_wanted(options)
         visiting = searches.visits_websites(options)
         searches.adopt_leads(self.search_id)
         searches.set_status(self.search_id, "running")
         ai_error, have, searched = None, 0, False
         self.client = scraper.MapsClient()
+        self.client.gap = searches.google_gap(
+            int(db.get_setting("parallel_searches", DEFAULT_PARALLEL)),
+            record["progress"].get("waits", 0))
         try:
             while True:
                 before = len(searches.candidates(self.search_id))
@@ -82,7 +93,7 @@ class ScrapeWorker(Worker):
                 if options["smart"] and not self._stop.is_set() and not ai_error:
                     ai_error = self.score_with_ai(options)
                 have = self.keep(options, visiting, high)
-                if self._stop.is_set() or ai_error or have >= high:
+                if self._stop.is_set() or self.blocked or ai_error or have >= high:
                     break
                 if searched:
                     # Google has nothing more for these searches: dig deeper only while
@@ -94,9 +105,19 @@ class ScrapeWorker(Worker):
                     break  # the queries left keep failing; resuming tries them again
         finally:
             self.client.close()
-        finished = searched or have >= high
-        status = "done" if finished and not self._stop.is_set() and not ai_error else "stopped"
-        searches.set_status(self.search_id, status)
+        stopped = self._stop.is_set()
+        if (searched or have >= high) and not stopped and not ai_error:
+            status = "done"
+        elif stopped:
+            status = self.ending
+        elif self.blocked and not ai_error:
+            status = "waiting"
+        else:
+            status = "stopped"
+        if status == "waiting":
+            searches.wait_for_google(self.search_id, self.blocked_at, self.fetched)
+        else:
+            searches.set_status(self.search_id, status)
         dropped = searches.dropped_counts(self.search_id)
         return {"status": status, "found": have, "wanted": low, "most": high,
                 "blocked": self.blocked, "ai_error": ai_error, "dropped": dropped,
@@ -111,9 +132,10 @@ class ScrapeWorker(Worker):
         all_queries = searches.all_queries(self.search_id, options)
         done = set(record["progress"].get("done", []))
         left = [q for q in all_queries if q not in done]
-        # Those under way go first, in the order they were taking turns
-        waiting = deque([q for q in self.pages if q in left] +
-                        [q for q in left if q not in self.pages])
+        at = record["progress"].get("at", {})
+        # Those not started go first: every search's first page before anyone's second
+        waiting = deque([q for q in left if q not in self.pages and q not in at] +
+                        [q for q in left if q in self.pages or q in at])
         lock = threading.Lock()
         fits = searches.candidates(self.search_id)
         goal = len(fits) + batch
@@ -123,16 +145,21 @@ class ScrapeWorker(Worker):
         self.signals.found.emit(state["fits"], state["phones"])
         self.report(state["finished"], state["total"])
 
+        def no_more_google() -> bool:
+            return self._stop.is_set() or self.blocked
+
         def next_page(query: str) -> list[dict] | None:
             """The query's next page, None once it has no more. Raises on errors."""
             pages = self.pages.get(query)
             if pages is None:
-                pages = self.pages[query] = iter(
-                    scraper.search(self.client, query, cancelled=self._stop.is_set))
+                pages = self.pages[query] = iter(scraper.search(
+                    self.client, query, cancelled=no_more_google, start=at.get(query),
+                    remember=lambda offset, view: self.following.__setitem__(
+                        query, [offset, view])))
             return next(pages, None)
 
         def run() -> None:
-            while not self._stop.is_set():
+            while not no_more_google():
                 with lock:
                     if state["fits"] >= goal or not waiting:
                         return
@@ -140,8 +167,8 @@ class ScrapeWorker(Worker):
                 try:
                     page = next_page(query)
                 except scraper.Blocked:
+                    self.blocked_at = self.blocked_at or time.time()
                     self.blocked = True
-                    self._stop.set()
                     return
                 except (httpx.HTTPError, ValueError) as error:
                     self.pages.pop(query, None)
@@ -157,13 +184,19 @@ class ScrapeWorker(Worker):
                     continue
                 with lock:
                     if page is None:
+                        if no_more_google():
+                            return  # cut short, not finished: resuming carries on with it
                         self.pages.pop(query, None)
                         searches.mark_query_done(self.search_id, query)
                         state["finished"] += 1
                         self.report(min(state["finished"], state["total"]), state["total"],
                                     query)
                         continue
+                    self.fetched += 1
                     new = searches.save_candidates(self.search_id, page, options)
+                    if query in self.following:
+                        at[query] = self.following.pop(query)
+                        searches.remember_page(self.search_id, query, *at[query])
                     state["fits"] += len(new)
                     state["phones"] += sum(bool(lead.get("phone")) for lead in new)
                     self.signals.found.emit(state["fits"], state["phones"])
