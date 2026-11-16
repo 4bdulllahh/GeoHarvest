@@ -1062,3 +1062,41 @@ def test_progress_is_saved_in_groups_of_pages(fresh_db):
     searches.save_pages(search_id, [], {})
     progress = searches.get(search_id)["progress"]
     assert progress["done"] == ["a", "c"] and progress["at"] == {"b": [60, [1, 2, 3]]}
+
+
+def test_types_that_overlap_are_named_and_a_type_typed_twice_is_searched_once():
+    types = ["construction company", "builder", "home builder", "contractor", "HVAC contractor",
+             "warehouse", "Builder", "dentist", "gym"]
+    assert searches.overlapping(types) == [
+        ["construction company", "builder", "home builder", "contractor", "HVAC contractor"]]
+    assert searches.overlapping(["cafe", "gym"]) == []
+    options = {"niches": ["cafe", "Cafe ", "gym"], "countries": ["Pakistan"],
+               "cities": ["Lahore, Pakistan"]}
+    assert searches.build_queries(options) == ["cafe in Lahore, Pakistan",
+                                                "gym in Lahore, Pakistan"]
+
+
+def test_a_search_that_only_repeats_other_searches_is_ended_early(fresh_db, monkeypatch):
+    from app.workers import scrape
+
+    asked = []
+
+    def fake_search(client, query, cancelled, **_):
+        own = query.startswith("gym")  # "builder" lists what "contractor" already found
+        for start in range(0, 120, 20):
+            asked.append(query)
+            yield [{"place_id": f"{'gym' if own else 'same'}-{n}", "status": "Open",
+                    "country_code": "PK"} for n in range(start, start + 20)]
+
+    monkeypatch.setattr(scrape.scraper, "search", fake_search)
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: type(
+        "Client", (), {"close": lambda self: None, "gap": 0})())
+    monkeypatch.setattr(scrape, "DEFAULT_PARALLEL", 1)  # one thread: a fixed order
+    search_id = searches.create({"niches": ["contractor", "builder", "gym"], "max_leads": 3000,
+                                 "countries": ["Pakistan"], "cities": ["Lahore, Pakistan"],
+                                 "find_emails": False})
+    result = scrape.ScrapeWorker(search_id).work()
+    assert result["status"] == "done" and result["found"] == 240
+    assert asked.count("contractor in Lahore, Pakistan") == 6
+    assert asked.count("gym in Lahore, Pakistan") == 6
+    assert asked.count("builder in Lahore, Pakistan") == scrape.STALE_PAGES

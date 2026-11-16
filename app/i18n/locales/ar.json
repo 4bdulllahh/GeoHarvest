@@ -290,6 +290,7 @@
  "Search finished with {found:,} of {wanted:,} leads. See why below.": "انتهى البحث بـ {found:,} من {wanted:,} من العملاء المحتملين. انظر السبب أدناه.",
  "The search stopped because of an error.": "توقّف البحث بسبب خطأ.",
  "The search stopped: {message}": "توقّف البحث: {message}",
+ "{types} find many of the same businesses. GeoHarvest skips the repeats, but fewer types make the search faster.": "{types} تعثر على كثير من الأنشطة نفسها. يتخطى GeoHarvest المكرر، لكن عددًا أقل من الأنواع يجعل البحث أسرع.",
  "Asking for a minimum can make it search deeper and take longer.": "طلب حد أدنى قد يجعل البحث أعمق ويستغرق وقتًا أطول.",
  "Your preset. Right-click to delete it.": "إعدادك المحفوظ. انقر بزر الماوس الأيمن لحذفه.",
  "Set up Smart mode first: open Smart mode in the menu and add a free AI key or a local model.": "أعدّ الوضع الذكي أولًا: افتح الوضع الذكي من القائمة وأضف مفتاح ذكاء اصطناعي مجانيًا أو نموذجًا محليًا.",

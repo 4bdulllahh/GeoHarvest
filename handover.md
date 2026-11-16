@@ -23,8 +23,8 @@ model (model-router skill).
 | M4 | Leads keep their exported marks and found dates ; deleted leads stay deleted (`search.set_picked`) | S | done |
 | M5 | Shorter batches, leads appear live: a batch also ends after `BATCH_PAGES` (50) Google pages | M | done |
 | M6 | Faster saving: progress saved every 10 pages (`search.save_pages`); parallel searches stay parallel to the end | M | done |
-| M7a | Similar business types: a warning when types overlap; searches that only bring known businesses are cut short | M | next |
-| M7b | Smarter digging: split a map area into four only when Google returns a full list (from the research) | M | |
+| M7a | Similar business types: a warning on the form (`search.overlapping`); a query whose last 2 pages brought nothing new is ended (`scrape.STALE_PAGES`) | M | done |
+| M7b | Smarter digging: split a map area into four only when Google returns a full list (from the research) | M | next |
 | M8 | Google's limit 1: slow down by itself when Google answers slowly | M | |
 | M9 | Google's limit 2: on a limit, a short wait and carry on inside the same run ("Going slower for a moment") | M | |
 | M10 | Internet drops: the search waits and carries on by itself | S | |
@@ -80,10 +80,19 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   **Not done from the audit's M6 list:** ending a query on a short page (one request saved
   per query) needs a live check that Google never sends a short page mid-way; and the
   `candidates_dropped` index (little gain).
-- **Next:** M7a. Read `build_queries`, `all_queries`, `RELATED` in `app/core/search.py`,
-  `_validate` and `_update_plan` in `app/ui/pages/search.py`, and the M7 heading in the audit
-  file. New on-screen text needs ar, de, es, fr (docs/handover/languages.md).
-- **Usage:** the user reported 49% used after M1 to M5 (start % unknown).
+- **Then M7a:** the plan line under the places names the first group of overlapping types
+  (`RELATED`, or one type's words inside another's). `STALE_PAGES` (2) ends a query after two
+  pages in a row with no business new to the search; **a judgement, not measured live**: if
+  searches of similar types come up short, raise it. `chosen_types` searches a type typed
+  twice once. `add_candidates` is `save_candidates` plus the count of new rows.
+- **Next:** M7b. Read `deep_queries` in `app/core/search.py`, `radius_cells` in
+  `app/core/geo.py`, the deep part of `ScrapeWorker.work`, the Batches and Finding rows of
+  `docs/handover/search.md`, and the M7 heading in the audit file. Idea: a capped city search
+  becomes one map view; a view Google returns a full list for is split into four; stop at a
+  smallest size. Today every capped search is split into a fixed grid at once. Note
+  `deep_queries` counts only candidates whose stored `query` is this one, so overlapping types
+  fall under `DEEP_AT`: count pages or results per query in the worker instead.
+- **Usage:** 49% after M1 to M5, 57% after M6, so an M costs about 8%.
 - **Not checked in the running app** (M3 to M5): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
   with `$env:APPDATA` set to a temp folder is safe, but a real search there still asks Google.
@@ -94,5 +103,5 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** the M1 to M6 commits.
+- **Not pushed:** the M1 to M7a commits.
 - **Waiting on the user:** nothing.

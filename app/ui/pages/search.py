@@ -429,6 +429,11 @@ class SearchPage(Page):
             countries, cities = len(self._chosen_countries()), len(self.cities.checked())
             text = t("Countries: {countries}, cities: {cities:,}. {count:,} searches (one per "
                      "city and business type).", countries=countries, cities=cities, count=count)
+        alike = searches.overlapping(niches)
+        if count and alike:
+            text += " " + t("{types} find many of the same businesses. GeoHarvest skips the "
+                            "repeats, but fewer types make the search faster.",
+                            types=", ".join(alike[0]))
         self.plan.setText(f"{text} {self._estimate(count)}" if count else "")
 
     def _estimate(self, count: int) -> str:

@@ -39,6 +39,10 @@ BATCH = 100  # businesses found before their websites are checked
 # in 80 fits (the user's search, 2026-11), so 100 took about 400 pages with no new leads
 # on screen; 50 pages is under a minute at Normal speed
 BATCH_PAGES = 50
+# A query whose last pages held only businesses other queries already found is ended: the
+# rest is nearly always more of the same ("builder" after "contractor" in the same city).
+# A judgement, not measured live: raise it if searches of similar types come up short
+STALE_PAGES = 2
 SAVE_EVERY = 10  # pages between saves of how far each query has got (and at every batch's end)
 # Website visits at once, by the Speed setting (parallel Google searches). Visits are slow
 # to answer, but reading the pages takes the PC's time, so Gentle suits older PCs
@@ -67,6 +71,7 @@ class ScrapeWorker(Worker):
         self.pages: dict = {}         # searches under way: query -> its pages still to come
         self.following: dict = {}     # where each query goes next, once its page is saved
         self.failed: set[str] = set()  # searches that failed once in this run
+        self.stale: dict[str, int] = {}  # query -> pages in a row with nothing new
         self.cut: set[str] = set()    # searches Stop or a limit ended before their last page
         self.ai_checked = 0           # leads Smart mode checked in this run
 
@@ -205,27 +210,30 @@ class ScrapeWorker(Worker):
                     waiting.append(query)
                 return True
             with lock:
-                if page is None:
-                    if query in self.cut:
-                        return False  # not finished: resuming carries on with it
+                if page is None and query in self.cut:
+                    return False  # not finished: resuming carries on with it
+                if page is not None:
+                    self.fetched += 1
+                    new, fresh = searches.add_candidates(self.search_id, page, options)
+                    self.stale[query] = 0 if fresh else self.stale.get(query, 0) + 1
+                    state["fits"] += len(new)
+                    state["phones"] += sum(bool(lead.get("phone")) for lead in new)
+                    self.signals.found.emit(state["fits"], state["phones"])
+                    unsaved["pages"] += 1
+                if page is None or self.stale[query] >= STALE_PAGES:
                     self.pages.pop(query, None)
+                    self.following.pop(query, None)
                     done.add(query)
                     unsaved["done"].append(query)
                     unsaved["at"].pop(query, None)
                     state["finished"] += 1
                     self.report(min(state["finished"], state["total"]), state["total"], query)
-                    return True
-                self.fetched += 1
-                new = searches.save_candidates(self.search_id, page, options)
-                if query in self.following:
-                    at[query] = unsaved["at"][query] = self.following.pop(query)
-                unsaved["pages"] += 1
+                else:
+                    if query in self.following:
+                        at[query] = unsaved["at"][query] = self.following.pop(query)
+                    waiting.append(query)  # its next page after everyone else's
                 if unsaved["pages"] >= SAVE_EVERY:
                     save()
-                state["fits"] += len(new)
-                state["phones"] += sum(bool(lead.get("phone")) for lead in new)
-                self.signals.found.emit(state["fits"], state["phones"])
-                waiting.append(query)  # its next page after everyone else's
             return True
 
         def run() -> None:

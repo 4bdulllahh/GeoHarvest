@@ -290,6 +290,7 @@
  "Search finished with {found:,} of {wanted:,} leads. See why below.": "Búsqueda terminada con {found:,} de {wanted:,} leads. Mira el motivo abajo.",
  "The search stopped because of an error.": "La búsqueda se detuvo por un error.",
  "The search stopped: {message}": "La búsqueda se detuvo: {message}",
+ "{types} find many of the same businesses. GeoHarvest skips the repeats, but fewer types make the search faster.": "{types} encuentran muchos de los mismos negocios. GeoHarvest omite los repetidos, pero con menos tipos la búsqueda es más rápida.",
  "Asking for a minimum can make it search deeper and take longer.": "Pedir un mínimo puede hacer que busque más a fondo y tarde más.",
  "Your preset. Right-click to delete it.": "Tu ajuste. Clic derecho para borrarlo.",
  "Set up Smart mode first: open Smart mode in the menu and add a free AI key or a local model.": "Configura primero el Modo inteligente: abre Modo inteligente en el menú y añade una clave de IA gratuita o un modelo local.",

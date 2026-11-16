@@ -194,6 +194,16 @@ def places_for(options: dict) -> list[str]:
     return places
 
 
+def chosen_types(options: dict) -> list[str]:
+    """The business types to search, each once: a type typed twice made two threads run
+    the same search."""
+    types: dict[str, str] = {}
+    for niche in options["niches"]:
+        if niche.strip():
+            types.setdefault(niche.strip().lower(), niche.strip())
+    return list(types.values())
+
+
 def build_queries(options: dict) -> list[str]:
     """One query per business type and city, or per business type and map view of an area.
 
@@ -201,7 +211,7 @@ def build_queries(options: dict) -> list[str]:
     been found on the map they still count right, for the plan shown on the form.
     """
     options = options_with_defaults(options)
-    niches = [n.strip() for n in options["niches"] if n.strip()]
+    niches = chosen_types(options)
     if options["where"] == "area":
         place = options["area_place"].strip()
         cells = geo.radius_cells(options["area_lat"] or 0.0, options["area_lng"] or 0.0,
@@ -401,7 +411,7 @@ def deep_queries(search_id: int, options: dict) -> list[str]:
         lng = sorted(p[1] for p in points)[len(points) // 2]
         reach = sorted(geo.distance_km(lat, lng, *p) for p in points)[int(len(points) * 0.8)]
         km = min(DEEP_KM[1], max(DEEP_KM[0], reach))
-        niche, _, place = query.partition(" in ")
+        niche, _, place = query.rpartition(" in ")
         per_city.append([f"{niche} near {place} @{cell_lat},{cell_lng},{camera}"
                          for cell_lat, cell_lng, camera in geo.radius_cells(lat, lng, km)])
     # Taking turns between the cities, so stopping once there are enough is fair to all
@@ -423,8 +433,8 @@ def spread(queries: list[str], per_place: int) -> list[str]:
 
 def all_queries(search_id: int, options: dict) -> list[str]:
     """The searches the options make, then the deeper ones added while it ran."""
-    niches = sum(bool(n.strip()) for n in options["niches"])
-    return spread(build_queries(options), niches) + get(search_id)["progress"].get("deep", [])
+    return (spread(build_queries(options), len(chosen_types(options)))
+            + get(search_id)["progress"].get("deep", []))
 
 
 # Close cousins of common business types, for "Add related business types"
@@ -480,6 +490,26 @@ RELATED = {
     "event planner": ["event management company", "wedding planner"],
     "logistics company": ["freight forwarder", "shipping company", "courier service"],
 }
+
+
+def overlapping(niches: list[str]) -> list[list[str]]:
+    """Groups of the chosen types that find mostly the same businesses on Google Maps:
+    listed as related, or one inside the other ("builder", "home builder"). For a warning
+    on the form: the search skips the repeats, but still spends requests finding them."""
+    def alike(one: str, two: str) -> bool:
+        a, b = one.lower(), two.lower()
+        words_a, words_b = set(a.split()), set(b.split())
+        return (b in (r.lower() for r in RELATED.get(a, []))
+                or a in (r.lower() for r in RELATED.get(b, []))
+                or words_a <= words_b or words_b <= words_a)
+
+    groups: list[list[str]] = []
+    types = chosen_types({"niches": niches})
+    for niche in types:
+        joined = [group for group in groups if any(alike(niche, other) for other in group)]
+        merged = [other for group in joined for other in group] + [niche]
+        groups = [group for group in groups if group not in joined] + [merged]
+    return [sorted(group, key=types.index) for group in groups if len(group) > 1]
 
 
 def related_types(niches: list[str]) -> list[str]:
@@ -600,8 +630,14 @@ REMOVED = "deleted by you"
 def save_candidates(search_id: int, found: list[dict], options: dict) -> list[dict]:
     """Store businesses from Google with why each is left out, if it is; return the new
     ones that fit."""
+    return add_candidates(search_id, found, options)[0]
+
+
+def add_candidates(search_id: int, found: list[dict], options: dict) -> tuple[list[dict], int]:
+    """save_candidates, and also how many were new to this search at all (fitting or not):
+    a page with none is a sign the query only repeats what other queries found."""
     conn = db.connect()
-    fits = []
+    fits, fresh = [], 0
     for lead in found:
         dropped = why_not(lead, options)
         if dropped is None and options["skip_known"] and conn.execute(
@@ -612,10 +648,12 @@ def save_candidates(search_id: int, found: list[dict], options: dict) -> list[di
         if conn.execute("INSERT OR IGNORE INTO candidates(search_id, place_id, data, dropped) "
                         "VALUES(?, ?, ?, ?)", (search_id, lead["place_id"],
                                                json.dumps(lead, ensure_ascii=False),
-                                               dropped)).rowcount and dropped is None:
-            fits.append(lead)
+                                               dropped)).rowcount:
+            fresh += 1
+            if dropped is None:
+                fits.append(lead)
     conn.commit()
-    return fits
+    return fits, fresh
 
 
 def candidates(search_id: int) -> list[dict]:
