@@ -719,6 +719,7 @@ class SearchPage(Page):
         self.worker.signals.checked.connect(self._on_checked)
         self.worker.signals.scored.connect(self._on_scored)
         self.worker.signals.leads.connect(self._on_leads)
+        self.worker.signals.limited.connect(self._on_limited)
         self.worker.signals.progress.connect(self._on_progress)
         self.worker.signals.message.connect(lambda text, level: self.notify(text, level))
         self.worker.signals.finished.connect(self._on_finished)
@@ -869,6 +870,12 @@ class SearchPage(Page):
         self.tile_places.update_value(t("{done:,} of {total:,}", done=done, total=total))
         if self.step == 1:
             self.progress.set_progress(done, total)
+
+    def _on_limited(self, seconds: int) -> None:
+        self.progress.set_busy()
+        self.status.setText(t("Google asked GeoHarvest to slow down. Going slower for a moment: "
+                              "it carries on by itself in about {minutes} minutes. Nothing is "
+                              "lost.", minutes=max(1, round(seconds / 60))))
 
     def _on_checked(self, done: int, total: int, emails: int) -> None:
         self.tile_web.update_value(t("{done:,} of {total:,}", done=done, total=total))

@@ -834,6 +834,15 @@ def test_batches_stop_at_the_maximum_and_spread_over_the_searches(fresh_db, monk
     assert len(fetched) < 18
 
 
+@pytest.fixture(autouse=True)
+def no_short_waits(monkeypatch):
+    """A limit ends Google for the run at once, as before 0.3.3, unless a test asks for the
+    short waits: nobody wants a test that sits out two minutes."""
+    from app.workers import scrape
+
+    monkeypatch.setattr(scrape, "SHORT_WAITS", ())
+
+
 def fake_google(block_after: int = 10 ** 9):
     """A client: 6 pages of 20 per search, limiting us after ``block_after`` requests."""
     import threading
@@ -1171,3 +1180,47 @@ def test_the_google_client_goes_slower_by_itself_and_rests_limited_proxies(monke
             client.fetch("q")
     finally:
         client.close()
+
+
+def test_a_google_limit_is_waited_out_inside_the_run_and_no_page_is_asked_twice(
+        fresh_db, fake_pages, monkeypatch):
+    import threading
+
+    from app.workers import scrape
+
+    class Client:
+        """Limits every request after the 20th and the 60th, until it has said so 3 times."""
+        gap, slow = 0.0, 1.0
+
+        def __init__(self):
+            self.asked, self.refused, self.lock = [], 0, threading.Lock()
+
+        def close(self):
+            pass
+
+        def fetch(self, query, offset=0, view=None):
+            with self.lock:
+                if len(self.asked) in (20, 60) and self.refused % 3 != 2:
+                    self.refused += 1
+                    raise scraper.Blocked("limit")
+                self.refused += len(self.asked) in (20, 60)
+                self.asked.append((query, offset))
+            return [query, offset]
+
+    client = Client()
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: client)
+    monkeypatch.setattr(scrape, "SHORT_WAITS", (0.2, 0.2))
+    worker = scrape.ScrapeWorker(searches.create(many_places(max_leads=3000)))
+    waits = []
+    worker.signals.limited.connect(waits.append)
+    result = worker.work()
+    assert result["status"] == "done" and not result["blocked"] and result["found"] == 1800
+    assert len(client.asked) == len(set(client.asked)) == 105  # 15 searches x 7 pages
+    assert 1 <= worker.short_waits <= 2 and client.slow == scraper.MAX_SLOW
+
+    # Limits that keep coming use the short waits up, then the search waits the long way
+    always = fake_google(block_after=5)
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: always)
+    again = scrape.ScrapeWorker(searches.create(many_places(max_leads=3000)))
+    result = again.work()
+    assert result["status"] == "waiting" and result["blocked"] and again.short_waits == 2

@@ -44,6 +44,10 @@ BATCH_PAGES = 50
 # rest is nearly always more of the same ("builder" after "contractor" in the same city).
 # A judgement, not measured live: raise it if searches of similar types come up short
 STALE_PAGES = 2
+# Google's limit: first wait this many seconds inside the run and carry on at the slowest
+# pace. Only a limit straight after the last of these ends Google for the run, and the
+# search then waits the long way (search.GOOGLE_WAITS). Judgements, not measured
+SHORT_WAITS = (120, 300)
 SAVE_EVERY = 10  # pages between saves of how far each query has got (and at every batch's end)
 # Website visits at once, by the Speed setting (parallel Google searches). Visits are slow
 # to answer, but reading the pages takes the PC's time, so Gentle suits older PCs
@@ -56,6 +60,7 @@ class ScrapeSignals(Signals):
     checked = pyqtSignal(int, int, int)  # websites checked, websites to check, emails found
     scored = pyqtSignal(int, int)        # leads the AI has checked, leads to check
     leads = pyqtSignal(int)              # leads that meet every requirement so far
+    limited = pyqtSignal(int)            # Google's limit: carrying on in this many seconds
 
 
 class ScrapeWorker(Worker):
@@ -67,6 +72,10 @@ class ScrapeWorker(Worker):
         self.ending = "stopped"       # the search's status after stop()
         self.blocked = False          # Google limited us: no more Google in this run
         self.blocked_at = 0.0
+        self.short_waits = 0          # short waits used up since the last good stretch
+        self.wait_until = 0.0         # a short wait is on until then
+        self.limit_at_page = 0        # self.fetched when Google last limited us
+        self._limit_lock = threading.Lock()
         self.fetched = 0              # Google pages in this run
         self.tried: set[str] = set()  # websites visited in this run, whatever happened
         self.pages: dict = {}         # searches under way: query -> its pages still to come
@@ -83,6 +92,34 @@ class ScrapeWorker(Worker):
         is closing, so it carries on by itself next time."""
         self.ending = ending
         self._stop.set()
+
+    def back_off(self) -> bool:
+        """Google limited a request. Wait a short while and say so; False once the short
+        waits are used up (or Stop was pressed), which ends Google for this run. Every
+        thread that meets the limit waits out the same pause."""
+        with self._limit_lock:
+            now = time.time()
+            if self.blocked:
+                return False
+            first = now >= self.wait_until
+            if first:
+                if self.fetched - self.limit_at_page >= searches.CLEAR_AFTER_PAGES:
+                    self.short_waits = 0  # it went well for a while: start over
+                if self.short_waits >= len(SHORT_WAITS):
+                    self.blocked_at = now
+                    self.blocked = True
+                    return False
+                seconds = SHORT_WAITS[self.short_waits]
+                self.short_waits += 1
+                self.limit_at_page = self.fetched
+                self.wait_until = now + seconds
+                self.client.slow = scraper.MAX_SLOW  # eases off by itself (M8)
+                self.log(f"Google asked to slow down: waiting {seconds} seconds", "warn")
+                self.signals.limited.emit(seconds)
+        self._stop.wait(max(0.0, self.wait_until - time.time()))
+        if first and not self._stop.is_set():
+            self.signals.step.emit(1)  # the status line says "Searching Google" again
+        return not self._stop.is_set()
 
     def work(self) -> dict:
         record = searches.get(self.search_id)
@@ -127,8 +164,10 @@ class ScrapeWorker(Worker):
         stopped = self._stop.is_set()
         if (searched or have >= high) and not stopped and not ai_error:
             status = "done"
-        elif stopped:
+        elif stopped and not (self.blocked and self.ending == "running"):
             status = self.ending
+        elif stopped:
+            status = "waiting"  # closed while limited: opening the app waits the time out
         elif self.blocked and not ai_error:
             status = "waiting"
         else:
@@ -200,9 +239,10 @@ class ScrapeWorker(Worker):
             try:
                 page = next_page(query)
             except scraper.Blocked:
-                self.blocked_at = self.blocked_at or time.time()
-                self.blocked = True
-                return False
+                self.pages.pop(query, None)  # its search starts again from the page saved
+                with lock:
+                    waiting.appendleft(query)
+                return self.back_off()
             except (httpx.HTTPError, ValueError) as error:
                 self.pages.pop(query, None)
                 # One retry for a dropped connection; after that the query stays

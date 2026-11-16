@@ -26,8 +26,8 @@ model (model-router skill).
 | M7a | Similar business types: a warning on the form (`search.overlapping`); a query whose last 2 pages brought nothing new is ended (`scrape.STALE_PAGES`) | M | done |
 | M7b | Smarter digging: a search Google gave a full list for is split into four map views, and those again where full (`search.deep_queries`, `geo.quarter`) | M | done |
 | M8 | Google's limit 1: the gap between requests widens by itself when Google answers slowly (`MapsClient._answered`); a limited proxy rests 15 minutes | M | done |
-| M9 | Google's limit 2: on a limit, a short wait and carry on inside the same run ("Going slower for a moment") | M | next |
-| M10 | Internet drops: the search waits and carries on by itself | S | |
+| M9 | Google's limit 2: a limit is waited out inside the run (2, then 5 minutes, `scrape.SHORT_WAITS`, `ScrapeWorker.back_off`) before the long wait | M | done |
+| M10 | Internet drops: the search waits and carries on by itself | S | next |
 | M11 | Opening hours warning before starting, when the choices leave out most businesses | S | |
 | M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | |
 | R1 | **Release v0.3.3 beta** (M1 to M12) | M | |
@@ -94,19 +94,23 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   `EASE_AFTER` (15) quick answers. A proxy that got a limit is skipped for `PROXY_REST`
   (900 s) while another one works. **Judgements, not measured**: nobody knows whether Google
   slows down before it limits. Nothing on screen says the app is going slower yet (M9).
-- **Next:** M9. Today a limit (`scraper.Blocked`) ends Google for the whole run:
-  `ScrapeWorker.blocked` is set, the worker finishes websites and AI, status becomes
-  "waiting" and `SearchPage` restarts it after `GOOGLE_WAITS` (15, 30, 60 minutes). M9: on a
-  limit, wait a short time inside the run (first waits of a few minutes, interruptible with
-  `self._stop.wait`), show "Going slower for a moment" (new text: ar, de, es, fr), then carry
-  on with `client.slow` at its maximum; only after repeated limits fall back to the long
-  "waiting" status. Also from the audit: Stop while blocked skips `wait_for_google`
-  (`scrape.py`, the status block at the end of `work`). Read `search_google` and `work` in
-  `app/workers/scrape.py`, `wait_for_google` in `app/core/search.py`, `_tick` and
-  `_on_finished` in `app/ui/pages/search.py`, and the tests named `google_limit` in
-  `tests/test_core.py`.
-- **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b: an M costs
-  6 to 8%.
+- **Then M9:** on `scraper.Blocked` the query goes back to the front of the queue and
+  `back_off` pauses every search thread for `SHORT_WAITS` (120 s, then 300 s), sets
+  `client.slow` to its maximum and emits `limited` (the status line says "Going slower for a
+  moment"). `CLEAR_AFTER_PAGES` good pages reset the short waits. A limit straight after the
+  last short wait sets `blocked` as before: websites and AI finish, status "waiting", the
+  15/30/60 minute countdown. Closing the app while limited now leaves "waiting", not
+  "running". Tests switch the short waits off with the autouse `no_short_waits` fixture.
+  Websites are not checked during a short wait (the steps run one after another).
+- **Next:** M10. Today a query that fails twice (`httpx.HTTPError`) is skipped and the run
+  ends "stopped" when only failing queries are left (`self.failed` in `search_google`, the
+  no-progress `break` in `work`). M10: when requests fail because there is no connection,
+  wait and try again by itself (same shape as `back_off`: a pause every thread shares, a
+  status line, `self._stop.wait`), for a limited time, then stop as today. New text needs
+  ar, de, es, fr. Website visits failing offline: check `check_websites` marks them
+  `enriched` with nothing found, which would lose their emails for good.
+- **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8:
+  an M costs 4 to 8%.
 - **Not checked in the running app** (M3 to M5): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
   with `$env:APPDATA` set to a temp folder is safe, but a real search there still asks Google.
@@ -117,5 +121,5 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** the M1 to M8 commits.
+- **Not pushed:** the M1 to M9 commits.
 - **Waiting on the user:** nothing.
