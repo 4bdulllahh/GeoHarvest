@@ -1138,3 +1138,36 @@ def test_only_map_views_that_come_back_full_are_split_again(fresh_db, monkeypatc
     assert min(sizes) * geo.VIEW_PER_METRE / 1000 >= geo.MIN_VIEW_KM
     assert result["status"] == "done" and len(asked) == 1 + len(sizes)
     assert result["found"] == 120 + sum(120 if n % 4 == 0 else 20 for n in range(len(sizes)))
+
+
+def test_the_google_client_goes_slower_by_itself_and_rests_limited_proxies(monkeypatch):
+    client = scraper.MapsClient(proxies=["http://one.example:1", "http://two.example:1"])
+    try:
+        for _ in range(3):
+            client._answered(scraper.SLOW_ANSWER)
+        assert client.slow == 1.5 ** 3
+        for _ in range(20):
+            client._answered(scraper.SLOW_ANSWER)
+        assert client.slow == scraper.MAX_SLOW  # never slower than this
+        for _ in range(scraper.EASE_AFTER * 10):
+            client._answered(0.5)
+        assert client.slow == 1.0  # quick answers bring the normal speed back
+
+        asked = []
+
+        def fake_fetch(http, query, offset, view):
+            asked.append(client.clients.index(http))
+            if asked[-1] == 0:
+                raise scraper.Blocked("limited")
+            return ["page"]
+
+        monkeypatch.setattr(client, "_fetch", fake_fetch)
+        for _ in range(6):
+            assert client.fetch("q") == ["page"]
+        assert asked.count(0) == 1  # the limited proxy is asked once, then left alone
+        monkeypatch.setattr(client, "_fetch", lambda *_: (_ for _ in ()).throw(
+            scraper.Blocked("limited")))
+        with pytest.raises(scraper.Blocked):  # every proxy limited: the search has to wait
+            client.fetch("q")
+    finally:
+        client.close()

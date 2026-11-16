@@ -25,8 +25,8 @@ model (model-router skill).
 | M6 | Faster saving: progress saved every 10 pages (`search.save_pages`); parallel searches stay parallel to the end | M | done |
 | M7a | Similar business types: a warning on the form (`search.overlapping`); a query whose last 2 pages brought nothing new is ended (`scrape.STALE_PAGES`) | M | done |
 | M7b | Smarter digging: a search Google gave a full list for is split into four map views, and those again where full (`search.deep_queries`, `geo.quarter`) | M | done |
-| M8 | Google's limit 1: slow down by itself when Google answers slowly | M | next |
-| M9 | Google's limit 2: on a limit, a short wait and carry on inside the same run ("Going slower for a moment") | M | |
+| M8 | Google's limit 1: the gap between requests widens by itself when Google answers slowly (`MapsClient._answered`); a limited proxy rests 15 minutes | M | done |
+| M9 | Google's limit 2: on a limit, a short wait and carry on inside the same run ("Going slower for a moment") | M | next |
 | M10 | Internet drops: the search waits and carries on by itself | S | |
 | M11 | Opening hours warning before starting, when the choices leave out most businesses | S | |
 | M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | |
@@ -89,12 +89,24 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   `docs/handover/search.md`. Old searches keep working: their fixed-grid views are split like
   any other view when full, and city searches done before the update still count as full by
   the old rule (their own stored businesses >= `DEEP_AT`).
-- **Next:** M8. Read `MapsClient._pace` and `fetch` in `app/core/scraper.py`, `google_gap`
-  and `wait_for_google` in `app/core/search.py`, the "Google's limits" row of
-  `docs/handover/search.md` and the M8, M9 heading in the audit file. Idea: time each answer;
-  when answers get slow or a limit is near, widen `client.gap` by itself and narrow it again
-  after good pages. No tool publishes Google's numbers, so keep it simple and tunable.
-- **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a: an M costs about 8%.
+- **Then M8:** `MapsClient.slow` multiplies the gap: x1.5 for every answer slower than
+  `SLOW_ANSWER` (4 s) or a timeout, up to `MAX_SLOW` (4), and back down a step after
+  `EASE_AFTER` (15) quick answers. A proxy that got a limit is skipped for `PROXY_REST`
+  (900 s) while another one works. **Judgements, not measured**: nobody knows whether Google
+  slows down before it limits. Nothing on screen says the app is going slower yet (M9).
+- **Next:** M9. Today a limit (`scraper.Blocked`) ends Google for the whole run:
+  `ScrapeWorker.blocked` is set, the worker finishes websites and AI, status becomes
+  "waiting" and `SearchPage` restarts it after `GOOGLE_WAITS` (15, 30, 60 minutes). M9: on a
+  limit, wait a short time inside the run (first waits of a few minutes, interruptible with
+  `self._stop.wait`), show "Going slower for a moment" (new text: ar, de, es, fr), then carry
+  on with `client.slow` at its maximum; only after repeated limits fall back to the long
+  "waiting" status. Also from the audit: Stop while blocked skips `wait_for_google`
+  (`scrape.py`, the status block at the end of `work`). Read `search_google` and `work` in
+  `app/workers/scrape.py`, `wait_for_google` in `app/core/search.py`, `_tick` and
+  `_on_finished` in `app/ui/pages/search.py`, and the tests named `google_limit` in
+  `tests/test_core.py`.
+- **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b: an M costs
+  6 to 8%.
 - **Not checked in the running app** (M3 to M5): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
   with `$env:APPDATA` set to a temp folder is safe, but a real search there still asks Google.
@@ -105,5 +117,5 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** the M1 to M7b commits.
+- **Not pushed:** the M1 to M8 commits.
 - **Waiting on the user:** nothing.

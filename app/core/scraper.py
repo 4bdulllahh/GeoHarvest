@@ -52,6 +52,12 @@ def decode(text: str) -> list:
 
 
 PROXIES_SECRET = "proxies"
+# Going slower by itself (see MapsClient._answered). Judgements, not measured against
+# Google: a page normally takes about a second
+SLOW_ANSWER = 4.0  # seconds; an answer this slow, or none, widens the gap
+MAX_SLOW = 4.0     # the gap is never more than this many times its normal width
+EASE_AFTER = 15    # quick answers in a row before the gap narrows a step
+PROXY_REST = 900   # seconds a proxy Google limited is left alone
 
 
 def parse_proxies(text: str) -> tuple[list[str], list[str]]:
@@ -107,6 +113,9 @@ class MapsClient:
         self._lock = threading.Lock()
         self.gap = 0.0     # seconds between requests, shared by every thread (see _pace)
         self._next = 0.0   # when the next request may go
+        self.slow = 1.0    # the gap is this many times wider while Google answers slowly
+        self._good = 0     # quick answers in a row
+        self._resting: dict[int, float] = {}  # proxy number -> when Google limited it
 
     def _pace(self) -> None:
         """Space requests out, a little unevenly: Google limits steady streams sooner. Each
@@ -116,9 +125,24 @@ class MapsClient:
         with self._lock:
             now = time.monotonic()
             slot = max(now, self._next)
-            self._next = slot + self.gap * random.uniform(0.7, 1.3) / len(self.clients)
+            self._next = slot + (self.gap * self.slow * random.uniform(0.7, 1.3)
+                                 / len(self.clients))
         if slot > now:
             time.sleep(slot - now)
+
+    def _answered(self, seconds: float) -> None:
+        """Google answering slowly (or not at all) is the only warning before a limit, so
+        the gap widens by half each time, up to MAX_SLOW times, and narrows again after
+        EASE_AFTER quick answers in a row."""
+        with self._lock:
+            if seconds >= SLOW_ANSWER:
+                self.slow = min(MAX_SLOW, self.slow * 1.5)
+                self._good = 0
+                return
+            self._good += 1
+            if self._good >= EASE_AFTER and self.slow > 1:
+                self.slow = max(1.0, self.slow / 1.5)
+                self._good = 0
 
     def _client(self, proxy: str | None) -> httpx.Client:
         # From an EU or UK connection Google first redirects to its cookie-consent page;
@@ -141,16 +165,26 @@ class MapsClient:
             first = next(self._turn)
         blocked: Blocked | None = None
         last: Exception | None = None
+        now = time.monotonic()
+        resting = {n for n, since in self._resting.items() if now - since < PROXY_REST}
         for step in range(len(self.clients)):
-            client = self.clients[(first + step) % len(self.clients)]
+            number = (first + step) % len(self.clients)
+            if number in resting and len(resting) < len(self.clients):
+                continue  # asking a limited proxy again only makes its limit last longer
+            began = time.monotonic()
             try:
-                return self._fetch(client, query, offset, view)
+                response = self._fetch(self.clients[number], query, offset, view)
             except Blocked as error:
                 blocked = error
+                self._resting[number] = time.monotonic()
             except (httpx.ProxyError, httpx.ConnectError, httpx.TimeoutException) as error:
+                self._answered(SLOW_ANSWER)
                 if len(self.clients) == 1:
                     raise
                 last = error
+            else:
+                self._answered(time.monotonic() - began)
+                return response
         if blocked is not None:  # pause the search, so it can be resumed later
             raise blocked
         raise httpx.ConnectError(f"None of the proxies in Settings answered ({last})")
