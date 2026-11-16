@@ -2,6 +2,17 @@
 
 What went into each version and how it was tested, newest first. Add to it with every change. The user-facing release notes are in `docs/releases/`.
 
+## v0.3.4 beta (2026-11-16)
+
+A patch the same day as 0.3.3, from the user's screenshot after updating.
+- **Fixed:** `SearchPage.pick_up` raised `AttributeError: ... no attribute 'step'` for a held
+  search that visits websites (`_show_tally` calls `_on_checked` before any run set
+  `self.step`; from M3). Resume, the Leads tile and the waiting countdown never appeared.
+  `self.step` now starts at 0. The M3 test missed it because its search had website visits off.
+- The backup installer has no version number any more ("a later version").
+
+Tested: 88 tests (new: a held search with website visits shows Resume). Not tested by hand.
+
 ## v0.3.3 beta (2026-11-16)
 
 The user's real search (12 types x 11 UAE cities) showed no new leads for about 400 Google

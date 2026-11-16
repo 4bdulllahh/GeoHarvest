@@ -13,7 +13,7 @@ customer. Export to Excel, to your CRM, or straight into Google Sheets. No accou
 subscription, nothing to pay: everything runs on your own computer.
 
 **Download:** [latest release](https://github.com/4bdulllahh/GeoHarvest/releases/latest) ·
-**Version:** 0.3.3 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
+**Version:** 0.3.4 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
 
 [![Build](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml/badge.svg)](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/4bdulllahh/GeoHarvest?label=download&color=3b86dd)](https://github.com/4bdulllahh/GeoHarvest/releases/latest)
@@ -205,7 +205,7 @@ certificate costs money every year), so Windows SmartScreen doesn't recognise it
 
 **"Smart App Control blocked an app"?** Some Windows 11 PCs block every program that isn't
 code-signed, with no Run anyway. GeoHarvest can't be installed on those PCs yet; a backup
-installer for them is coming in 0.3.4.
+installer for them is coming in a later version.
 
 Your searches, leads and settings are kept in `%APPDATA%\GeoHarvest`, outside the app folder,
 so updating never loses them. To remove GeoHarvest, use **Settings > Uninstall GeoHarvest** or
@@ -349,8 +349,9 @@ decisions behind it, and where each feature lives.
   closing the app, requests spaced out, leads from every city, scrolling inside lists
 - [x] **v0.3.3**: leads while the search runs, deeper digging in busy cities, Google's limits
   and lost connections waited out inside the search, warnings on the form, updates that ask first
-- [ ] **v0.3.4**: a backup installer for PCs with Smart App Control
+- [x] **v0.3.4**: Resume shows again after opening the app (a fix for 0.3.3)
 - [ ] **v0.4**: freeing up space, a faster Leads page, safer backups and many small fixes
+- [ ] **Later**: a backup installer for PCs with Smart App Control
 - [ ] **Ideas for later**: emails from Facebook pages, a map view of results, and a Mac version
 
 ## Legal

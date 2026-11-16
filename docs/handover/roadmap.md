@@ -8,7 +8,11 @@ open item. Move items to [changelog.md](changelog.md) when they ship.
 M13 to M19 in [../../handover.md](../../handover.md): freeing up space, the audit's groups A
 to I ([audit-2026-11.md](audit-2026-11.md)).
 
-## Then: v0.3.4, a backup installer for Smart App Control PCs
+## Then (no version number yet): a backup installer for Smart App Control PCs
+
+v0.3.4 became the fix for 0.3.3's 'step' error (2026-11-16), so the README and READ ME FIRST
+now say "a later version".
+
 
 Agreed with the user on 2026-10-29 for v0.3.1, then moved to v0.3.2 when the user asked for
 the performance update first (2026-10-30), then to v0.3.3 when v0.3.2 became the pause and
