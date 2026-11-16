@@ -139,6 +139,8 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** the M1 to M10 commits (asked on 2026-11-16 whether to push now or at the
-  release; no answer yet. Ask again).
-- **Waiting on the user:** nothing.
+- **Not pushed:** nothing. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
+  user's OK (a backup only: no release, no tag, testers get nothing yet). Ask again before
+  the next push.
+- **Waiting on the user:** nothing. They said they will carry on with M11 and M12 when their
+  usage resets.
