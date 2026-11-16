@@ -96,6 +96,7 @@ class ScrapeWorker(Worker):
         self.listed: dict[str, int] = {}  # query -> businesses Google has listed for it
         self.cut: set[str] = set()    # searches Stop or a limit ended before their last page
         self.ai_checked = 0           # leads Smart mode checked in this run
+        self.ai_unscored: set[str] = set()  # sent to the AI, which gave them no score
 
     def stop(self, ending: str = "stopped") -> None:
         """Finish the pages in flight, keep what is ready, then end normally (unlike
@@ -386,7 +387,7 @@ class ScrapeWorker(Worker):
             if self._stop.is_set():
                 return
             try:
-                fields = enricher.enrich(lead, options["find_emails"],
+                fields = enricher.enrich(lead, searches.reads_contacts(options),
                                          find_owner=options["find_owner"],
                                          site_text=site_text)
             except Exception as error:  # noqa: BLE001 - one odd website must not end the search
@@ -457,7 +458,8 @@ class ScrapeWorker(Worker):
         self.signals.step.emit(3)
         visiting = searches.visits_websites(options)
         todo = sorted((lead for lead in searches.candidates(self.search_id)
-                       if "ai_score" not in lead and (lead.get("enriched") or not visiting)
+                       if "ai_score" not in lead and lead["place_id"] not in self.ai_unscored
+                       and (lead.get("enriched") or not visiting)
                        and ai.worth_checking(cfg, lead)),
                       key=searches.score, reverse=True)
         if cfg["max_leads"]:  # the user's limit on the key's allowance, for the whole run
@@ -483,7 +485,10 @@ class ScrapeWorker(Worker):
             for lead in batch:
                 fields = scored.get(lead["place_id"])
                 if fields is None:
-                    continue  # left unscored; resuming the search tries again
+                    # Left unscored. Not sent again in this run (every batch would send it
+                    # and count it against the user's limit); resuming the search tries again
+                    self.ai_unscored.add(lead["place_id"])
+                    continue
                 too_low = bool(cfg["min_score"]) and fields["ai_score"] < cfg["min_score"]
                 searches.check_candidate(self.search_id, lead["place_id"], fields,
                                          low if too_low else None)

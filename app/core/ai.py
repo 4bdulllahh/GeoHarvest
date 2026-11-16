@@ -281,7 +281,14 @@ def _http_error(response: httpx.Response) -> AIError:
         return AIError("The AI key was not accepted. Check it on the Smart mode page.", fatal=True)
     if status == 404:
         return AIError("That model was not found. Press 'Load models' and pick one.", fatal=True)
-    return AIError(f"The AI service answered with error {status}: {response.text[:200]}")
+    return AIError(f"The AI service answered with error {status}: {response.text[:200]}",
+                   fatal=_stays_wrong(status))
+
+
+def _stays_wrong(status: int) -> bool:
+    """An error the next batch would get too (no balance, a setting the AI refuses), so
+    Smart mode stops instead of failing once per batch. Busy or limited passes by itself."""
+    return 400 <= status < 500 and status not in (408, 429)
 
 
 def _post(url: str, body: dict, headers: dict, timeout: float) -> dict:
@@ -300,7 +307,14 @@ def _post(url: str, body: dict, headers: dict, timeout: float) -> dict:
             continue
         if response.status_code >= 400:
             raise _http_error(response)
-        return response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):  # a web page, not an AI: the address is wrong
+            raise AIError("That web address did not answer like an AI. Check it on the "
+                          "Smart mode page.", fatal=True)
+        return data
     raise AIError("The AI service is limiting requests. Try again in a few minutes.")
 
 
@@ -351,7 +365,8 @@ def _claude(cfg: dict, prompt: str) -> str:
     except anthropic.RateLimitError as error:
         raise AIError("Claude is limiting requests. Try again in a few minutes.") from error
     except anthropic.APIStatusError as error:
-        raise AIError(f"Claude answered with error {error.status_code}: {error.message}") from error
+        raise AIError(f"Claude answered with error {error.status_code}: {error.message}",
+                      fatal=_stays_wrong(error.status_code)) from error
     except anthropic.APIConnectionError as error:
         raise AIError("Could not reach Claude. Check the internet connection.") from error
     if response.stop_reason == "refusal":

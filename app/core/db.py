@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 
 from app import config
 
@@ -106,17 +107,41 @@ def query_one(sql: str, params: Sequence[Any] = ()) -> sqlite3.Row | None:
     return connect().execute(sql, params).fetchone()
 
 
+@contextmanager
+def write() -> Iterator[sqlite3.Connection]:
+    """A read-then-write that another thread can't overtake: the write lock is taken before
+    the first read. Saved at the end, undone if anything fails."""
+    conn = connect()
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    with _undone_on_error(conn):
+        yield conn
+        conn.commit()
+
+
+@contextmanager
+def _undone_on_error(conn: sqlite3.Connection) -> Iterator[None]:
+    """A write left half-way would hold the lock on this thread and block every other one."""
+    try:
+        yield
+    except BaseException:
+        conn.rollback()
+        raise
+
+
 def execute(sql: str, params: Sequence[Any] = ()) -> int:
     conn = connect()
-    cursor = conn.execute(sql, params)
-    conn.commit()
+    with _undone_on_error(conn):
+        cursor = conn.execute(sql, params)
+        conn.commit()
     return cursor.lastrowid
 
 
 def execute_many(sql: str, rows: Iterable[Sequence[Any]]) -> None:
     conn = connect()
-    conn.executemany(sql, rows)
-    conn.commit()
+    with _undone_on_error(conn):
+        conn.executemany(sql, rows)
+        conn.commit()
 
 
 def file_size() -> int:

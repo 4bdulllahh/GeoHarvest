@@ -66,6 +66,17 @@ What went into each version and how it was tested, newest first. Add to it with 
   exported. F1 an unreadable keys file is kept as `secrets.bak` and noted in crash.log.
   F2 on Windows a DPAPI failure raises instead of writing a weaker file; Smart mode and
   the proxies box show a plain message. `clear_all` deletes the file.
+- **M19 audit groups G, H and I, Smart mode, website checks, Setup** (all nine):
+  G1 a reply that is not JSON is a plain, fatal error; 4xx errors except 408 and 429 are
+  fatal (`ai._stays_wrong`), so Smart mode stops instead of failing every batch. **A
+  judgement:** a 400 for one odd batch also stops it. G2 a lead the AI gave no score is not
+  sent again in the same run (`ScrapeWorker.ai_unscored`); resuming tries again. G3
+  `AIScoreWorker` says the search was deleted. G4 `update_lead` and `check_candidate` hold
+  the write lock from their read (`db.write`). I2 `db.execute` and `execute_many` roll back
+  on error. H1 the site is read for `find_owner` too, and for the requirements
+  (`search.reads_contacts`). H2 a 429 or 5xx from RDAP is tried once more after `RDAP_WAIT`
+  (2 s) and a failed look-up is not cached. H3 "Info@Acme.Com" keeps its ending. I1
+  uninstall refuses a folder with no `GeoHarvest.exe` (or `uninstall` + `_internal`).
 
 ## v0.3.4 beta (2026-11-16)
 

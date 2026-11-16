@@ -179,6 +179,13 @@ def visits_websites(options: dict) -> bool:
                 or options["require_linkedin"] or options["require_owner"])
 
 
+def reads_contacts(options: dict) -> bool:
+    """Whether the visit looks for emails and social links: asked for, or needed by a
+    requirement (else every lead would be left out as "no email found")."""
+    return bool(options["find_emails"] or options["require_email"]
+                or options["require_social"] or options["require_linkedin"])
+
+
 def places_for(options: dict) -> list[str]:
     """The places to search: the ticked cities, else each country's biggest `city_count`."""
     countries = geo.expand(options["countries"])
@@ -640,15 +647,14 @@ def save_leads(search_id: int, leads: list[dict], skip_known: bool = False) -> l
 
 def update_lead(search_id: int, place_id: str, fields: dict) -> None:
     """Merge extra fields (emails, AI score...) into a saved lead and its candidate."""
-    conn = db.connect()
-    for table in ("leads", "candidates"):
-        row = conn.execute(f"SELECT data FROM {table} WHERE search_id = ? AND place_id = ?",
-                           (search_id, place_id)).fetchone()
-        if row is not None:
-            data = {**json.loads(row["data"]), **fields}
-            conn.execute(f"UPDATE {table} SET data = ? WHERE search_id = ? AND place_id = ?",
-                         (json.dumps(data, ensure_ascii=False), search_id, place_id))
-    conn.commit()
+    with db.write() as conn:  # the search and AI scoring both merge into the same row
+        for table in ("leads", "candidates"):
+            row = conn.execute(f"SELECT data FROM {table} WHERE search_id = ? AND place_id = ?",
+                               (search_id, place_id)).fetchone()
+            if row is not None:
+                data = {**json.loads(row["data"]), **fields}
+                conn.execute(f"UPDATE {table} SET data = ? WHERE search_id = ? AND place_id = ?",
+                             (json.dumps(data, ensure_ascii=False), search_id, place_id))
 
 
 # --- candidates: everything Google listed, to pick the leads from -------------
@@ -708,18 +714,18 @@ def tally(search_id: int) -> dict[str, int]:
 def check_candidate(search_id: int, place_id: str, fields: dict, dropped: str | None) -> None:
     """Website or AI check results for a candidate, with the quality score brought up to date,
     and why it is now left out (or None)."""
-    conn = db.connect()
-    row = conn.execute("SELECT data FROM candidates WHERE search_id = ? AND place_id = ?",
-                       (search_id, place_id)).fetchone()
-    if row is None:
-        return
-    data = {**json.loads(row["data"]), **fields}
-    data["quality"] = quality(data)
-    # One the user deleted while its check was under way stays deleted
-    conn.execute("UPDATE candidates SET data = ?, dropped = CASE WHEN dropped = ? THEN dropped "
-                 "ELSE ? END WHERE search_id = ? AND place_id = ?",
-                 (json.dumps(data, ensure_ascii=False), REMOVED, dropped, search_id, place_id))
-    conn.commit()
+    with db.write() as conn:
+        row = conn.execute("SELECT data FROM candidates WHERE search_id = ? AND place_id = ?",
+                           (search_id, place_id)).fetchone()
+        if row is None:
+            return
+        data = {**json.loads(row["data"]), **fields}
+        data["quality"] = quality(data)
+        # One the user deleted while its check was under way stays deleted
+        conn.execute(
+            "UPDATE candidates SET data = ?, dropped = CASE WHEN dropped = ? THEN dropped "
+            "ELSE ? END WHERE search_id = ? AND place_id = ?",
+            (json.dumps(data, ensure_ascii=False), REMOVED, dropped, search_id, place_id))
 
 
 def dropped_counts(search_id: int) -> dict[str, int]:

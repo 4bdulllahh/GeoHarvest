@@ -527,6 +527,114 @@ def test_ai_wrong_key_is_fatal(monkeypatch):
         ai.score({**cfg, "key": ""}, "q", [])
 
 
+def test_smart_mode_sends_an_unscored_lead_once_and_stops_on_errors_that_stay(
+        fresh_db, monkeypatch):
+    import httpx
+
+    from app.core import ai
+    from app.workers import scrape
+    from app.workers.ai import AIScoreWorker
+
+    search_id = searches.create({"niches": ["cafe"], "find_emails": False})
+    options = searches.get(search_id)["options"]
+    searches.save_candidates(search_id, [{"place_id": p, "status": "Open"} for p in "abc"],
+                             options)
+    sent = []
+
+    def some_scored(_cfg, _searched_for, batch):  # the AI answers for "a" only
+        sent.append(sorted(lead["place_id"] for lead in batch))
+        return {"a": {"ai_score": 80}}
+
+    monkeypatch.setattr(ai, "settings", lambda: {"per_minute": 0, "max_leads": 0, "min_score": 0})
+    monkeypatch.setattr(ai, "score", some_scored)
+    monkeypatch.setattr(ai, "worth_checking", lambda _cfg, _lead: True)
+    monkeypatch.setattr(ai, "Pace", lambda _per_minute: type(
+        "NoWait", (), {"wait": lambda self, stop=None: None})())
+    worker = scrape.ScrapeWorker(search_id)
+    assert worker.score_with_ai(options) is None and worker.score_with_ai(options) is None
+    assert sent == [["a", "b", "c"]] and worker.ai_checked == 3  # b and c: not sent twice
+    # Scoring a search that was deleted meanwhile: a plain message, not a Python error
+    with pytest.raises(ai.AIError, match="deleted"):
+        AIScoreWorker(search_id + 99, []).work()
+
+    # No balance or a refused setting stops Smart mode; busy and limited are tried again
+    monkeypatch.setattr(ai.time, "sleep", lambda _seconds: None)
+    replies = [(httpx.Response(400, text="bad model"), True), (httpx.Response(402), True),
+               (httpx.Response(500), False), (httpx.Response(429), False),
+               (httpx.Response(200, text="<html>Welcome</html>"), True)]  # not an AI at all
+    for reply, fatal in replies:
+        monkeypatch.setattr(ai.httpx, "post", lambda *_a, reply=reply, **_k: reply)
+        with pytest.raises(ai.AIError) as caught:
+            ai._post("https://x", {}, {}, 5)
+        assert bool(caught.value.fatal) is fatal, reply.status_code
+
+
+def test_a_failed_write_is_undone_and_leaves_the_database_free(fresh_db):
+    import sqlite3
+
+    search_id = searches.create({"niches": ["cafe"]})
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO leads(search_id) VALUES (?)", (search_id,))
+    assert not db.connect().in_transaction  # it would hold the write lock on this thread
+    with pytest.raises(ZeroDivisionError), db.write() as conn:
+        conn.execute("UPDATE searches SET title = 'half-way'")
+        1 / 0
+    assert searches.get(search_id)["title"] != "half-way" and not db.connect().in_transaction
+
+
+def test_website_checks_read_the_site_when_needed_and_ask_a_busy_registry_again(monkeypatch):
+    from datetime import date
+
+    import httpx
+
+    from app.core import enrich
+
+    assert enrich.find_emails("Info@Bakery.Com hello@bakery.comClifton") == [
+        "info@bakery.com", "hello@bakery.com"]
+    options = searches.options_with_defaults({"find_emails": False, "require_email": True})
+    assert searches.reads_contacts(options)  # else every lead is left out as "no email found"
+    asked = []
+
+    def handler(request):
+        url = str(request.url)
+        asked.append(url)
+        if url.startswith("https://rdap.org/domain/busy.pk"):
+            if asked.count(url) <= 2:
+                return httpx.Response(503)
+            return httpx.Response(200, json={"events": [
+                {"eventAction": "registration", "eventDate": "2015-01-01T00:00:00Z"}]})
+        if url.startswith("https://web.archive.org/cdx"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, text="<p>Owner</p>", headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(enrich, "RDAP_WAIT", 0)
+    enricher = enrich.Enricher(transport=httpx.MockTransport(handler))
+    assert enricher.domain_created("busy.pk")[0] is None  # busy twice: unknown for now
+    assert enricher.domain_created("busy.pk")[0] == date(2015, 1, 1)  # asked again, not cached
+    asked.clear()
+    enricher.enrich({"website": "https://acme.pk/", "domain": "acme.pk"}, False, find_owner=True)
+    assert "https://acme.pk/" in asked  # the owner's name is on the website
+
+
+def test_uninstall_only_empties_a_geoharvest_folder(tmp_path):
+    import queue
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "installer"))
+    import setup_app
+
+    folder = tmp_path / "Documents"
+    folder.mkdir()
+    (folder / "thesis.docx").write_text("years of work")
+    job = setup_app.UninstallJob(queue.Queue(), folder, delete_data=False, register=False)
+    with pytest.raises(setup_app.StepFailed):
+        job.step_files()
+    assert (folder / "thesis.docx").exists()
+    (folder / setup_app.APP_EXE).write_text("")
+    job.step_files()
+    assert not folder.exists()
+
+
 # --- updates ----------------------------------------------------------------
 def test_update_version_and_release_parsing(tmp_path):
     from pathlib import Path

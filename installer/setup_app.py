@@ -531,6 +531,15 @@ class UninstallJob(Job):
         return f"{removed} removed"
 
     def step_files(self) -> str:
+        # Everything in the folder is deleted, so it must be GeoHarvest's: a wrong folder
+        # given to Setup (Documents, say) would otherwise be emptied
+        ours = (self.install_dir / APP_EXE).is_file() or (
+            (self.install_dir / UNINSTALL_DIR).is_dir()
+            and (self.install_dir / "_internal").is_dir())
+        if self.install_dir.exists() and not ours:
+            raise StepFailed(f"{self.install_dir} doesn't look like GeoHarvest's folder, so "
+                             "nothing in it was deleted.",
+                             "If GeoHarvest is somewhere else, run the uninstaller from there.")
         targets = [self.install_dir]
         if self.delete_data:
             targets.append(data_dir())

@@ -710,6 +710,7 @@
  "Later": "Plus tard",
  "Update now": "Mettre à jour maintenant",
  "Set up Smart mode first.": "Configurez d'abord le Mode intelligent.",
+ "That search was deleted, so there is nothing to score.": "Cette recherche a été supprimée, il n'y a donc rien à évaluer.",
  "Closing now stops it. Every lead found so far is saved, and you can resume the search from Past searches next time.\n\nClose anyway?": "Fermer maintenant l'arrête. Tous les prospects trouvés jusqu'ici sont enregistrés, et vous pourrez reprendre la recherche depuis Recherches passées la prochaine fois.\n\nFermer quand même ?",
  "Close and stop": "Fermer et arrêter",
  "Paused: Google is limiting requests. The {found:,} leads so far are in Leads.": "En pause : Google limite les requêtes. Les {found:,} prospects trouvés jusqu'ici sont dans Prospects.",

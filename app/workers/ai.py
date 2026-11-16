@@ -25,7 +25,10 @@ class AIScoreWorker(Worker):
         cfg = ai.settings()
         if cfg is None:
             raise ai.AIError("Set up Smart mode first.")
-        searched_for = ", ".join(searches.get(self.search_id)["options"]["niches"])
+        search = searches.get(self.search_id)
+        if search is None:
+            raise ai.AIError("That search was deleted, so there is nothing to score.")
+        searched_for = ", ".join(search["options"]["niches"])
         done = scored_count = 0
         pace = ai.Pace(cfg["per_minute"])
         for start in range(0, len(self.leads), ai.BATCH_SIZE):

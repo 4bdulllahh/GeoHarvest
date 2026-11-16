@@ -38,8 +38,8 @@ model (model-router skill).
 | M16 | Audit group C: Leads page speed with 30,000 rows | M | done, one part left out (see Current state) |
 | M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | done |
 | M18 | Audit groups E and F: exports, saved keys | M | done |
-| M19 | Audit groups G, H and I: Smart mode, website checks, Setup | M | next |
-| R2 | **Release v0.4** (M13 to M19) | M | |
+| M19 | Audit groups G, H and I: Smart mode, website checks, Setup | M | done |
+| R2 | **Release v0.4** (M13 to M19) | M | next, after the user's click-through |
 
 **The user's decisions on 2026-11-16:** go slowly, one milestone at a time; release v0.3.3
 after M12, then v0.4 once M13 to M19 are done. The audit findings each milestone fixes are
@@ -178,10 +178,16 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   sum (`exporter._PHONE`); if testers see a `'` in front of a phone number in a CSV, look there.
   The tests never pointed `config.SECRETS_PATH` away from the user's real keys file before
   this (only the new test does): worth a fixture in `conftest.py` if a UI test ever saves a key.
-- **Next: M19,** audit groups G, H and I (Smart mode, website checks, Setup) in
-  `docs/handover/audit-2026-11.md`. Then R2, and before it the user's click-through (below).
-- **Usage, third session:** 5% after M17 (handover read included), M18 not reported yet.
-  These two were cheaper than the 10 to 19% planned.
+- **Then M19:** audit groups G, H and I, all nine, in the v0.4 lines of
+  `docs/handover/changelog.md`. Tested in `test_core.py` with a pretend AI, registry and
+  website; **no real AI call, website visit or uninstall was run**. The uninstall change is in
+  `installer/setup_app.py`, so it only reaches users in a newly built Setup (R2 builds one).
+  The audit is now fully worked through (M13 to M19), apart from what each milestone's
+  line here says was left out.
+- **Next: R2, release v0.4.** First ask the user for the click-through (below). The steps are
+  in "Working with the user" in `docs/handover/README.md` and `docs/handover/releasing.md`.
+- **Usage, third session:** 5% after M17 (handover read included), 15% after M18 (10%),
+  M19 not reported yet.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
   81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
   session: 9% after M11 (handover read included), 15% after M12 (an S with translations
@@ -201,7 +207,7 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
 - **Open questions:** does the backup installer come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** M17 and M18 (two commits). Everything up to M16 and its handover was pushed to `origin/main`
+- **Not pushed:** M17, M18 and M19 (three commits). Everything up to M16 and its handover was pushed to `origin/main`
   on 2026-11-16 with the user's OK (a backup: no release, testers get nothing from it). The
   user published v0.3.3 and v0.3.4 themselves on GitHub, and creates the tags there.
   **Ask again before the next push.**
@@ -210,4 +216,5 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Before R2,** ask the user to click through the app once (Stop, Resume, delete a search,
   Free up space, a backup and restore): M13 to M16 were only tested, and the 'step' error
   in v0.3.3 came from exactly that gap.
-- **Waiting on the user:** their usage % after M18, then the go-ahead for M19.
+- **Waiting on the user:** their usage % after M19, the click-through of the app, then the
+  go-ahead for R2 (and whether to push the three commits first).

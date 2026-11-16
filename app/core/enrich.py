@@ -17,6 +17,7 @@ from __future__ import annotations
 import html
 import re
 import threading
+import time
 from datetime import date, datetime
 from urllib.parse import unquote, urljoin, urlsplit
 
@@ -65,6 +66,7 @@ HOSTED_SUFFIXES = ("netlify.app", "vercel.app", "github.io", "wixsite.com", "wix
                    "google.com", "jimdosite.com", "myshopify.com", "pages.dev", "web.app",
                    "firebaseapp.com", "herokuapp.com", "site123.me", "strikingly.com", "cal.com")
 WAYBACK_AT_ONCE = 4  # the archive is slow and shared; be gentle with it
+RDAP_WAIT = 2  # seconds before the one retry when the domain registry is busy
 # Template addresses left in contact forms ("you@example.com"), in the languages GeoHarvest
 # is used in most. Matched exactly or as whole names, so a real "mycompany.com" survives.
 PLACEHOLDER_DOMAINS = {"domain.com", "email.com", "company.com", "website.com", "mysite.com",
@@ -112,7 +114,7 @@ def find_emails(page: str) -> list[str]:
     for email in found:
         # "info@acme.comClifton": page text glued onto the address; cut where the case flips
         name, _, host = email.strip(".").rpartition(".")
-        ending = re.match(r"[a-z]+|[A-Z]+", host)
+        ending = re.match(r"[A-Z]?[a-z]+|[A-Z]+", host)  # "Com" is whole, "comClifton" is not
         email = f"{name}.{ending.group(0) if ending else host}".lower()
         domain = email.split("@", 1)[1]
         names = domain.split(".")
@@ -305,10 +307,18 @@ class Enricher:
             return self._ages[domain]
         candidates = domain_candidates(domain)
         created = None
+        answered = True  # False: the registry was busy or unreachable, which is not "no record"
         for candidate in candidates:
             try:
                 response = self.http.get(f"https://rdap.org/domain/{candidate}")
+                if response.status_code == 429 or response.status_code >= 500:
+                    time.sleep(RDAP_WAIT)  # busy: one more try
+                    response = self.http.get(f"https://rdap.org/domain/{candidate}")
             except httpx.HTTPError:
+                answered = False
+                break
+            if response.status_code == 429 or response.status_code >= 500:
+                answered = False
                 break
             if response.status_code == 200:
                 try:
@@ -321,7 +331,8 @@ class Enricher:
         result = (created, "Domain registration")
         if created is None and candidates and self.wayback:
             result = (self.first_archived(candidates[0]), "First seen online (Wayback Machine)")
-        self._ages[domain] = result
+        if answered or result[0] is not None:
+            self._ages[domain] = result  # a failed look-up is asked again next time
         return result
 
     def first_archived(self, domain: str) -> date | None:
@@ -355,7 +366,7 @@ class Enricher:
         if not website:
             return fields
         found = {"owner": None, "profiles": [], "text": ""}
-        if find_contacts or site_text:
+        if find_contacts or find_owner or site_text:
             found = self.crawl(website, keep_text=site_text)
         if found.get("unreachable"):
             fields["unreachable"] = True  # for the caller to weigh, not a detail to store

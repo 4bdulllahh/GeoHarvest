@@ -710,6 +710,7 @@
  "Later": "لاحقًا",
  "Update now": "التحديث الآن",
  "Set up Smart mode first.": "أعدّ الوضع الذكي أولًا.",
+ "That search was deleted, so there is nothing to score.": "تم حذف هذا البحث، لذلك لا يوجد ما يمكن تقييمه.",
  "Closing now stops it. Every lead found so far is saved, and you can resume the search from Past searches next time.\n\nClose anyway?": "الإغلاق الآن يوقفه. يتم حفظ كل العملاء المحتملين الذين تم العثور عليهم حتى الآن، ويمكنك استئناف البحث من عمليات البحث السابقة في المرة القادمة.\n\nهل تريد الإغلاق على أي حال؟",
  "Close and stop": "أغلق وأوقف",
  "Paused: Google is limiting requests. The {found:,} leads so far are in Leads.": "متوقف مؤقتًا: Google تحدّ من الطلبات. الـ {found:,} من العملاء الذين وُجدوا حتى الآن موجودون في العملاء المحتملون.",
