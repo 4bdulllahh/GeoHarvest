@@ -18,7 +18,7 @@ model (model-router skill).
 | # | Milestone | Size | Status |
 | --- | --- | --- | --- |
 | M1 | Repo setup: CLAUDE.md follows the global rules, this file | S | done |
-| M2 | Research the GitHub scraping tools and audit the whole app (cheaper model). A short report for the user, no code | M | next |
+| M2 | Research the GitHub scraping tools and audit the whole app (cheaper model). Report: [docs/handover/audit-2026-11.md](docs/handover/audit-2026-11.md) | M | done |
 | M3 | Resume shows real numbers: Leads, Websites and Email tiles fill in at once (`SearchPage.run` resets them to "-") | S | |
 | M4 | Leads keep their exported marks and found dates (`search.set_picked` deletes and rewrites every batch) | S | |
 | M5 | Shorter batches, leads appear live: a batch also ends after a set number of Google pages | M | |
@@ -30,10 +30,18 @@ model (model-router skill).
 | M11 | Opening hours warning before starting, when the choices leave out most businesses | S | |
 | M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | |
 | M13 | Tidy up storage: "Free up space" in Settings, automatic clean-up of finished searches | M | |
-| M14 | Fixes from the M2 audit that the others don't cover (split once the report is in) | M+ | |
-| M15 | Release v0.3.3 beta | M | |
+| M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | |
+| M15 | Audit group B: the search job never gets stuck, errors reach the log | M | |
+| M16 | Audit group C: Leads page speed with 30,000 rows | M | |
+| M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | |
+| M18 | Audit groups E and F: exports, saved keys | M | |
+| M19 | Audit groups G, H and I: Smart mode, website checks, Setup | M | |
+| M20 | Release v0.3.3 beta | M | |
 
-M7 to M9 may change after M2's research: tell the user before building anything different.
+**Proposed to the user on 2026-11-16, not yet approved:** the M14 to M19 split above, and M7
+gaining "split a map area into four only when Google returns a full list" (from the research)
+in place of today's all-at-once grid. Ask before building either. The audit findings each
+milestone fixes are listed under its heading in the audit file.
 
 ## What the user's real search showed (2026-11-16, read-only look at the database)
 
@@ -48,9 +56,10 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 
 ## Current state
 
-- **Last done:** M1, repo setup.
-- **Next:** M2. Use the model-router skill; ask the user's usage % first.
+- **Last done:** M2, research and audit (no code changed).
+- **Next:** M3, once the user approves the revised plan. Read `SearchPage.run` and
+  `_show_unfinished` in `app/ui/pages/search.py`.
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** the M1 commit.
+- **Not pushed:** the M1 and M2 commits.
