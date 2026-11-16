@@ -8,7 +8,7 @@ This file only says where we are. What the app is, how the code is organised and
 decision are in [docs/handover/README.md](docs/handover/README.md): read that index, then
 only the file for the part you are changing.
 
-## Current plan: v0.3.3 beta, a faster and steadier search (approved 2026-11-16)
+## Current plan: v0.3.3 beta after M12, then v0.4 after M19 (approved 2026-11-16)
 
 The user's answers: a search **keeps going to the maximum** (no early stop at the minimum);
 Google's limit is avoided and recovered from inside the same run; updates download quietly,
@@ -22,13 +22,15 @@ model (model-router skill).
 | M3 | Resume shows real numbers: Leads, Websites and Email tiles fill in at once (`search.tally`, `SearchPage._show_tally`) | S | done |
 | M4 | Leads keep their exported marks and found dates ; deleted leads stay deleted (`search.set_picked`) | S | done |
 | M5 | Shorter batches, leads appear live: a batch also ends after `BATCH_PAGES` (50) Google pages | M | done |
-| M6 | Faster saving: progress no longer rewritten in full after every page; parallel searches stay parallel to the end | M | |
-| M7 | Similar business types: a warning when types overlap; searches that only bring known businesses are cut short | M | |
+| M6 | Faster saving: progress saved every 10 pages (`search.save_pages`); parallel searches stay parallel to the end | M | done |
+| M7a | Similar business types: a warning when types overlap; searches that only bring known businesses are cut short | M | next |
+| M7b | Smarter digging: split a map area into four only when Google returns a full list (from the research) | M | |
 | M8 | Google's limit 1: slow down by itself when Google answers slowly | M | |
 | M9 | Google's limit 2: on a limit, a short wait and carry on inside the same run ("Going slower for a moment") | M | |
 | M10 | Internet drops: the search waits and carries on by itself | S | |
 | M11 | Opening hours warning before starting, when the choices leave out most businesses | S | |
 | M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | |
+| R1 | **Release v0.3.3 beta** (M1 to M12) | M | |
 | M13 | Tidy up storage: "Free up space" in Settings, automatic clean-up of finished searches | M | |
 | M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | |
 | M15 | Audit group B: the search job never gets stuck, errors reach the log | M | |
@@ -36,12 +38,15 @@ model (model-router skill).
 | M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | |
 | M18 | Audit groups E and F: exports, saved keys | M | |
 | M19 | Audit groups G, H and I: Smart mode, website checks, Setup | M | |
-| M20 | Release v0.3.3 beta | M | |
+| R2 | **Release v0.4** (M13 to M19) | M | |
 
-**Proposed to the user on 2026-11-16, not yet approved:** the M14 to M19 split above, and M7
-gaining "split a map area into four only when Google returns a full list" (from the research)
-in place of today's all-at-once grid. Ask before building either. The audit findings each
-milestone fixes are listed under its heading in the audit file.
+**The user's decisions on 2026-11-16:** go slowly, one milestone at a time; release v0.3.3
+after M12, then v0.4 once M13 to M19 are done. The audit findings each milestone fixes are
+listed under its heading in the audit file.
+
+**If the session's usage runs out:** the user wants a written account of what is wrong with
+the app and how it is being fixed, so the next Claude can carry on. That is this file plus
+[docs/handover/audit-2026-11.md](docs/handover/audit-2026-11.md): keep both current.
 
 ## What the user's real search showed (2026-11-16, read-only look at the database)
 
@@ -67,9 +72,18 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   not measured live); the Leads page gets each batch's new leads (`show_new_leads`). Tests in
   `test_core.py` and `test_ui.py`. Every batch still rewrites all the search's leads
   (`set_picked`): fine at 3,000, and M6 is the place to make it cheaper if it shows.
-- **Next:** M6. Read `mark_query_done`, `remember_page`, `candidates`, `why_not`,
-  `deep_queries` in `app/core/search.py`, `search_google` in `app/workers/scrape.py`, and the
-  M6 heading in the audit file.
+- **Then M6:** `search_google` keeps progress in memory and writes it every `SAVE_EVERY` (10)
+  pages and at each batch's end (`search.save_pages`; `remember_page` is gone). Threads stay
+  while pages are in flight (`state["busy"]`). `self.cut` tells a query Stop or a limit cut
+  short from one that reached Google's empty last page (a test caught that page being asked
+  twice). `why_not` caches the country set; `deep_queries` reads the candidates once.
+  **Not done from the audit's M6 list:** ending a query on a short page (one request saved
+  per query) needs a live check that Google never sends a short page mid-way; and the
+  `candidates_dropped` index (little gain).
+- **Next:** M7a. Read `build_queries`, `all_queries`, `RELATED` in `app/core/search.py`,
+  `_validate` and `_update_plan` in `app/ui/pages/search.py`, and the M7 heading in the audit
+  file. New on-screen text needs ar, de, es, fr (docs/handover/languages.md).
+- **Usage:** the user reported 49% used after M1 to M5 (start % unknown).
 - **Not checked in the running app** (M3 to M5): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
   with `$env:APPDATA` set to a temp folder is safe, but a real search there still asks Google.
@@ -80,6 +94,5 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** the M1 to M5 commits.
-- **Waiting on the user:** yes or no to the M7 split and M14 to M19 (asked three times, no
-  answer yet), whether to release early after M12, and their usage % (never given).
+- **Not pushed:** the M1 to M6 commits.
+- **Waiting on the user:** nothing.

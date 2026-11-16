@@ -5,6 +5,7 @@ search can be resumed with exactly the settings it started with.
 """
 from __future__ import annotations
 
+import functools
 import itertools
 import json
 import math
@@ -232,6 +233,13 @@ def title(options: dict) -> str:
     return f"{niches} in {where}"
 
 
+@functools.lru_cache(maxsize=8)
+def _country_codes(countries: tuple[str, ...]) -> frozenset[str]:
+    """Asked once per business listed: working it out each time cost a millisecond or two,
+    a minute over a big search."""
+    return frozenset(geo.country_code(c) for c in geo.expand(list(countries))) - {""}
+
+
 def passes(lead: dict, options: dict) -> bool:
     return why_not(lead, options) is None
 
@@ -245,7 +253,7 @@ def why_not(lead: dict, options: dict) -> str | None:
                     lead["longitude"]) > float(options["area_km"]):
                 return "outside the area"
     else:
-        codes = {geo.country_code(c) for c in geo.expand(options["countries"])} - {""}
+        codes = _country_codes(tuple(options["countries"]))
         code = lead.get("country_code")
         # Ambiguous city names ("Hyderabad", "Victoria") can pull in another country, and
         # a hidden address with its pin far from the city searched has no country at all
@@ -372,14 +380,20 @@ def deep_queries(search_id: int, options: dict) -> list[str]:
     progress = get(search_id)["progress"]
     split = set(progress.get("deepened", []))
     capped = set(progress.get("capped", []))
+    done = set(progress.get("done", []))
+    # Read once for every query: asking per query read every candidate each time
+    found: dict[str, list[tuple[float, float]]] = {}
+    for r in db.query(
+            "SELECT json_extract(data, '$.query') AS query, json_extract(data, '$.latitude') "
+            "AS lat, json_extract(data, '$.longitude') AS lng FROM candidates "
+            "WHERE search_id = ?", (search_id,)):
+        if r["lat"] is not None:
+            found.setdefault(r["query"], []).append((r["lat"], r["lng"]))
     per_city = []
     for query in build_queries(options):
-        if query in split or query in capped or query not in progress.get("done", []):
+        if query in split or query in capped or query not in done:
             continue
-        points = [(r["lat"], r["lng"]) for r in db.query(
-            "SELECT json_extract(data, '$.latitude') AS lat, json_extract(data, '$.longitude') "
-            "AS lng FROM candidates WHERE search_id = ? AND json_extract(data, '$.query') = ?",
-            (search_id, query)) if r["lat"] is not None]
+        points = found.get(query, [])
         split.add(query)
         if len(points) < DEEP_AT:
             continue
@@ -514,10 +528,19 @@ def mark_query_done(search_id: int, query: str, capped: bool = False) -> None:
     _save_progress(search_id, progress)
 
 
-def remember_page(search_id: int, query: str, offset: int, view: list) -> None:
-    """Which page a search under way has reached, so resuming carries on from there."""
+def save_pages(search_id: int, done: list[str], at: dict[str, list]) -> None:
+    """Several pages' worth of progress in one write: the queries that finished, and the
+    page ([offset, map view]) each one under way has reached, so resuming carries on from
+    there. On a big search the progress is over 100 KB, too much to rewrite page by page."""
+    if not done and not at:
+        return
     progress = get(search_id)["progress"]
-    progress.setdefault("at", {})[query] = [offset, view]
+    finished = set(progress.get("done", []))
+    progress["done"] = progress.get("done", []) + [q for q in done if q not in finished]
+    finished.update(done)
+    progress["capped"] = [q for q in progress.get("capped", []) if q not in finished]
+    places_at = {**progress.get("at", {}), **at}
+    progress["at"] = {q: page for q, page in places_at.items() if q not in finished}
     _save_progress(search_id, progress)
 
 

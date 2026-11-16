@@ -39,6 +39,7 @@ BATCH = 100  # businesses found before their websites are checked
 # in 80 fits (the user's search, 2026-11), so 100 took about 400 pages with no new leads
 # on screen; 50 pages is under a minute at Normal speed
 BATCH_PAGES = 50
+SAVE_EVERY = 10  # pages between saves of how far each query has got (and at every batch's end)
 # Website visits at once, by the Speed setting (parallel Google searches). Visits are slow
 # to answer, but reading the pages takes the PC's time, so Gentle suits older PCs
 VISITS_BY_SPEED = {2: 6, 4: 12, 8: 16}
@@ -66,6 +67,7 @@ class ScrapeWorker(Worker):
         self.pages: dict = {}         # searches under way: query -> its pages still to come
         self.following: dict = {}     # where each query goes next, once its page is saved
         self.failed: set[str] = set()  # searches that failed once in this run
+        self.cut: set[str] = set()    # searches Stop or a limit ended before their last page
         self.ai_checked = 0           # leads Smart mode checked in this run
 
     def stop(self, ending: str = "stopped") -> None:
@@ -128,7 +130,7 @@ class ScrapeWorker(Worker):
         dropped = searches.dropped_counts(self.search_id)
         return {"status": status, "found": have, "wanted": low, "most": high,
                 "blocked": self.blocked, "ai_error": ai_error, "dropped": dropped,
-                "listed": len(searches.candidates(self.search_id)) + sum(dropped.values())}
+                "listed": searches.tally(self.search_id)["fits"] + sum(dropped.values())}
 
     # --- step 1 -----------------------------------------------------------------
     def search_google(self, options: dict, batch: int, most_pages: int) -> bool:
@@ -145,11 +147,12 @@ class ScrapeWorker(Worker):
         waiting = deque([q for q in left if q not in self.pages and q not in at] +
                         [q for q in left if q in self.pages or q in at])
         lock = threading.Lock()
-        fits = searches.candidates(self.search_id)
-        goal = len(fits) + batch
+        had = searches.tally(self.search_id)
+        goal = had["fits"] + batch
         last_page = self.fetched + most_pages
         state = {"finished": len(all_queries) - len(left), "total": len(all_queries),
-                 "fits": len(fits), "phones": sum(bool(lead.get("phone")) for lead in fits)}
+                 "fits": had["fits"], "phones": had["phones"], "busy": 0}
+        unsaved: dict = {"done": [], "at": {}, "pages": 0}
         self.signals.step.emit(1)
         self.signals.found.emit(state["fits"], state["phones"])
         self.report(state["finished"], state["total"])
@@ -157,65 +160,104 @@ class ScrapeWorker(Worker):
         def no_more_google() -> bool:
             return self._stop.is_set() or self.blocked
 
+        def save() -> None:
+            """Write the pages reached since the last save (call with the lock held)."""
+            searches.save_pages(self.search_id, unsaved["done"], unsaved["at"])
+            unsaved.update(done=[], at={}, pages=0)
+
+        def cut_short(query: str) -> bool:
+            """Asked by the query's search before each further page: noted, because a
+            search that ends here is not finished, while one that ends on Google's empty
+            last page is, even if Stop or a limit arrived in the same moment."""
+            if no_more_google():
+                self.cut.add(query)
+            return query in self.cut
+
         def next_page(query: str) -> list[dict] | None:
             """The query's next page, None once it has no more. Raises on errors."""
             pages = self.pages.get(query)
             if pages is None:
                 pages = self.pages[query] = iter(scraper.search(
-                    self.client, query, cancelled=no_more_google, start=at.get(query),
+                    self.client, query, cancelled=lambda: cut_short(query),
+                    start=at.get(query),
                     remember=lambda offset, view: self.following.__setitem__(
                         query, [offset, view])))
             return next(pages, None)
 
+        def take_turn(query: str) -> bool:
+            """One page of one query; False when Google is over for this run."""
+            try:
+                page = next_page(query)
+            except scraper.Blocked:
+                self.blocked_at = self.blocked_at or time.time()
+                self.blocked = True
+                return False
+            except (httpx.HTTPError, ValueError) as error:
+                self.pages.pop(query, None)
+                # One retry for a dropped connection; after that the query stays
+                # un-done, so resuming the search tries it again
+                if query in self.failed:
+                    self.log(f"Skipped '{query}' for now: {error}", "warn")
+                    return True
+                self.failed.add(query)
+                self._stop.wait(3)  # Stop and Pause don't sit this out
+                with lock:
+                    waiting.append(query)
+                return True
+            with lock:
+                if page is None:
+                    if query in self.cut:
+                        return False  # not finished: resuming carries on with it
+                    self.pages.pop(query, None)
+                    done.add(query)
+                    unsaved["done"].append(query)
+                    unsaved["at"].pop(query, None)
+                    state["finished"] += 1
+                    self.report(min(state["finished"], state["total"]), state["total"], query)
+                    return True
+                self.fetched += 1
+                new = searches.save_candidates(self.search_id, page, options)
+                if query in self.following:
+                    at[query] = unsaved["at"][query] = self.following.pop(query)
+                unsaved["pages"] += 1
+                if unsaved["pages"] >= SAVE_EVERY:
+                    save()
+                state["fits"] += len(new)
+                state["phones"] += sum(bool(lead.get("phone")) for lead in new)
+                self.signals.found.emit(state["fits"], state["phones"])
+                waiting.append(query)  # its next page after everyone else's
+            return True
+
         def run() -> None:
             while not no_more_google():
                 with lock:
-                    if state["fits"] >= goal or self.fetched >= last_page or not waiting:
+                    if state["fits"] >= goal or self.fetched >= last_page:
                         return
-                    query = waiting.popleft()
-                try:
-                    page = next_page(query)
-                except scraper.Blocked:
-                    self.blocked_at = self.blocked_at or time.time()
-                    self.blocked = True
-                    return
-                except (httpx.HTTPError, ValueError) as error:
-                    self.pages.pop(query, None)
-                    # One retry for a dropped connection; after that the query stays
-                    # un-done, so resuming the search tries it again
-                    if query in self.failed:
-                        self.log(f"Skipped '{query}' for now: {error}", "warn")
-                        continue
-                    self.failed.add(query)
-                    time.sleep(3)
-                    with lock:
-                        waiting.append(query)
+                    # Nothing waiting but pages in flight: their queries come back for
+                    # their next page, so stay. Leaving here left the last few queries
+                    # to one thread
+                    query = waiting.popleft() if waiting else None
+                    if query is None and not state["busy"]:
+                        return
+                    state["busy"] += query is not None
+                if query is None:
+                    time.sleep(0.05)
                     continue
-                with lock:
-                    if page is None:
-                        if no_more_google():
-                            return  # cut short, not finished: resuming carries on with it
-                        self.pages.pop(query, None)
-                        searches.mark_query_done(self.search_id, query)
-                        state["finished"] += 1
-                        self.report(min(state["finished"], state["total"]), state["total"],
-                                    query)
-                        continue
-                    self.fetched += 1
-                    new = searches.save_candidates(self.search_id, page, options)
-                    if query in self.following:
-                        at[query] = self.following.pop(query)
-                        searches.remember_page(self.search_id, query, *at[query])
-                    state["fits"] += len(new)
-                    state["phones"] += sum(bool(lead.get("phone")) for lead in new)
-                    self.signals.found.emit(state["fits"], state["phones"])
-                    waiting.append(query)  # its next page after everyone else's
+                try:
+                    if not take_turn(query):
+                        return
+                finally:
+                    with lock:
+                        state["busy"] -= 1
 
         parallel = max(1, int(db.get_setting("parallel_searches", DEFAULT_PARALLEL)))
-        with ThreadPoolExecutor(parallel) as pool:
-            for future in [pool.submit(run) for _ in range(parallel)]:
-                future.result()
-        return set(all_queries) <= set(searches.get(self.search_id)["progress"].get("done", []))
+        try:
+            with ThreadPoolExecutor(parallel) as pool:
+                for future in [pool.submit(run) for _ in range(parallel)]:
+                    future.result()
+        finally:
+            save()  # whatever happened, the pages that came in are not asked for again
+        return set(all_queries) <= done
 
     # --- step 2 -----------------------------------------------------------------
     def check_websites(self, options: dict) -> None:

@@ -1052,3 +1052,13 @@ def test_a_batch_also_ends_after_a_number_of_pages_so_leads_keep_coming(fresh_db
     assert result["status"] == "done" and result["found"] == 1800  # 15 searches x 120
     assert len(batches) >= 6 and 0 < batches[0] <= 20 * (10 + 8)  # pages in flight finish
     assert batches == sorted(batches)
+
+
+def test_progress_is_saved_in_groups_of_pages(fresh_db):
+    search_id = searches.create({"niches": ["cafe"]})
+    searches.save_pages(search_id, [], {"a": [20, [1, 2, 3]], "b": [40, [1, 2, 3]]})
+    searches.save_pages(search_id, ["a"], {"b": [60, [1, 2, 3]], "c": [20, [4, 5, 6]]})
+    searches.save_pages(search_id, ["a", "c"], {})
+    searches.save_pages(search_id, [], {})
+    progress = searches.get(search_id)["progress"]
+    assert progress["done"] == ["a", "c"] and progress["at"] == {"b": [60, [1, 2, 3]]}
