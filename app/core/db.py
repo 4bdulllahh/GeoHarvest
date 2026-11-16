@@ -62,6 +62,12 @@ def init(db_path: Path | None = None) -> None:
     global _db_path
     config.ensure_dirs()
     _db_path = Path(db_path) if db_path else config.DB_PATH
+    migrate()
+
+
+def migrate() -> None:
+    """Add whatever tables and indexes the database is missing: at start-up, and after a
+    backup from an older GeoHarvest is restored."""
     conn = connect()
     conn.executescript(_SCHEMA)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

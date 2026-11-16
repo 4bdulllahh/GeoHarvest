@@ -47,6 +47,15 @@ What went into each version and how it was tested, newest first. Add to it with 
   Reading "All searches" in a `Task` started while the page is built crashed the test run
   natively (exit 0xC0000409 in `test_every_page_opens_in_every_language`, no Python error,
   not reproduced outside pytest); the cause was not found.
+- **M17 audit group D, backups** (D1 to D4):
+  D1 `restore_backup` runs `db.migrate` (the schema, split out of `db.init`), so a backup
+  from an older GeoHarvest has every table straight away. D2 restore runs in a `Task`; the
+  window is disabled until it ends, and a waiting search's countdown does not start a
+  search meanwhile (`SearchPage._tick`). Saving a backup was already in a `Task`. D3
+  `write_backup` writes `<name>.part`, then renames; a failed copy is deleted. D4 the copy
+  made before a restore is named to the second, and only the newest `SAFETY_KEEP` (5) stay.
+  Also: backups are opened `immutable`, so reading one no longer leaves "-wal" and "-shm"
+  files beside it.
 
 ## v0.3.4 beta (2026-11-16)
 

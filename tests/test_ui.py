@@ -405,6 +405,42 @@ def test_a_big_leads_list_is_not_reworked_row_by_row(window, monkeypatch):
     assert len(plans) == 1 and "1 searches" in page.plan.text()
 
 
+def test_restoring_a_backup_runs_off_the_ui_thread_and_the_window_waits(
+        window, monkeypatch, tmp_path):
+    from app import config
+    from app.core import backup
+    from app.ui.pages import settings
+
+    started = []
+
+    class LaterTask:  # the real one runs on another thread
+        def __init__(self, work, *args):
+            self.work, self.args = work, args
+
+        def start(self, on_result=None, on_error=None):
+            started.append((self, on_result, on_error))
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "data")
+    search_id = saved_search("done")
+    saved = backup.write_backup(tmp_path / "mine.ghbackup")
+    searches.delete(search_id)
+    main = window()
+    page = main.ensure_page("settings")
+    monkeypatch.setattr(settings, "Task", LaterTask)
+    monkeypatch.setattr(settings.ConfirmDialog, "ask", lambda *_args, **_more: True)
+    monkeypatch.setattr(settings.QFileDialog, "getOpenFileName",
+                        lambda *_args, **_more: (str(saved), ""))
+    page._restore()
+    task, on_result, on_error = started.pop()
+    assert not main.isEnabled()  # nothing can be started while the data is replaced
+    on_error("the disk is full")
+    assert main.isEnabled()
+    page._restore()
+    task, on_result, on_error = started.pop()
+    on_result(task.work(*task.args))
+    assert main.isEnabled() and searches.get(search_id)  # back, and the window is built again
+
+
 def test_free_up_space_in_settings_asks_first_then_trims(window, monkeypatch):
     import json
 

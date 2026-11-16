@@ -859,8 +859,9 @@ class SearchPage(Page):
     def _tick(self) -> None:
         left = round(self.resume_at - time.time())
         if left <= 0:
-            if QApplication.activeModalWidget() is not None:
-                return  # a question is open (the update notice): start once it is answered
+            if QApplication.activeModalWidget() is not None or not self.window_.isEnabled():
+                return  # a question is open (the update notice) or a backup is being
+                # restored: start once that is over
             self.countdown.stop()
             self._resume(fill_form=False)  # the user may be filling in a new search
             return

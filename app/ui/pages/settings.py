@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -251,18 +250,26 @@ class SettingsPage(Page):
                 "leads, presets and settings. What is there now is saved as a backup first, in "
                 "the backups folder, so you can go back.", "Restore", danger=True):
             return
-        try:
-            backup.restore_backup(source)
-        except (OSError, sqlite3.Error) as error:
-            self.notify(t("The backup couldn't be restored: {error}", error=error), "error", 8000)
-            return
         window = self.window_
-        theme.apply_preferences()  # the backup's theme, text size and menu
-        scrolling.set_smooth(bool(prefs.get("smooth_scroll")))
-        window._rebuild()  # this page goes too: nothing below may touch self
-        window.apply_nav_order()
-        window.refresh_status()
-        window.notify("Backup restored.", "success", 6000)
+
+        def restored(_safety: Path) -> None:
+            window.setEnabled(True)
+            theme.apply_preferences()  # the backup's theme, text size and menu
+            scrolling.set_smooth(bool(prefs.get("smooth_scroll")))
+            window._rebuild()  # this page goes too: nothing below may touch self
+            window.apply_nav_order()
+            window.refresh_status()
+            window.notify("Backup restored.", "success", 6000)
+
+        def failed(message: str) -> None:
+            window.setEnabled(True)
+            window.notify(t("The backup couldn't be restored: {error}", error=message),
+                          "error", 8000)
+
+        # Nothing may read or write the data while it is replaced, so the window waits
+        window.setEnabled(False)
+        window.notify("Restoring the backup. This can take a minute...", "info", 6000)
+        Task(backup.restore_backup, source).start(on_result=restored, on_error=failed)
 
     def _forget_keys(self) -> None:
         if not ConfirmDialog.ask(

@@ -660,6 +660,7 @@ def test_crm_and_sheets_export(tmp_path):
 
 
 def test_backup_restore_and_weekly(tmp_path, monkeypatch):
+    import sqlite3
     from datetime import datetime, timedelta
 
     from app import config
@@ -673,6 +674,32 @@ def test_backup_restore_and_weekly(tmp_path, monkeypatch):
     safety = backup.restore_backup(saved)
     assert searches.get(first)["options"]["niches"] == ["cafe"]  # back again
     assert backup.is_backup(safety)  # what was there before is kept
+    assert not list(tmp_path.rglob("*.part"))  # written under another name, then renamed
+    # A backup from before the candidates table existed gets it on restore, not at restart
+    old = sqlite3.connect(saved)
+    old.execute("DROP TABLE candidates")
+    old.commit()
+    old.close()
+    backup.restore_backup(saved)
+    assert db.query("SELECT COUNT(*) FROM candidates")[0][0] == 0
+    # The copies made before a restore: one each (named to the second), the newest 5 kept
+    with monkeypatch.context() as patch:
+        for second in range(10, 18):
+            patch.setattr(backup, "datetime", type("Clock", (), {
+                "now": staticmethod(lambda second=second: datetime(2030, 1, 1, 9, 0, second))}))
+            backup.restore_backup(saved)
+    kept = sorted(path.name for path in backup.folder().glob(f"{backup.SAFETY_NAME} *"))
+    assert len(kept) == backup.SAFETY_KEEP and kept[-1].endswith("090017.ghbackup")
+    # A copy that fails leaves no half-written file and keeps the backup already there
+    def no_database() -> None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "connect", no_database)
+        with pytest.raises(sqlite3.OperationalError):
+            backup.write_backup(saved)
+    assert backup.is_backup(saved) and not list(tmp_path.rglob("*.part"))
+    assert not list(tmp_path.rglob("*.ghbackup-*"))  # reading a backup leaves nothing beside it
     # Weekly: once per 7 days, the newest 4 kept
     start = datetime(2026, 1, 1)
     made = [backup.auto_backup(start + timedelta(days=day)) for day in range(0, 60, 3)]

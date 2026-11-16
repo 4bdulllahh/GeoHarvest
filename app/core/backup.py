@@ -7,6 +7,7 @@ read, so they would be no use on another computer anyway.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,8 @@ SUFFIX = ".ghbackup"
 AUTO_NAME = "GeoHarvest auto backup"
 AUTO_KEEP = 4
 AUTO_EVERY = timedelta(days=7)
+SAFETY_NAME = "Before restoring"
+SAFETY_KEEP = 5
 
 
 def folder() -> Path:
@@ -25,18 +28,32 @@ def folder() -> Path:
 
 
 def write_backup(target: str | Path) -> Path:
-    destination = sqlite3.connect(str(target))
+    """Copy the database to ``target``. It is written under another name first, so a copy
+    that stops half-way never looks like a backup (or replaces a good one)."""
+    target = Path(target)
+    part = target.with_name(target.name + ".part")
+    part.unlink(missing_ok=True)
+    destination = sqlite3.connect(str(part))
     try:
         with destination:
             db.connect().backup(destination)
-    finally:
+    except BaseException:
         destination.close()
-    return Path(target)
+        part.unlink(missing_ok=True)
+        raise
+    destination.close()
+    os.replace(part, target)
+    return target
+
+
+def _open(source: str | Path) -> sqlite3.Connection:
+    # immutable: reading must not leave "-wal" and "-shm" files next to the user's backup
+    return sqlite3.connect(f"file:{Path(source).as_posix()}?mode=ro&immutable=1", uri=True)
 
 
 def is_backup(source: str | Path) -> bool:
     try:
-        connection = sqlite3.connect(f"file:{Path(source).as_posix()}?mode=ro", uri=True)
+        connection = _open(source)
     except sqlite3.Error:
         return False
     try:
@@ -52,13 +69,17 @@ def is_backup(source: str | Path) -> bool:
 def restore_backup(source: str | Path) -> Path:
     """Replace the live database with a backup; what was there is kept as a backup first."""
     folder().mkdir(parents=True, exist_ok=True)
-    safety = write_backup(folder() / f"Before restoring {datetime.now():%Y-%m-%d %H%M}{SUFFIX}")
-    backup = sqlite3.connect(f"file:{Path(source).as_posix()}?mode=ro", uri=True)
+    safety = write_backup(
+        folder() / f"{SAFETY_NAME} {datetime.now():%Y-%m-%d %H%M%S}{SUFFIX}")
+    backup = _open(source)
     try:
         with db.connect() as live:
             backup.backup(live)
     finally:
         backup.close()
+    db.migrate()  # a backup from an older GeoHarvest gets the tables added since
+    for old in sorted(folder().glob(f"{SAFETY_NAME} *{SUFFIX}"))[:-SAFETY_KEEP]:
+        old.unlink(missing_ok=True)
     return safety
 
 
