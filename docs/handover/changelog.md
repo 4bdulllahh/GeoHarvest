@@ -2,6 +2,29 @@
 
 What went into each version and how it was tested, newest first. Add to it with every change. The user-facing release notes are in `docs/releases/`.
 
+## v0.3.3 beta (2026-11-16)
+
+The user's real search (12 types x 11 UAE cities) showed no new leads for about 400 Google
+pages at a time, a 142 MB database and 16,140 businesses lost to three opening hours choices.
+Plan M1 to M12 in `handover.md`; the audit behind it is [audit-2026-11.md](audit-2026-11.md).
+- **Resume shows real numbers** (`search.tally`); leads keep found dates and exported marks,
+  deleted leads stay deleted (`search.set_picked`).
+- **Shorter batches** (`scrape.BATCH_PAGES`), new leads shown live; progress saved every 10
+  pages (`search.save_pages`).
+- **Similar types:** a warning (`search.overlapping`), and a query bringing nothing new is ended
+  (`scrape.STALE_PAGES`). **Adaptive digging** (`search.deep_queries`, `geo.quarter`). The
+  search goes to the maximum, not only the minimum.
+- **Google's limit:** the gap widens when Google answers slowly (`MapsClient.slow`); a limit is
+  waited out inside the run (`scrape.SHORT_WAITS`) before the long wait. **Internet drops:**
+  retried every 30 s for 10 minutes (`ScrapeWorker.wait_for_internet`).
+- **Opening hours warning** (`search.hours_chosen`). **Update notice:** "Update now" or "Later",
+  no countdown; a waiting search does not start behind a modal window.
+- The backup installer moved to v0.3.4.
+
+Tested: 87 tests; i18n check complete in ar/de/es/fr. **Not tested:** anything against real
+Google (M5 to M10 ran against a pretend Google only), the app clicked through by hand (opening
+it would carry on the user's real search), the real download and install of an update.
+
 ## v0.3.2 beta (2026-11-03)
 
 The user's batch after testing 0.3.1: Google's limit stopping long searches, no pause, a manual

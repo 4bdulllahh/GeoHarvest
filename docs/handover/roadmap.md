@@ -3,11 +3,18 @@
 Before starting a new batch or a release, read this and ask the user whether to include any
 open item. Move items to [changelog.md](changelog.md) when they ship.
 
-## Next: v0.3.3, a backup installer for Smart App Control PCs
+## Next: v0.4, the audit fixes
+
+M13 to M19 in [../../handover.md](../../handover.md): freeing up space, the audit's groups A
+to I ([audit-2026-11.md](audit-2026-11.md)).
+
+## Then: v0.3.4, a backup installer for Smart App Control PCs
 
 Agreed with the user on 2026-10-29 for v0.3.1, then moved to v0.3.2 when the user asked for
 the performance update first (2026-10-30), then to v0.3.3 when v0.3.2 became the pause and
-resume update (2026-11-03). READ ME FIRST and the README say it's coming. Smart App Control on some Windows 11 PCs blocks every unsigned
+resume update (2026-11-03), then to v0.3.4 when v0.3.3 became the faster, steadier search
+update (2026-11-16; the user was told and did not object, and has not said whether it comes
+before or after v0.4). READ ME FIRST and the README say it's coming. Smart App Control on some Windows 11 PCs blocks every unsigned
 program, with no "Run anyway".
 
 HomingPigeon's `installer/install-if-blocked.bat` can't be copied as is. It only has to get

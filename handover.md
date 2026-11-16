@@ -8,7 +8,7 @@ This file only says where we are. What the app is, how the code is organised and
 decision are in [docs/handover/README.md](docs/handover/README.md): read that index, then
 only the file for the part you are changing.
 
-## Current plan: v0.3.3 beta after M12, then v0.4 after M19 (approved 2026-11-16)
+## Current plan: v0.3.3 beta after M12 (built), then v0.4 after M19 (approved 2026-11-16)
 
 The user's answers: a search **keeps going to the maximum** (no early stop at the minimum);
 Google's limit is avoided and recovered from inside the same run; updates download quietly,
@@ -30,8 +30,8 @@ model (model-router skill).
 | M10 | Internet drops: Google requests that don't get through are tried again every 30 s for 10 minutes (`ScrapeWorker.wait_for_internet`) | S | done |
 | M11 | Opening hours warning on the form when more than one "Open" choice is on (`search.hours_chosen`) | S | done |
 | M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | done |
-| R1 | **Release v0.3.3 beta** (M1 to M12) | M | next |
-| M13 | Tidy up storage: "Free up space" in Settings, automatic clean-up of finished searches | M | |
+| R1 | **Release v0.3.3 beta** (M1 to M12) | M | done locally, see Current state |
+| M13 | Tidy up storage: "Free up space" in Settings, automatic clean-up of finished searches | M | next |
 | M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | |
 | M15 | Audit group B: the search job never gets stuck, errors reach the log | M | |
 | M16 | Audit group C: Leads page speed with 30,000 rows | M | |
@@ -122,14 +122,22 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   search while any question window is open; it starts once that closes. Tested in
   `test_ui.py` with a pretend Setup; **the real download and install were not run** (they
   need a published release newer than the build).
-- **Next: R1, release v0.3.3 beta:** steps in "Working with the user" in
-  `docs/handover/README.md` and `docs/handover/releasing.md`. Write the v0.3.3 changelog lines
-  from the milestone table above. The roadmap's old "v0.3.3 backup installer" item moves to
-  a later version (told to the user 2026-11-16; they did not object). **Before the release,
-  ask the user to run one real search**: M5 to M10 were only tested against a pretend Google.
+- **Then R1, release v0.3.3 beta (2026-11-16):** `APP_VERSION` is "v0.3.3 beta", notes in
+  `docs/releases/v0.3.3-beta.md` (with the paste-ready paragraph), README, changelog, roadmap
+  and screenshots updated, `dist/GeoHarvest-v0.3.3-beta-windows.zip` built with its self-test,
+  local tag `v0.3.3`. **Still to do, by the user:** OK the push (commits and the tag), then
+  publish the release on GitHub (steps in `docs/handover/releasing.md`; CI attaches the zip).
+  **The user was asked to run one real search before publishing** (M5 to M10 were only tested
+  against a pretend Google) and said "next milestone" without saying whether they had: ask
+  again before publishing. The backup installer is now v0.3.4 in the README, READ ME FIRST
+  and the roadmap.
+- **Next: M13,** "Free up space" in Settings and automatic clean-up of finished searches. Its
+  findings are under its heading in `docs/handover/audit-2026-11.md`; the database is 142 MB
+  (66,568 candidates), see "What the user's real search showed" above.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
   81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
-  session: 9% after M11 (handover read included).
+  session: 9% after M11 (handover read included), 15% after M12 (an S with translations
+  and a UI test: 6%).
 - **Not checked in the running app** (M3 to M11; M11's line was only seen in a headless
   screenshot with no fonts): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
@@ -138,13 +146,11 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   write the message to a file and use `git commit -F`.
 - **Writing tests from PowerShell:** `Set-Content -Encoding utf8` adds a byte-order mark in
   PowerShell 5.1. Use the Edit tool or `Add-Content` for test files.
-- **Changelog:** `docs/handover/changelog.md` gets its v0.3.3 lines at the release (M20), from
-  the milestone table above.
-- **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
-  It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
+- **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
+- **Open questions:** does the backup installer (v0.3.4) come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** M11 and M12. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
+- **Not pushed:** M11, M12, the release commit and the tag `v0.3.3`. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
   user's OK (a backup only: no release, no tag, testers get nothing yet). Ask again before
   the next push.
-- **Waiting on the user:** one real search to try M5 to M10 before the release, their usage %
-  and the go-ahead for R1.
+- **Waiting on the user:** the OK to push, one real search before publishing, their usage %
+  and the go-ahead for M13.

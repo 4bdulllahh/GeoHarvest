@@ -13,7 +13,7 @@ customer. Export to Excel, to your CRM, or straight into Google Sheets. No accou
 subscription, nothing to pay: everything runs on your own computer.
 
 **Download:** [latest release](https://github.com/4bdulllahh/GeoHarvest/releases/latest) ·
-**Version:** 0.3.2 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
+**Version:** 0.3.3 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
 
 [![Build](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml/badge.svg)](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/4bdulllahh/GeoHarvest?label=download&color=3b86dd)](https://github.com/4bdulllahh/GeoHarvest/releases/latest)
@@ -115,6 +115,13 @@ subscription, nothing to pay: everything runs on your own computer.
 - **Pause, resume and carry on by itself.** Pause a search, close the app and continue any time.
   If Google asks GeoHarvest to slow down, it counts down and starts again by itself. Close the
   app mid-search and it carries on the next time you open it.
+- **Steady on long searches.** Leads appear while the search runs. GeoHarvest slows down by
+  itself when Google answers slowly, waits out a short limit inside the search, and waits for
+  the internet to come back if the connection drops.
+- **Digs deeper where the businesses are.** A city Google gives a full list for is split into
+  smaller map areas, again and again where they are still full.
+- **Warns before you lose leads.** The form says so when several opening hours choices, or
+  business types that find the same businesses, would cut your results.
 - **Past searches.** Load any search's leads, pause or resume it, run it again or delete it.
   Delete single leads you don't want.
 - **Backups.** Back up your searches, leads, presets and settings to a file, and restore them
@@ -122,8 +129,8 @@ subscription, nothing to pay: everything runs on your own computer.
 - **Proxies (optional).** For people who search a lot: paste HTTP or SOCKS5 proxies in Settings
   and test them. GeoHarvest takes turns between them and skips any that stop working.
 - **Updates itself.** Every time it opens, GeoHarvest downloads the newest version, checks it is
-  genuine and installs it, waiting for a running search to finish. Your searches and settings
-  are kept. An older download installs the newest version too.
+  genuine and asks **Update now** or **Later**, waiting for a running search to finish. Your
+  searches and settings are kept. An older download installs the newest version too.
 - **Light and easy to install.** A 33 MB download with its own installer: no administrator
   rights, no Python, nothing else to install, and Cancel never leaves a half-installed app.
 - **Your look, your language.** Ready-made themes plus a theme maker (share your theme as a
@@ -198,7 +205,7 @@ certificate costs money every year), so Windows SmartScreen doesn't recognise it
 
 **"Smart App Control blocked an app"?** Some Windows 11 PCs block every program that isn't
 code-signed, with no Run anyway. GeoHarvest can't be installed on those PCs yet; a backup
-installer for them is coming in 0.3.2.
+installer for them is coming in 0.3.4.
 
 Your searches, leads and settings are kept in `%APPDATA%\GeoHarvest`, outside the app folder,
 so updating never loses them. To remove GeoHarvest, use **Settings > Uninstall GeoHarvest** or
@@ -275,8 +282,8 @@ places).
   clinic, orthodontist`). Strict filters (Startups, must have a phone and a website) can leave
   small cities with only a few; the summary after the search says what was left out and why.
 - **"Google asked GeoHarvest to slow down."** Very large searches from one internet connection
-  can hit Google's limits. GeoHarvest keeps everything found, counts down (usually 15 minutes)
-  and starts again by itself. **Gentle** speed in Settings, or proxies, make this less likely.
+  can hit Google's limits. GeoHarvest keeps everything found, waits a few minutes and carries
+  on; if Google still says no, it counts down (usually 15 minutes) and starts again by itself. **Gentle** speed in Settings, or proxies, make this less likely.
 - **Company age is an estimate** based on the website's domain. Some registries (`.pk`, `.de`,
   `.ae`) don't publish dates; for those GeoHarvest uses the first time the site appeared in the
   Internet Archive, which is slower, so it only does that when you filter by age. If neither
@@ -293,9 +300,10 @@ places).
 ## Testing the beta
 
 The most useful feedback: what you searched for and what went wrong or looked odd, anything
-confusing, and what you wish it did. New in 0.3.2 and worth trying: a **long search** (how often does
-Google still ask it to slow down, and does it start again by itself?), **Pause** and **Resume**,
-and closing the app mid-search and reopening it. Post it as a
+confusing, and what you wish it did. New in 0.3.3 and worth trying: a **long search** (do leads
+appear as it runs, how often does Google still ask it to slow down, and does it carry on by
+itself?), switching the internet off and on mid-search, and the **Update now** or **Later**
+question. Post it as a
 [GitHub issue](https://github.com/4bdulllahh/GeoHarvest/issues/new). If the app crashed,
 attach `%APPDATA%\GeoHarvest\logs\crash.log`; if Setup failed, attach
 `%TEMP%\GeoHarvest-setup-log.txt` (Setup's **Open log file** button shows it).
@@ -339,7 +347,10 @@ decisions behind it, and where each feature lives.
   international phone numbers, Smart mode opening lines, needs, Hot/Warm/Cold, limits and more
 - [x] **v0.3.2**: pause and resume, carrying on by itself after Google's limits and after
   closing the app, requests spaced out, leads from every city, scrolling inside lists
-- [ ] **v0.3.3**: a backup installer for PCs with Smart App Control
+- [x] **v0.3.3**: leads while the search runs, deeper digging in busy cities, Google's limits
+  and lost connections waited out inside the search, warnings on the form, updates that ask first
+- [ ] **v0.3.4**: a backup installer for PCs with Smart App Control
+- [ ] **v0.4**: freeing up space, a faster Leads page, safer backups and many small fixes
 - [ ] **Ideas for later**: emails from Facebook pages, a map view of results, and a Mac version
 
 ## Legal
