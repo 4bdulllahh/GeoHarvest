@@ -4,7 +4,8 @@ A free PyQt6 Windows app that finds business leads on Google Maps (repo
 github.com/4bdulllahh/GeoHarvest; the local folder is still called MapScout). For
 non-technical users: plain words on screen, in five languages.
 
-**Read [docs/handover/README.md](docs/handover/README.md) first, then only the handover file for
+**Read [handover.md](handover.md) (where we are, the current milestones), then
+[docs/handover/README.md](docs/handover/README.md), then only the handover file for
 the part you are changing.** Don't read every file: the table there says which one you need.
 
 ## Rules that are easy to break
@@ -19,10 +20,12 @@ the part you are changing.** Don't read every file: the table there says which o
 - Every `places.FIELDS` key must be in exactly one `places.FIELD_GROUPS` group (tested).
 - Users update in place and keep their data: old saved options are converted in
   `search.options_with_defaults`, never dropped.
-- Commit and push at the end of each milestone, then ask before the next one.
-- **Every request: review and ask first, build only after the user's thumbs up**, then commit,
-  push, version bump + zip, release notes, docs and README screenshots. The steps are in
-  "Working with the user" in [docs/handover/README.md](docs/handover/README.md).
+- **The user's global workflow applies here** (play the prompt back, questions, milestone plan,
+  build after the thumbs up, token check after every milestone).
+- Commit locally at the end of each milestone (`feat: ...`, `fix: ...`, `docs: ...`), update
+  [handover.md](handover.md), then ask before the next one. **Ask before pushing**, never force push.
+- A release adds: version bump + zip, release notes, docs and README screenshots. The steps
+  are in "Working with the user" in [docs/handover/README.md](docs/handover/README.md).
 
 ## Everyday commands
 

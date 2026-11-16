@@ -48,23 +48,24 @@ local folder `../Email-Sender`): same theme module, sidebar, cards, status bar, 
 
 ## Working with the user
 
-**How every request goes** (the user's own process, 2026-10-30). When they finish writing a
-batch of fixes and features:
+**How every request goes** (the user's global workflow, since 2026-11-16; it replaced the
+2026-10-30 process, which pushed without asking). When they finish writing a batch of fixes
+and features:
 
-1. Go through every item and read the code it touches. Come back first: say what you found and
-   recommend, and ask what is open. No code yet.
-2. Once they give a thumbs up to everything, make all the changes, with tests.
-3. Commit and push to GitHub.
-4. Bump the version (`APP_VERSION`) and build a new dist zip (`python tools/build.py`).
-5. Write release notes: `docs/releases/<tag>.md` plus a short paste-ready paragraph.
-6. Update every md file that needs it (this folder, changelog, roadmap...).
-7. Update the GitHub README: new features and fresh screenshots (`python tools/screenshot.py`).
-
-Steps 2 to 7 are one job once they say yes: no need to ask again for the commit, push or build.
+1. Go through every item and read the code it touches. Play the prompt back: a numbered
+   summary, what you found and recommend, and "did you miss anything?". No code yet.
+2. After the thumbs up: questions with the AskUserQuestion form, then the milestone plan as a
+   table. Wait for the final thumbs up.
+3. Build one milestone at a time, with tests. After each: update the right file here (and
+   [changelog.md](changelog.md)) and [../../handover.md](../../handover.md), commit locally
+   (`feat: ...`, `fix: ...`, `docs: ...`), report, ask for the usage %, and ask before the next one.
+4. **Ask before pushing**: one question listing the commits. Never force push.
+5. The release milestone: bump the version (`APP_VERSION`), build the zip
+   (`python tools/build.py`), write release notes (`docs/releases/<tag>.md` plus a short
+   paste-ready paragraph), update every md file that needs it (this folder, changelog,
+   roadmap...) and the GitHub README with fresh screenshots (`python tools/screenshot.py`).
 
 - Ask questions with the AskUserQuestion form, not as a text list.
-- After every milestone: update the right file here (and [changelog.md](changelog.md)), commit,
-  push, then ask before starting the next one.
 - For every release the user wants release notes in `docs/releases/<tag>.md` plus a short
   paste-ready paragraph, in plain English for testers.
 
