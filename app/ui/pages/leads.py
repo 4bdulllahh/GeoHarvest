@@ -524,9 +524,17 @@ class LeadsPage(Page):
         self.notify(t("Exporting {count:,} leads...", count=len(leads)), "info", 2000)
 
         def done(count: int) -> None:
-            self._mark_exported(leads)
+            # A list of emails has no row for a lead without one: those stay unmarked
+            sent = [lead for lead in leads if exporter.email_list(lead)] if per_email else leads
+            self._mark_exported(sent)
+            name = Path(path).name
+            if len(sent) < len(leads):
+                self.notify(t("Saved {count:,} emails to {name}. {left_out:,} leads with no "
+                              "email were left out.", count=count, name=name,
+                              left_out=len(leads) - len(sent)), "success", 8000)
+                return
             self.notify(t("Saved {count:,} emails to {name}" if per_email else
-                          "Saved {count:,} leads to {name}", count=count, name=Path(path).name),
+                          "Saved {count:,} leads to {name}", count=count, name=name),
                         "success", 6000)
 
         def failed(message: str) -> None:

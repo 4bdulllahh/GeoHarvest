@@ -7,7 +7,12 @@ export has no empty AI columns. Text from Google is untrusted: a business named
 from __future__ import annotations
 
 import csv
+import json
+import math
+import os
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from app.core.places import FIELDS, NOT_FOUND
@@ -15,8 +20,23 @@ from app.core.places import FIELDS, NOT_FOUND
 LINK_COLUMNS = {"website", "maps_url", "reviews_url", "facebook", "instagram", "linkedin",
                 "twitter", "youtube", "tiktok", "photo", "owner_linkedin"}
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")  # Excel refuses these outright
-_PHONE = re.compile(r"^[+-][\d\s().-]+$")
+# What a spreadsheet can't work out as a sum: a plain number ("-73.98", "+97145550100"), or
+# a phone number with a space after its country code ("+1 212-555-0100"). "+1-1" is a sum.
+_PHONE = re.compile(r"^(?:[+-][\d.]+|\+\d+\s\(?\d[\d\s().-]*)$")
 EXCEL_CELL_LIMIT = 32767
+
+
+@contextmanager
+def _finished(path: Path) -> Iterator[Path]:
+    """A name to write to first. Only a file written to the end takes ``path``'s place, so
+    an export that fails never leaves half a file or spoils the one already there."""
+    path = Path(path)
+    part = path.with_name(path.name + ".part")
+    try:
+        yield part
+        os.replace(part, path)
+    finally:
+        part.unlink(missing_ok=True)
 
 
 def columns_in_use(leads: list[dict], keys: list[str] | None = None) -> list[tuple[str, str]]:
@@ -27,17 +47,20 @@ def columns_in_use(leads: list[dict], keys: list[str] | None = None) -> list[tup
 
 
 def _text(value) -> str:
-    if value is None:
+    if value is None or (isinstance(value, float) and not math.isfinite(value)):
         return ""
-    if isinstance(value, list):
-        value = ", ".join(map(str, value))
+    if isinstance(value, (list, tuple)):
+        value = ", ".join(_text(item) for item in value)
+    elif isinstance(value, dict):
+        value = json.dumps(value, ensure_ascii=False, default=str)
     return _CONTROL.sub("", str(value))[:EXCEL_CELL_LIMIT]
 
 
 def safe_csv(value) -> str:
     """Stop spreadsheet apps treating a cell as a formula; phone numbers stay as they are."""
     text = _text(value)
-    if text[:1] in ("=", "@") or (text[:1] in ("+", "-") and not _PHONE.match(text)):
+    start = text.lstrip()  # a tab or a new line in front does not stop a formula
+    if start[:1] in ("=", "@") or (start[:1] in ("+", "-") and not _PHONE.match(start)):
         return "'" + text
     return text
 
@@ -45,7 +68,7 @@ def safe_csv(value) -> str:
 def to_csv(leads: list[dict], path: Path, keys: list[str] | None = None) -> int:
     columns = columns_in_use(leads, keys)
     # utf-8-sig: the byte-order mark is what makes Excel read accents and Arabic correctly
-    with open(path, "w", newline="", encoding="utf-8-sig") as handle:
+    with _finished(path) as part, open(part, "w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
         writer.writerow([header for _key, header in columns])
         for lead in leads:
@@ -72,7 +95,8 @@ def to_xlsx(leads: list[dict], path: Path, keys: list[str] | None = None) -> int
     for row_number, lead in enumerate(leads, start=2):
         for col_number, (key, _header) in enumerate(columns, start=1):
             value = lead.get(key)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                    and math.isfinite(value)):  # "not a number" makes Excel repair the file
                 sheet.cell(row_number, col_number, value)
                 continue
             text = _text(value)
@@ -89,7 +113,8 @@ def to_xlsx(leads: list[dict], path: Path, keys: list[str] | None = None) -> int
         sheet.column_dimensions[get_column_letter(col_number)].width = min(max(width, 8), 50)
     sheet.freeze_panes = "B2"
     sheet.auto_filter.ref = sheet.dimensions
-    book.save(path)
+    with _finished(path) as part:
+        book.save(part)
     return len(leads)
 
 
@@ -132,12 +157,15 @@ ONE_ROW_PER_EMAIL = {"homingpigeon"}
 
 
 def email_list(lead: dict) -> list[str]:
-    return [email.strip() for email in str(lead.get("emails") or "").split(",") if email.strip()]
+    emails = lead.get("emails") or ""
+    if not isinstance(emails, (list, tuple)):
+        emails = str(emails).split(",")
+    return [email.strip() for email in map(str, emails) if email.strip()]
 
 
 def _crm_value(lead: dict, key: str):
     if key == "first_email":
-        return (str(lead.get("emails") or "").split(",")[0]).strip()
+        return next(iter(email_list(lead)), "")
     if key == "street" and not lead.get("street"):
         return lead.get("address")  # some countries' addresses have no street part
     return None if lead.get(key) == NOT_FOUND else lead.get(key)  # CRMs expect a link there
@@ -145,7 +173,7 @@ def _crm_value(lead: dict, key: str):
 
 def to_crm(leads: list[dict], path: Path, crm: str) -> int:
     columns = CRMS[crm][1]
-    with open(path, "w", newline="", encoding="utf-8-sig") as handle:
+    with _finished(path) as part, open(part, "w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
         writer.writerow([header for header, _key in columns])
         if crm in ONE_ROW_PER_EMAIL:
@@ -160,8 +188,8 @@ def to_tsv(leads: list[dict], keys: list[str] | None = None) -> str:
     columns = columns_in_use(leads, keys)
     rows = [[header for _key, header in columns]]
     # Sheets reads a pasted "+971..." as a formula; a leading ' keeps it text and is not shown
-    rows += [["'" + text if (text := " ".join(_text(lead.get(key)).split()))[:1] in "=+-@"
-              else text for key, _header in columns] for lead in leads]
+    rows += [["'" + text if (text := " ".join(_text(lead.get(key)).split())).startswith(
+        ("=", "+", "-", "@")) else text for key, _header in columns] for lead in leads]
     return "\n".join("\t".join(row) for row in rows)
 
 

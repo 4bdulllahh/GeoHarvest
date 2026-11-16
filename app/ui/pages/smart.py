@@ -4,7 +4,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QInputDialog, QLineEdit, QMenu, QSpinBox, QVBoxLayout, QWidget
 
-from app.core import ai, credentials, db
+from app.core import ai, crashlog, credentials, db
 from app.core import search as searches
 from app.i18n import t
 from app.ui.pages.base import Page
@@ -279,9 +279,16 @@ class SmartPage(Page):
         Task(ai.list_models, cfg).start(on_result=self.guard(done), on_error=self.guard(failed),
                                         on_done=self.guard(finish))
 
-    def save(self) -> dict:
+    def save(self) -> dict | None:
+        """Save what is on the page. None: Windows could not encrypt the key, nothing saved."""
         cfg = self._form_config()
-        credentials.save_secret(credentials.ai_key_name(cfg["provider"]), cfg["key"])
+        try:
+            credentials.save_secret(credentials.ai_key_name(cfg["provider"]), cfg["key"])
+        except OSError as error:
+            crashlog.record(f"The AI key could not be saved: {error}")
+            self.notify("Windows couldn't protect what you typed, so it was not saved. "
+                        "Restart your computer and try again.", "error", 10000)
+            return None
         db.set_setting("ai_provider", cfg["provider"])
         db.set_setting("ai_model", cfg["model"])
         db.set_setting("ai_base_url", cfg["base_url"] if self.url_row.isVisible() else "")
@@ -300,6 +307,8 @@ class SmartPage(Page):
 
     def save_and_test(self) -> None:
         cfg = self.save()
+        if cfg is None:
+            return
         self.save_button.setEnabled(False)
         self.status.setText(t("Testing: asking the AI to score a sample business..."))
 
@@ -324,7 +333,8 @@ class SmartPage(Page):
         if not leads:
             self.notify("Run a search first: there are no leads to try it on yet.", "warn")
             return
-        self.save()
+        if self.save() is None:
+            return
         cfg = ai.settings()
         self.try_button.setEnabled(False)
         self.status.setText(t("Trying it on {count} of your leads...", count=len(leads)))

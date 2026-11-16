@@ -20,6 +20,7 @@ from ctypes import wintypes
 from pathlib import Path
 
 from app import config
+from app.core import crashlog
 
 _CACHE: dict[str, str] | None = None
 
@@ -92,10 +93,9 @@ def _fernet():
 def _encrypt(payload: dict[str, str]) -> bytes:
     raw = json.dumps(payload).encode("utf-8")
     if _dpapi_available():
-        try:
-            return b"DPAPI:" + _dpapi_encrypt(raw)
-        except OSError:
-            pass  # fall through to Fernet
+        # If Windows can't encrypt, nothing is saved: the other way is a key anyone who
+        # knows this computer's name could work out
+        return b"DPAPI:" + _dpapi_encrypt(raw)
     return b"FERNT:" + _fernet().encrypt(raw)
 
 
@@ -117,9 +117,16 @@ def _load_all() -> dict[str, str]:
         return _CACHE
     try:
         _CACHE = _decrypt(path.read_bytes())
-    except Exception:
-        # Unreadable store (copied from another machine, or corrupted): start clean
-        # rather than blocking the app. The user just re-enters the password.
+    except Exception as error:  # noqa: BLE001 - whatever is wrong with it, the app must open
+        # Unreadable store (copied from another computer, or damaged): start clean rather
+        # than blocking the app, and the user types the keys in again. The old file is
+        # kept, because the next save would otherwise write over every key in it.
+        crashlog.record(f"The saved keys could not be read ({type(error).__name__}: {error}). "
+                        f"The file was kept as {path.with_suffix('.bak').name}.")
+        try:
+            path.replace(path.with_suffix(".bak"))
+        except OSError as failed:
+            crashlog.record(f"The unreadable keys file could not be kept: {failed}")
         _CACHE = {}
     return _CACHE
 
@@ -158,7 +165,9 @@ def has_secret(name: str) -> bool:
 
 
 def clear_all() -> None:
-    _save_all({})
+    global _CACHE
+    Path(config.SECRETS_PATH).unlink(missing_ok=True)  # nothing to encrypt, so it can't fail there
+    _CACHE = {}
 
 
 def backend_name() -> str:

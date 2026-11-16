@@ -56,6 +56,16 @@ What went into each version and how it was tested, newest first. Add to it with 
   made before a restore is named to the second, and only the newest `SAFETY_KEEP` (5) stay.
   Also: backups are opened `immutable`, so reading one no longer leaves "-wal" and "-shm"
   files beside it.
+- **M18 audit groups E and F, exports and saved keys** (E1 to E5, F1, F2):
+  E1 `to_tsv` pastes an empty cell empty. E2 every export writes `<name>.part` and renames
+  (`exporter._finished`). E3 `_text` joins nested lists, writes a dict as JSON and "not a
+  number" as empty. E4 `_PHONE` leaves alone only a plain number or a phone with a space
+  after its country code ("+1 212-555-0100"); "+1-1" and text starting with a tab or new
+  line get the `'`. **A judgement, not checked in Excel.** E5 `email_list` takes a list;
+  the HomingPigeon export says how many leads had no email and no longer marks those as
+  exported. F1 an unreadable keys file is kept as `secrets.bak` and noted in crash.log.
+  F2 on Windows a DPAPI failure raises instead of writing a weaker file; Smart mode and
+  the proxies box show a plain message. `clear_all` deletes the file.
 
 ## v0.3.4 beta (2026-11-16)
 

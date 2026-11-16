@@ -37,8 +37,8 @@ model (model-router skill).
 | M15 | Audit group B: the search job never gets stuck, errors reach the log | M | done |
 | M16 | Audit group C: Leads page speed with 30,000 rows | M | done, one part left out (see Current state) |
 | M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | done |
-| M18 | Audit groups E and F: exports, saved keys | M | next |
-| M19 | Audit groups G, H and I: Smart mode, website checks, Setup | M | |
+| M18 | Audit groups E and F: exports, saved keys | M | done |
+| M19 | Audit groups G, H and I: Smart mode, website checks, Setup | M | next |
 | R2 | **Release v0.4** (M13 to M19) | M | |
 
 **The user's decisions on 2026-11-16:** go slowly, one milestone at a time; release v0.3.3
@@ -171,7 +171,17 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   (`window.setEnabled(False)` in `SettingsPage._restore`). Tested in `test_core.py` and
   `test_ui.py` (a pretend Task); **the real restore was not clicked through in the app**.
   There is no ruff on this machine (`No module named ruff`): the lint check was not run.
-- **Next: M18,** audit groups E and F (exports, saved keys) in `docs/handover/audit-2026-11.md`.
+- **Then M18:** audit groups E and F, all seven, in the v0.4 lines of
+  `docs/handover/changelog.md`. Tested in `test_core.py`. **Not tested:** the "leads with no
+  email were left out" message (`LeadsPage.export`, a few lines of UI) and the two "Windows
+  couldn't protect..." messages. **Not checked in Excel:** which phone numbers it reads as a
+  sum (`exporter._PHONE`); if testers see a `'` in front of a phone number in a CSV, look there.
+  The tests never pointed `config.SECRETS_PATH` away from the user's real keys file before
+  this (only the new test does): worth a fixture in `conftest.py` if a UI test ever saves a key.
+- **Next: M19,** audit groups G, H and I (Smart mode, website checks, Setup) in
+  `docs/handover/audit-2026-11.md`. Then R2, and before it the user's click-through (below).
+- **Usage, third session:** 5% after M17 (handover read included), M18 not reported yet.
+  These two were cheaper than the 10 to 19% planned.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
   81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
   session: 9% after M11 (handover read included), 15% after M12 (an S with translations
@@ -191,7 +201,7 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
 - **Open questions:** does the backup installer come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** M17 (one commit). Everything up to M16 and its handover was pushed to `origin/main`
+- **Not pushed:** M17 and M18 (two commits). Everything up to M16 and its handover was pushed to `origin/main`
   on 2026-11-16 with the user's OK (a backup: no release, testers get nothing from it). The
   user published v0.3.3 and v0.3.4 themselves on GitHub, and creates the tags there.
   **Ask again before the next push.**
@@ -200,5 +210,4 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Before R2,** ask the user to click through the app once (Stop, Resume, delete a search,
   Free up space, a backup and restore): M13 to M16 were only tested, and the 'step' error
   in v0.3.3 came from exactly that gap.
-- **Waiting on the user:** their usage % after M17 (new session, M17 was the first thing in
-  it), then the go-ahead for M18.
+- **Waiting on the user:** their usage % after M18, then the go-ahead for M19.

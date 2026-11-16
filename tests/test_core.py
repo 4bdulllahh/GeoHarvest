@@ -659,6 +659,77 @@ def test_crm_and_sheets_export(tmp_path):
                                  "'=Acme\t'+971 4 555 0100\tline one two"]
 
 
+def test_exports_cope_with_odd_values_and_never_leave_half_a_file(tmp_path, monkeypatch):
+    import csv
+
+    from openpyxl import load_workbook
+
+    from app.core import exporter
+
+    leads = [{"name": "\t=Acme", "phone": "+1-1", "phone_international": "+1 212-555-0100",
+              "emails": ["a@acme.ae", "b@acme.ae"], "rating": float("nan"), "latitude": -73.98,
+              "category": [["Cafe", "Bar"], {"type": "Bakery"}], "city": ""},
+             {"name": "No email", "city": "Dubai"}]
+    keys = ["name", "phone", "phone_international", "rating", "latitude", "category", "city"]
+    # An empty cell is pasted empty, not as a lone '
+    assert exporter.to_tsv(leads, ["name", "city"]).splitlines()[1:] == ["'=Acme\t",
+                                                                         "No email\tDubai"]
+    exporter.export(leads, tmp_path / "leads.csv", keys)
+    row = dict(zip(*list(csv.reader((tmp_path / "leads.csv").open(encoding="utf-8-sig")))[:2]))
+    assert row["Name"] == "'\t=Acme" and row["Phone"] == "'+1-1"  # both would run as formulas
+    assert row["Latitude"] == "-73.98" and "+1 212-555-0100" in row.values()  # left alone
+    assert row["Category"] == 'Cafe, Bar, {"type": "Bakery"}' and row["Rating"] == ""
+    exporter.export(leads, tmp_path / "leads.xlsx", keys)
+    cells = [cell.value for cell in load_workbook(tmp_path / "leads.xlsx").active[2]]
+    assert "nan" not in map(str, cells) and -73.98 in cells
+    # A list of emails works like the usual "a, b" text
+    assert exporter.to_crm(leads, tmp_path / "hp.csv", "homingpigeon") == 2
+    exporter.to_crm(leads, tmp_path / "zoho.csv", "zoho")
+    assert "a@acme.ae" in (tmp_path / "zoho.csv").read_text(encoding="utf-8-sig").splitlines()[1]
+    # An export that fails keeps the file already there and leaves nothing half-written
+    before = (tmp_path / "leads.csv").read_bytes()
+    monkeypatch.setattr(exporter, "safe_csv", lambda _value: 1 / 0)
+    for write in (lambda: exporter.export(leads, tmp_path / "leads.csv", keys),
+                  lambda: exporter.to_crm(leads, tmp_path / "hp.csv", "homingpigeon")):
+        with pytest.raises(ZeroDivisionError):
+            write()
+    assert (tmp_path / "leads.csv").read_bytes() == before
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_saved_keys_that_cannot_be_read_are_kept_and_nothing_weaker_is_written(
+        tmp_path, monkeypatch):
+    from app import config
+    from app.core import credentials
+
+    store = tmp_path / "secrets.bin"
+    monkeypatch.setattr(config, "SECRETS_PATH", store)
+    monkeypatch.setattr(config, "ensure_dirs", lambda: None)
+    monkeypatch.setattr(credentials, "_CACHE", None)
+    credentials.save_secret("ai_key_openai", "sk-one")
+    credentials.save_secret("proxies", "1.2.3.4:80")
+    assert store.read_bytes().startswith(b"DPAPI:")
+    # Damaged: the app opens with no keys, and the old file is kept beside the new one
+    damaged = store.read_bytes()[:-8]
+    store.write_bytes(damaged)
+    monkeypatch.setattr(credentials, "_CACHE", None)
+    assert credentials.load_secret("ai_key_openai") == ""
+    credentials.save_secret("ai_key_openai", "sk-two")
+    assert store.with_suffix(".bak").read_bytes() == damaged
+    assert "could not be read" in (config.LOGS_DIR / "crash.log").read_text(encoding="utf-8")
+    # Windows can't encrypt: an error, the saved keys untouched, no weaker file written
+    def broken(_data: bytes) -> bytes:
+        raise OSError("CryptProtectData failed")
+
+    monkeypatch.setattr(credentials, "_dpapi_encrypt", broken)
+    before = store.read_bytes()
+    with pytest.raises(OSError):
+        credentials.save_secret("proxies", "5.6.7.8:80")
+    assert store.read_bytes() == before and credentials.load_secret("proxies") == ""
+    credentials.clear_all()  # forgetting needs no encryption
+    assert not store.exists() and not credentials.has_secret("ai_key_openai")
+
+
 def test_backup_restore_and_weekly(tmp_path, monkeypatch):
     import sqlite3
     from datetime import datetime, timedelta

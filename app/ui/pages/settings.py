@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QAbstractItemView, QFileDialog, QListWidget, QListWidgetItem,
                              QVBoxLayout, QWidget)
 
-from app.core import backup, credentials, db, prefs, scraper, themes, tidy
+from app.core import backup, crashlog, credentials, db, prefs, scraper, themes, tidy
 from app.i18n import t
 from app.services import updater
 from app.ui import scrolling, theme
@@ -511,7 +511,13 @@ class SettingsPage(Page):
                           lines=", ".join(bad[:3]) + (" ..." if len(bad) > 3 else "")),
                         "warn", 8000)
             return
-        credentials.save_secret(scraper.PROXIES_SECRET, "\n".join(good))
+        try:
+            credentials.save_secret(scraper.PROXIES_SECRET, "\n".join(good))
+        except OSError as error:
+            crashlog.record(f"The proxies could not be saved: {error}")
+            self.notify("Windows couldn't protect what you typed, so it was not saved. "
+                        "Restart your computer and try again.", "error", 10000)
+            return
         self.proxies.setPlainText("\n".join(good))
         self.notify(t("Saved {count} proxies.", count=len(good)) if len(good) > 1 else
                     t("Saved 1 proxy.") if good else "Proxies cleared: searches go direct.",
