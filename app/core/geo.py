@@ -92,6 +92,21 @@ def distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 12742 * math.asin(math.sqrt(a))
 
 
+MIN_VIEW_KM = 0.5  # a map view is not split smaller than this (gosom's scraper uses 0.5 to 1)
+
+
+def quarter(lat: float, lng: float, camera: int) -> list[tuple[float, float, int]]:
+    """The four map views that cover this one, each half as wide; none once they would be
+    smaller than MIN_VIEW_KM."""
+    half = camera * VIEW_PER_METRE / 1000 / 2
+    if half < MIN_VIEW_KM:
+        return []
+    step_lat = half / 2 / KM_PER_DEGREE
+    step_lng = half / 2 / (KM_PER_DEGREE * max(math.cos(math.radians(lat)), 0.01))
+    return [(round(lat + dy * step_lat, 5), round(lng + dx * step_lng, 5),
+             round(half * 1000 / VIEW_PER_METRE)) for dy in (-1, 1) for dx in (-1, 1)]
+
+
 def radius_cells(lat: float, lng: float, km: float) -> list[tuple[float, float, int]]:
     """Map views (lat, lng, camera distance in metres) that together cover the circle."""
     across = min(MAX_CELLS_ACROSS, max(1, math.ceil(2 * km / CELL_KM)))

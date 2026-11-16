@@ -10,8 +10,9 @@
 
 The ones that fit become leads straight away (best first, at most the maximum), then the
 next batch starts. Small batches keep an older PC responsive: nothing waits on thousands
-of websites at once. Once Google has nothing left, the search goes deeper only while it is
-under the minimum: each city search Google cut short is run again in small map views
+of websites at once. Once Google has nothing left, the search goes deeper if it is under
+the minimum, and then on to the maximum: each search Google gave a full list for is run
+again as four smaller map views, and those are split again where they are full too
 (``search.deep_queries``).
 
 Everything is saved the moment it arrives, with the page each query has reached, so
@@ -72,6 +73,7 @@ class ScrapeWorker(Worker):
         self.following: dict = {}     # where each query goes next, once its page is saved
         self.failed: set[str] = set()  # searches that failed once in this run
         self.stale: dict[str, int] = {}  # query -> pages in a row with nothing new
+        self.listed: dict[str, int] = {}  # query -> businesses Google has listed for it
         self.cut: set[str] = set()    # searches Stop or a limit ended before their last page
         self.ai_checked = 0           # leads Smart mode checked in this run
 
@@ -107,9 +109,12 @@ class ScrapeWorker(Worker):
                 if self._stop.is_set() or self.blocked or ai_error or have >= high:
                     break
                 if searched:
-                    # Google has nothing more for these searches: dig deeper only while
-                    # under the minimum
-                    if have >= low or not searches.deep_queries(self.search_id, options):
+                    # Google has nothing more for these searches. Digging deeper starts
+                    # only under the minimum; once started it goes on to the maximum (the
+                    # user's choice, 2026-11), splitting only the views that came back full
+                    digging = searches.get(self.search_id)["progress"].get("deep")
+                    if not (have < low or digging) or not searches.deep_queries(
+                            self.search_id, options):
                         break
                 elif self.fetched == fetched_before and len(
                         searches.get(self.search_id)["progress"].get("done", [])) == done_before:
@@ -157,7 +162,7 @@ class ScrapeWorker(Worker):
         last_page = self.fetched + most_pages
         state = {"finished": len(all_queries) - len(left), "total": len(all_queries),
                  "fits": had["fits"], "phones": had["phones"], "busy": 0}
-        unsaved: dict = {"done": [], "at": {}, "pages": 0}
+        unsaved: dict = {"done": [], "at": {}, "full": [], "pages": 0}
         self.signals.step.emit(1)
         self.signals.found.emit(state["fits"], state["phones"])
         self.report(state["finished"], state["total"])
@@ -167,8 +172,9 @@ class ScrapeWorker(Worker):
 
         def save() -> None:
             """Write the pages reached since the last save (call with the lock held)."""
-            searches.save_pages(self.search_id, unsaved["done"], unsaved["at"])
-            unsaved.update(done=[], at={}, pages=0)
+            searches.save_pages(self.search_id, unsaved["done"], unsaved["at"],
+                                unsaved["full"])
+            unsaved.update(done=[], at={}, full=[], pages=0)
 
         def cut_short(query: str) -> bool:
             """Asked by the query's search before each further page: noted, because a
@@ -216,6 +222,9 @@ class ScrapeWorker(Worker):
                     self.fetched += 1
                     new, fresh = searches.add_candidates(self.search_id, page, options)
                     self.stale[query] = 0 if fresh else self.stale.get(query, 0) + 1
+                    # A resumed query starts from the page it had reached
+                    self.listed[query] = self.listed.get(
+                        query, (at.get(query) or [0])[0]) + len(page)
                     state["fits"] += len(new)
                     state["phones"] += sum(bool(lead.get("phone")) for lead in new)
                     self.signals.found.emit(state["fits"], state["phones"])
@@ -225,6 +234,10 @@ class ScrapeWorker(Worker):
                     self.following.pop(query, None)
                     done.add(query)
                     unsaved["done"].append(query)
+                    # Ended by Google with a full list (not by us, for repeating): worth
+                    # splitting if the search has to dig deeper
+                    if page is None and self.listed.get(query, 0) >= searches.DEEP_AT:
+                        unsaved["full"].append(query)
                     unsaved["at"].pop(query, None)
                     state["finished"] += 1
                     self.report(min(state["finished"], state["total"]), state["total"], query)

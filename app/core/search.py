@@ -376,15 +376,17 @@ def passes_hours(text: str, timezone: str | None, options: dict) -> bool:
 
 
 # --- finding more: deeper in each city, related business types ----------------
-DEEP_AT = 100      # a city search Google gave this many for was probably cut short
+DEEP_AT = 100      # a search Google gave this many for was probably cut short
 DEEP_KM = (2, 15)  # the area a deeper search covers, from the businesses already found
 
 
 def deep_queries(search_id: int, options: dict) -> list[str]:
-    """Google lists at most about 200 businesses per search, so a big city's search misses
-    most of them. For each city search that was cut short, the same search again in small
-    map views covering where its businesses were found. Saved in the search's progress
-    (each city search is split once); returns the new ones."""
+    """Google lists at most about 200 businesses per search, so a search of a busy place
+    misses most of them. Each search Google gave a full list for (``progress["full"]``) is
+    split once: a city search into four map views covering where the city's businesses
+    were found, a map view into its four quarters. Sparse areas are never split, so the
+    requests go where the businesses are. Saved in the search's progress; returns the new
+    searches. Call again once those are done, until it returns none."""
     if options["where"] != "cities":
         return []
     progress = get(search_id)["progress"]
@@ -392,30 +394,45 @@ def deep_queries(search_id: int, options: dict) -> list[str]:
     capped = set(progress.get("capped", []))
     done = set(progress.get("done", []))
     # Read once for every query: asking per query read every candidate each time
-    found: dict[str, list[tuple[float, float]]] = {}
+    by_query: dict[str, int] = {}
+    by_place: dict[str, list[tuple[float, float]]] = {}
     for r in db.query(
             "SELECT json_extract(data, '$.query') AS query, json_extract(data, '$.latitude') "
             "AS lat, json_extract(data, '$.longitude') AS lng FROM candidates "
             "WHERE search_id = ?", (search_id,)):
-        if r["lat"] is not None:
-            found.setdefault(r["query"], []).append((r["lat"], r["lng"]))
-    per_city = []
-    for query in build_queries(options):
+        if r["lat"] is not None and r["query"]:
+            by_query[r["query"]] = by_query.get(r["query"], 0) + 1
+            place = r["query"].rpartition(" near " if " near " in r["query"] else " in ")[2]
+            by_place.setdefault(place, []).append((r["lat"], r["lng"]))
+    # Searches saved before 0.3.3 have no "full" list: a city search that itself found
+    # DEEP_AT businesses was cut short too
+    full = list(progress.get("full", [])) + [
+        q for q in build_queries(options) if by_query.get(q, 0) >= DEEP_AT]
+    parts = []
+    for query in dict.fromkeys(full):
         if query in split or query in capped or query not in done:
             continue
-        points = found.get(query, [])
         split.add(query)
-        if len(points) < DEEP_AT:
-            continue
-        lat = sorted(p[0] for p in points)[len(points) // 2]
-        lng = sorted(p[1] for p in points)[len(points) // 2]
-        reach = sorted(geo.distance_km(lat, lng, *p) for p in points)[int(len(points) * 0.8)]
-        km = min(DEEP_KM[1], max(DEEP_KM[0], reach))
-        niche, _, place = query.rpartition(" in ")
-        per_city.append([f"{niche} near {place} @{cell_lat},{cell_lng},{camera}"
-                         for cell_lat, cell_lng, camera in geo.radius_cells(lat, lng, km)])
-    # Taking turns between the cities, so stopping once there are enough is fair to all
-    added = [q for turn in itertools.zip_longest(*per_city) for q in turn if q]
+        label, at_sign, view = query.rpartition(" @")
+        if at_sign:
+            lat, lng, camera = view.split(",")
+            cells = geo.quarter(float(lat), float(lng), int(camera))
+        else:
+            niche, _, place = query.rpartition(" in ")
+            points = by_place.get(place, [])
+            if not points:
+                continue
+            lat = sorted(p[0] for p in points)[len(points) // 2]
+            lng = sorted(p[1] for p in points)[len(points) // 2]
+            reach = sorted(geo.distance_km(lat, lng, *p) for p in points)[int(len(points) * 0.8)]
+            km = min(DEEP_KM[1], max(DEEP_KM[0], reach))
+            label = f"{niche} near {place}"
+            cells = geo.quarter(lat, lng, round(2 * km * 1000 / geo.VIEW_PER_METRE))
+        parts.append([f"{label} @{cell_lat},{cell_lng},{camera}"
+                      for cell_lat, cell_lng, camera in cells])
+    # Taking turns between the places, so stopping once there are enough is fair to all
+    known = set(progress.get("deep", []))
+    added = [q for turn in itertools.zip_longest(*parts) for q in turn if q and q not in known]
     progress["deepened"] = sorted(split)
     progress["deep"] = progress.get("deep", []) + added
     _save_progress(search_id, progress)
@@ -558,13 +575,16 @@ def mark_query_done(search_id: int, query: str, capped: bool = False) -> None:
     _save_progress(search_id, progress)
 
 
-def save_pages(search_id: int, done: list[str], at: dict[str, list]) -> None:
+def save_pages(search_id: int, done: list[str], at: dict[str, list],
+               full: list[str] = ()) -> None:
     """Several pages' worth of progress in one write: the queries that finished, and the
     page ([offset, map view]) each one under way has reached, so resuming carries on from
     there. On a big search the progress is over 100 KB, too much to rewrite page by page."""
     if not done and not at:
         return
     progress = get(search_id)["progress"]
+    # Google gave these a full list: deep_queries splits them if more leads are wanted
+    progress["full"] = progress.get("full", []) + list(full)
     finished = set(progress.get("done", []))
     progress["done"] = progress.get("done", []) + [q for q in done if q not in finished]
     finished.update(done)

@@ -1100,3 +1100,41 @@ def test_a_search_that_only_repeats_other_searches_is_ended_early(fresh_db, monk
     assert asked.count("contractor in Lahore, Pakistan") == 6
     assert asked.count("gym in Lahore, Pakistan") == 6
     assert asked.count("builder in Lahore, Pakistan") == scrape.STALE_PAGES
+
+
+def test_only_map_views_that_come_back_full_are_split_again(fresh_db, monkeypatch):
+    from app.core import geo
+    from app.workers import scrape
+
+    cells = geo.quarter(25.2, 55.27, 20000)
+    assert len(cells) == 4 and {camera for _, _, camera in cells} == {10000}
+    assert geo.quarter(25.2, 55.27, 4000) == []  # 0.92 km wide: halves would be too small
+
+    asked = []
+
+    def fake_search(client, query, cancelled, **_):
+        asked.append(query)
+        camera = int(query.rsplit(",", 1)[1]) if "@" in query else 0
+        # The city is full; of its four views only the first one is, at every size
+        busy = not camera or query == [q for q in asked if q.endswith(f",{camera}")][0]
+        for start in range(0, 120 if busy else 20, 20):
+            yield [{"place_id": f"{query}-{n}", "status": "Open", "country_code": "AE",
+                    "query": query.split(" @")[0], "latitude": 25.2 + n / 1000,
+                    "longitude": 55.27 + n / 1000} for n in range(start, start + 20)]
+
+    monkeypatch.setattr(scrape.scraper, "search", fake_search)
+    monkeypatch.setattr(scrape.scraper, "MapsClient",
+                        lambda: type("C", (), {"close": lambda self: None})())
+    monkeypatch.setattr(scrape, "DEFAULT_PARALLEL", 1)
+    search_id = searches.create({
+        "niches": ["cafe"], "countries": ["United Arab Emirates"], "find_emails": False,
+        "cities": ["Dubai, United Arab Emirates"], "min_leads": 200, "max_leads": 3000})
+    result = scrape.ScrapeWorker(search_id).work()
+    progress = searches.get(search_id)["progress"]
+    sizes = [int(q.rsplit(",", 1)[1]) for q in progress["deep"]]
+    # Four views per size, one size at a time, down to the smallest: not a full grid
+    assert len(sizes) % 4 == 0 and sizes == sorted(sizes, reverse=True)
+    assert all(sizes.count(size) == 4 for size in set(sizes)) and len(set(sizes)) >= 2
+    assert min(sizes) * geo.VIEW_PER_METRE / 1000 >= geo.MIN_VIEW_KM
+    assert result["status"] == "done" and len(asked) == 1 + len(sizes)
+    assert result["found"] == 120 + sum(120 if n % 4 == 0 else 20 for n in range(len(sizes)))
