@@ -878,6 +878,10 @@ class SearchPage(Page):
 
     def _on_leads(self, count: int) -> None:
         self.tile_best.update_value(t("{count:,} of {limit:,}", count=count, limit=self.limit))
+        leads_page = self.window_.page("leads")
+        if self.worker is not None and leads_page is not None:  # a batch just ended
+            leads_page.show_new_leads(self.search_id)
+            self.window_.refresh_status()
 
     def _on_finished(self, result: dict) -> None:
         self.worker = None

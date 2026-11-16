@@ -299,6 +299,20 @@ class LeadsPage(Page):
         self.score_button.setToolTip("" if self.current_id else
                                      t("Pick one search in the list first"))
 
+    def show_new_leads(self, search_id: int) -> None:
+        """A running search finished a batch: add its new leads under the ones on show, so
+        the scroll position, selection and sorting stay as they are. Leads a better one
+        pushed out stay until the search ends and the list is loaded again."""
+        self._refresh_picker()  # the count in the search's name
+        if self.current_id != search_id:
+            return
+        # shortcut: reads all of the search's leads (3,000 at most) on the UI thread, once
+        # a batch; move to a Task if a batch ever ends more often than every few seconds
+        on_show = {lead.get("place_id") for lead in self.model.leads}
+        self.model.append([lead for lead in searches.leads(search_id)
+                           if lead["place_id"] not in on_show])
+        self.column_timer.start()
+
     def _on_lead_updated(self, search_id: int, place_id: str, fields: dict) -> None:
         if self.current_id in (0, search_id):
             self.model.update(place_id, fields)

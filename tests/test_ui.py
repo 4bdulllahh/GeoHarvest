@@ -249,3 +249,26 @@ def test_the_google_client_spaces_out_its_requests(monkeypatch):
         client.fetch("q")
     client.close()
     assert time.monotonic() - began >= 3 * 0.1 * 0.7
+
+
+def test_a_paused_search_shows_its_numbers_and_new_leads_join_the_list(window):
+    search_id = saved_search("paused")
+    found = [{"place_id": p, "status": "Open", "phone": "+92 1", "name": p} for p in "abc"]
+    searches.save_candidates(search_id, found, searches.get(search_id)["options"])
+    searches.set_picked(search_id, found[:2])
+    searches.recover_interrupted()
+    win = window()
+    page = win.page("search")
+    page.pick_up()
+    assert page.tile_found.value_label.text() == "3" and page.tile_phone.value_label.text() == "3"
+    assert page.tile_best.value_label.text().startswith("2 ")
+
+    win.show_page("leads")
+    leads = win.page("leads")
+    assert leads.current_id == search_id and leads.model.rowCount() == 2
+    first = leads.model.leads[0]
+    searches.set_picked(search_id, found)  # the next batch of a running search
+    leads.show_new_leads(search_id)
+    assert leads.model.rowCount() == 3 and leads.model.leads[0] is first  # added, not reloaded
+    leads.show_new_leads(search_id + 1)  # another search's batch changes nothing on show
+    assert leads.model.rowCount() == 3

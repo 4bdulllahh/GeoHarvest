@@ -35,6 +35,10 @@ from app.workers.base import Signals, Worker
 
 DEFAULT_PARALLEL = 4
 BATCH = 100  # businesses found before their websites are checked
+# ...or this many Google pages, whichever comes first. With strict requirements 1 business
+# in 80 fits (the user's search, 2026-11), so 100 took about 400 pages with no new leads
+# on screen; 50 pages is under a minute at Normal speed
+BATCH_PAGES = 50
 # Website visits at once, by the Speed setting (parallel Google searches). Visits are slow
 # to answer, but reading the pages takes the PC's time, so Gentle suits older PCs
 VISITS_BY_SPEED = {2: 6, 4: 12, 8: 16}
@@ -85,9 +89,9 @@ class ScrapeWorker(Worker):
             record["progress"].get("waits", 0))
         try:
             while True:
-                before = len(searches.candidates(self.search_id))
+                fetched_before = self.fetched
                 done_before = len(searches.get(self.search_id)["progress"].get("done", []))
-                searched = self.search_google(options, BATCH)
+                searched = self.search_google(options, BATCH, BATCH_PAGES)
                 if visiting and not self._stop.is_set():
                     self.check_websites(options)
                 if options["smart"] and not self._stop.is_set() and not ai_error:
@@ -100,9 +104,12 @@ class ScrapeWorker(Worker):
                     # under the minimum
                     if have >= low or not searches.deep_queries(self.search_id, options):
                         break
-                elif len(searches.candidates(self.search_id)) == before and len(
+                elif self.fetched == fetched_before and len(
                         searches.get(self.search_id)["progress"].get("done", [])) == done_before:
-                    break  # the queries left keep failing; resuming tries them again
+                    # Not one page: the queries left keep failing; resuming tries them again.
+                    # (Counting pages, not businesses: a batch whose new ones all fail the
+                    # website check is still progress)
+                    break
         finally:
             self.client.close()
         stopped = self._stop.is_set()
@@ -124,10 +131,11 @@ class ScrapeWorker(Worker):
                 "listed": len(searches.candidates(self.search_id)) + sum(dropped.values())}
 
     # --- step 1 -----------------------------------------------------------------
-    def search_google(self, options: dict, batch: int) -> bool:
-        """Fetch pages until ``batch`` more candidates fit, the searches taking turns a page
-        at a time (each one's first page, then each one's second...). Searches a full batch
-        cut off carry on in the next batch. True once every query is done."""
+    def search_google(self, options: dict, batch: int, most_pages: int) -> bool:
+        """Fetch pages until ``batch`` more candidates fit or ``most_pages`` pages are in, the
+        searches taking turns a page at a time (each one's first page, then each one's
+        second...). Searches a full batch cut off carry on in the next batch. True once
+        every query is done."""
         record = searches.get(self.search_id)
         all_queries = searches.all_queries(self.search_id, options)
         done = set(record["progress"].get("done", []))
@@ -139,6 +147,7 @@ class ScrapeWorker(Worker):
         lock = threading.Lock()
         fits = searches.candidates(self.search_id)
         goal = len(fits) + batch
+        last_page = self.fetched + most_pages
         state = {"finished": len(all_queries) - len(left), "total": len(all_queries),
                  "fits": len(fits), "phones": sum(bool(lead.get("phone")) for lead in fits)}
         self.signals.step.emit(1)
@@ -161,7 +170,7 @@ class ScrapeWorker(Worker):
         def run() -> None:
             while not no_more_google():
                 with lock:
-                    if state["fits"] >= goal or not waiting:
+                    if state["fits"] >= goal or self.fetched >= last_page or not waiting:
                         return
                     query = waiting.popleft()
                 try:
