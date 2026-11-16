@@ -625,8 +625,10 @@ def check_candidate(search_id: int, place_id: str, fields: dict, dropped: str | 
         return
     data = {**json.loads(row["data"]), **fields}
     data["quality"] = quality(data)
-    conn.execute("UPDATE candidates SET data = ?, dropped = ? WHERE search_id = ? AND place_id = ?",
-                 (json.dumps(data, ensure_ascii=False), dropped, search_id, place_id))
+    # One the user deleted while its check was under way stays deleted
+    conn.execute("UPDATE candidates SET data = ?, dropped = CASE WHEN dropped = ? THEN dropped "
+                 "ELSE ? END WHERE search_id = ? AND place_id = ?",
+                 (json.dumps(data, ensure_ascii=False), REMOVED, dropped, search_id, place_id))
     conn.commit()
 
 
@@ -650,9 +652,34 @@ def adopt_leads(search_id: int) -> None:
 
 
 def set_picked(search_id: int, picked: list[dict]) -> None:
-    """Make these (best first) the search's leads, replacing any picked before."""
-    db.execute("DELETE FROM leads WHERE search_id = ?", (search_id,))
-    save_leads(search_id, picked)
+    """Make these (best first) the search's leads, replacing any picked before. A lead
+    picked again keeps the day it was found and its exported mark, and one the user deleted
+    in the meantime stays out. All in one step, so nobody ever sees a half-made list."""
+    conn = db.connect()
+    stamp = db.now()
+    conn.execute("BEGIN IMMEDIATE")  # the Leads page's deletes and exports wait their turn
+    try:
+        before = {r["place_id"]: (r["created"], r["exported"]) for r in conn.execute(
+            "SELECT place_id, created, json_extract(data, '$.exported') AS exported "
+            "FROM leads WHERE search_id = ?", (search_id,))}
+        removed = {r["place_id"] for r in conn.execute(
+            "SELECT place_id FROM candidates WHERE search_id = ? AND dropped = ?",
+            (search_id, REMOVED))}
+        conn.execute("DELETE FROM leads WHERE search_id = ?", (search_id,))
+        for lead in picked:
+            if lead["place_id"] in removed:
+                continue
+            created, exported = before.get(lead["place_id"], (stamp, None))
+            if exported:
+                lead = {**lead, "exported": exported}
+            conn.execute(
+                "INSERT OR IGNORE INTO leads(search_id, place_id, created, data) "
+                "VALUES(?, ?, ?, ?)", (search_id, lead["place_id"], created,
+                                       json.dumps(lead, ensure_ascii=False)))
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def _lead(row) -> dict:
@@ -719,12 +746,16 @@ def set_fields(search_id: int, fields: list[str]) -> None:
 
 def delete_leads(place_ids: list[str], search_id: int = 0) -> None:
     """Leads the user deleted: from one search, or with ``search_id`` 0 from every search."""
-    rows = [(place_id, search_id, search_id) for place_id in place_ids]
-    db.execute_many("DELETE FROM leads WHERE place_id = ? AND (? = 0 OR search_id = ?)", rows)
+    # Two forms, so each can use an index: "(? = 0 OR search_id = ?)" read the whole table
+    # once per lead
+    one = " AND search_id = ?" if search_id else ""
+    rows = [(place_id, search_id) if search_id else (place_id,) for place_id in place_ids]
+    conn = db.connect()
+    conn.executemany(f"DELETE FROM leads WHERE place_id = ?{one}", rows)
     # so resuming the search does not pick them again
-    db.execute_many("UPDATE candidates SET dropped = ? "
-                    "WHERE place_id = ? AND (? = 0 OR search_id = ?)",
-                    [(REMOVED, *row) for row in rows])
+    conn.executemany(f"UPDATE candidates SET dropped = ? WHERE place_id = ?{one}",
+                     [(REMOVED, *row) for row in rows])
+    conn.commit()
 
 
 def recover_interrupted() -> None:

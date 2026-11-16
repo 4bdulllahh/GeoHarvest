@@ -20,7 +20,7 @@ model (model-router skill).
 | M1 | Repo setup: CLAUDE.md follows the global rules, this file | S | done |
 | M2 | Research the GitHub scraping tools and audit the whole app (cheaper model). Report: [docs/handover/audit-2026-11.md](docs/handover/audit-2026-11.md) | M | done |
 | M3 | Resume shows real numbers: Leads, Websites and Email tiles fill in at once (`search.tally`, `SearchPage._show_tally`) | S | done |
-| M4 | Leads keep their exported marks and found dates (`search.set_picked` deletes and rewrites every batch) | S | |
+| M4 | Leads keep their exported marks and found dates ; deleted leads stay deleted (`search.set_picked`) | S | done |
 | M5 | Shorter batches, leads appear live: a batch also ends after a set number of Google pages | M | |
 | M6 | Faster saving: progress no longer rewritten in full after every page; parallel searches stay parallel to the end | M | |
 | M7 | Similar business types: a warning when types overlap; searches that only bring known businesses are cut short | M | |
@@ -60,11 +60,15 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   `_show_unfinished`, which no longer parses every candidate on the UI thread). Tested in
   `test_core.py` and against the user's real search (383 leads); **not clicked through in the
   running app**, because opening it would carry on the user's real search.
-- **Next:** M4. Read `set_picked`, `check_candidate`, `delete_leads` in `app/core/search.py`
-  and the M4 heading in the audit file.
+- **Then M4:** `set_picked` in one transaction keeps found dates and exported marks, deleted
+  leads stay deleted, deletes use an index (new `candidates_place`, made at start-up by
+  `db.init`; no schema version change, it is `IF NOT EXISTS`). Tested in `test_core.py` only.
+- **Next:** M5. Read `ScrapeWorker.work` and `search_google` in `app/workers/scrape.py`, the
+  `lead_updated` signal in `app/ui/main_window.py` and `app/ui/pages/leads.py`, and the M5
+  heading in the audit file.
 - **Changelog:** `docs/handover/changelog.md` gets its v0.3.3 lines at the release (M20), from
   the milestone table above.
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** the M1, M2 and M3 commits.
+- **Not pushed:** the M1 to M4 commits.

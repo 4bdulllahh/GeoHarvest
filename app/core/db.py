@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS candidates (
 );
 CREATE INDEX IF NOT EXISTS leads_search ON leads(search_id);
 CREATE INDEX IF NOT EXISTS leads_place ON leads(place_id);
+CREATE INDEX IF NOT EXISTS candidates_place ON candidates(place_id);
 """
 
 _local = threading.local()

@@ -1013,3 +1013,24 @@ def test_tally_counts_what_a_resumed_search_already_has(fresh_db):
                                          "leads": 1}
     assert searches.tally(searches.create({"niches": ["bar"]})) == {
         "fits": 0, "phones": 0, "checked": 0, "emails": 0, "leads": 0}
+
+
+def test_picking_again_keeps_found_day_and_exported_mark(fresh_db):
+    search_id = searches.create({"niches": ["cafe"]})
+    searches.save_candidates(search_id, [{"place_id": p, "status": "Open"} for p in "abc"],
+                             searches.get(search_id)["options"])
+    searches.set_picked(search_id, searches.candidates(search_id))
+    db.execute("UPDATE leads SET created = '2026-01-02T03:04:05' WHERE search_id = ?",
+               (search_id,))
+    searches.mark_exported(["a"], "2026-01-03")
+    searches.delete_leads(["b"], search_id)
+    # A website check that ends after the user deleted the lead must not bring it back
+    searches.check_candidate(search_id, "b", {"enriched": True}, None)
+    searches.check_candidate(search_id, "c", {"enriched": True}, None)
+    stale = [{"place_id": p, "status": "Open"} for p in "abc"]  # read before the delete
+    searches.set_picked(search_id, stale)
+    leads = {lead["place_id"]: lead for lead in searches.leads(search_id)}
+    assert sorted(leads) == ["a", "c"]
+    assert leads["a"]["exported"] == "2026-01-03" and "exported" not in leads["c"]
+    assert leads["a"]["found"] == leads["c"]["found"] == "2026-01-02"
+    assert searches.dropped_counts(search_id) == {searches.REMOVED: 1}
