@@ -363,6 +363,7 @@ class SearchPage(Page):
         self.root.addWidget(bar)
         self.load_options(last)
         self.resume_at = 0.0  # when a search waiting for Google carries on
+        self.step = 0  # no step yet: the tiles of a held search are filled before any run
         self.countdown = QTimer(self)
         self.countdown.setInterval(1000)
         self.countdown.timeout.connect(self._tick)

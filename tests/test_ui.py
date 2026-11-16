@@ -299,6 +299,21 @@ def test_the_google_client_spaces_out_its_requests(monkeypatch):
     assert time.monotonic() - began >= 3 * 0.1 * 0.7
 
 
+def test_a_held_search_that_visits_websites_shows_resume_when_the_app_opens(window):
+    # 0.3.3 raised "no attribute 'step'" here: the tiles were filled before any search ran
+    search_id = searches.create({"niches": ["cafe"], "countries": ["Pakistan"],
+                                 "cities": ["Lahore, Pakistan"], "find_emails": True})
+    searches.set_status(search_id, "paused")
+    found = [{"place_id": p, "status": "Open", "phone": "+92 1", "name": p,
+              "website": "https://example.com"} for p in "abc"]
+    searches.save_candidates(search_id, found, searches.get(search_id)["options"])
+    searches.recover_interrupted()
+    page = window().page("search")
+    page.pick_up()
+    assert page.tile_found.value_label.text() == "3"
+    assert page.resume_button.isVisibleTo(page)
+
+
 def test_a_paused_search_shows_its_numbers_and_new_leads_join_the_list(window):
     search_id = saved_search("paused")
     found = [{"place_id": p, "status": "Open", "phone": "+92 1", "name": p} for p in "abc"]
