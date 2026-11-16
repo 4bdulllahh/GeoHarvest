@@ -215,8 +215,9 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
 - **Open questions:** does the backup installer come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** only this handover note and the local tag `v0.4.0` (the user creates tags
-  on GitHub). M17, M18, M19 and the v0.4.0 release were pushed on 2026-11-17 with the user's OK. Everything up to M16 and its handover was pushed to `origin/main`
+- **Not pushed:** nothing but the local tag `v0.4.0` (the user creates tags on GitHub).
+  M17, M18, M19, the v0.4.0 release and the handover notes were pushed on 2026-11-17 with
+  the user's OK. **Ask again before the next push.** Everything up to M16 and its handover was pushed to `origin/main`
   on 2026-11-16 with the user's OK (a backup: no release, testers get nothing from it). The
   user published v0.3.3 and v0.3.4 themselves on GitHub, and creates the tags there.
   **Ask again before the next push.**
