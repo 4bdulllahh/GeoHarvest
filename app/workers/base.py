@@ -18,6 +18,8 @@ from typing import Any, Callable
 
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
 
+from app.core import crashlog
+
 
 class Signals(QObject):
     """Signals live on a QObject; QRunnable is not one, so it owns an instance."""
@@ -56,7 +58,7 @@ class Task(QRunnable):
         try:
             result = self.function(*self.args, **self.kwargs)
         except Exception as error:  # noqa: BLE001 - a worker must never kill the app
-            traceback.print_exc()
+            _log_error()
             if not self._cancelled:
                 self.signals.failed.emit(_friendly(error))
         else:
@@ -110,7 +112,7 @@ class Worker(QRunnable):
         try:
             result = self.work()
         except Exception as error:  # noqa: BLE001
-            traceback.print_exc()
+            _log_error()
             if not self._cancelled:
                 self.signals.failed.emit(_friendly(error))
         else:
@@ -141,10 +143,20 @@ def pool() -> QThreadPool:
     return _pool
 
 
-def shutdown(timeout_ms: int = 3000) -> None:
-    """Let running jobs finish before the process exits."""
-    if _pool is not None:
-        _pool.waitForDone(timeout_ms)
+def shutdown(timeout_ms: int = 3000) -> bool:
+    """Let running jobs finish before the process exits. False if some were still going,
+    which goes in crash.log: it explains a search found half-saved at the next start."""
+    finished = _pool is None or _pool.waitForDone(timeout_ms)
+    if not finished:
+        crashlog.record(f"Closed with background jobs still running after {timeout_ms} ms.")
+    return finished
+
+
+def _log_error() -> None:
+    """The error being handled, in full: on screen the user gets one line of it, and the
+    installed app has no console."""
+    traceback.print_exc()
+    crashlog.record(traceback.format_exc())
 
 
 def _friendly(error: Exception) -> str:

@@ -24,13 +24,14 @@ from __future__ import annotations
 
 import threading
 import time
+import traceback
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait
 
 import httpx
 from PyQt6.QtCore import pyqtSignal
 
-from app.core import ai, db, enrich, scraper
+from app.core import ai, crashlog, db, enrich, scraper
 from app.core import search as searches
 from app.workers.base import Signals, Worker
 
@@ -52,6 +53,9 @@ SHORT_WAITS = (120, 300)
 # minutes), before the queries are given up as failing and the search stops
 OFFLINE_WAIT = 30
 OFFLINE_TRIES = 20
+# This many websites in a row that can't be reached, with none answering after them, is taken
+# for a lost connection (a judgement: dead websites are common, five together are not)
+OFFLINE_SITES = 5
 SAVE_EVERY = 10  # pages between saves of how far each query has got (and at every batch's end)
 # Website visits at once, by the Speed setting (parallel Google searches). Visits are slow
 # to answer, but reading the pages takes the PC's time, so Gentle suits older PCs
@@ -84,6 +88,7 @@ class ScrapeWorker(Worker):
         self._limit_lock = threading.Lock()
         self.fetched = 0              # Google pages in this run
         self.tried: set[str] = set()  # websites visited in this run, whatever happened
+        self.unreachable: set[str] = set()  # not reached once already: next time it counts
         self.pages: dict = {}         # searches under way: query -> its pages still to come
         self.following: dict = {}     # where each query goes next, once its page is saved
         self.failed: set[str] = set()  # searches that failed once in this run
@@ -145,6 +150,14 @@ class ScrapeWorker(Worker):
         return True
 
     def work(self) -> dict:
+        try:
+            return self._work()
+        except Exception:
+            # Never left "running": the next start would carry on into the same error
+            searches.set_status(self.search_id, "stopped")
+            raise
+
+    def _work(self) -> dict:
         record = searches.get(self.search_id)
         options = record["options"]
         low, high = searches.leads_wanted(options)
@@ -266,7 +279,8 @@ class ScrapeWorker(Worker):
                 with lock:
                     waiting.appendleft(query)
                 return self.back_off()
-            except (httpx.HTTPError, ValueError) as error:
+            except (httpx.HTTPError, ValueError, LookupError, TypeError) as error:
+                # LookupError, TypeError: a page from Google that scraper.decode can't read
                 self.pages.pop(query, None)
                 if isinstance(error, httpx.TransportError) and self.wait_for_internet():
                     with lock:
@@ -381,17 +395,29 @@ class ScrapeWorker(Worker):
                 self.log(f"Could not check {lead.get('website')}: {error}", "warn")
                 fields = {"enriched": True}
             fields.setdefault("enriched", True)
-            dropped = searches.why_not_checked({**lead, **fields}, options)
+            unreachable = fields.pop("unreachable", False)
             with lock:
                 if self._stop.is_set():
                     return  # possibly half-checked when Stop cut the connection
-                searches.check_candidate(self.search_id, lead["place_id"], fields, dropped)
-                state["checked"] += 1
-                state["emails"] += bool(fields.get("emails")) and dropped is None
-                self.signals.checked.emit(state["checked"], state["total"], state["emails"])
+                if unreachable and lead["place_id"] not in self.unreachable:
+                    held.append((lead, fields))  # a dead website, or no internet? see below
+                    return
+                for known in [*held, (lead, fields)]:  # a site answered: those were dead
+                    save(*known)
+                held.clear()
 
+        def save(lead: dict, fields: dict) -> None:
+            dropped = searches.why_not_checked({**lead, **fields}, options)
+            searches.check_candidate(self.search_id, lead["place_id"], fields, dropped)
+            state["checked"] += 1
+            state["emails"] += bool(fields.get("emails")) and dropped is None
+            self.signals.checked.emit(state["checked"], state["total"], state["emails"])
+
+        # Websites that could not be reached since the last one that answered
+        held: list[tuple[dict, dict]] = []
         speed = int(db.get_setting("parallel_searches", DEFAULT_PARALLEL))
         pool = ThreadPoolExecutor(VISITS_BY_SPEED.get(speed, 12))
+        futures = []
         try:
             futures = [pool.submit(check, lead) for lead in todo]
             while not self._stop.is_set() and wait(futures, timeout=0.5).not_done:
@@ -401,6 +427,25 @@ class ScrapeWorker(Worker):
             # cuts those short); resuming picks them up
             pool.shutdown(wait=not self._stop.is_set(), cancel_futures=True)
             enricher.close()
+        for future in futures:  # an error past the visit itself: in the log, not lost
+            if future.done() and not future.cancelled() and future.exception() is not None:
+                error = future.exception()
+                crashlog.record("".join(traceback.format_exception(error)))
+                self.log(f"A website check failed: {error}", "warn")
+        with lock:
+            if self._stop.is_set():
+                return
+            if len(held) >= OFFLINE_SITES:
+                # Many in a row and none answered after: the connection, not the websites.
+                # Saving them as checked would drop these leads as "no email found" for
+                # good, so they are visited once more (in the next batch, or on Resume)
+                self.unreachable.update(lead["place_id"] for lead, _fields in held)
+                self.tried.difference_update(lead["place_id"] for lead, _fields in held)
+                self.log(f"{len(held)} websites could not be reached: trying them again later",
+                         "warn")
+            else:
+                for known in held:
+                    save(*known)
 
     # --- step 3 -----------------------------------------------------------------
     def score_with_ai(self, options: dict) -> str | None:

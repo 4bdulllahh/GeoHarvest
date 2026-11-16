@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import sys
 import traceback
-from datetime import datetime
 
 
 def report(message: str) -> None:
@@ -28,7 +27,7 @@ def install_crash_guard() -> None:
     A scrape in progress keeps every lead it already saved, so losing one action
     is far better than the window vanishing.
     """
-    from app import config
+    from app.core import crashlog
 
     def hook(kind, value, trace) -> None:
         details = "".join(traceback.format_exception(kind, value, trace))
@@ -36,12 +35,7 @@ def install_crash_guard() -> None:
             print(details)
         except Exception:
             pass
-        try:
-            config.ensure_dirs()
-            with (config.LOGS_DIR / "crash.log").open("a", encoding="utf-8") as log:
-                log.write(f"\n--- {datetime.now().isoformat(timespec='seconds')} ---\n{details}")
-        except Exception:
-            pass
+        crashlog.record(details)
         try:
             from PyQt6.QtWidgets import QApplication
 
@@ -181,10 +175,9 @@ if __name__ == "__main__":
     except Exception as error:  # noqa: BLE001 - never fail silently
         details = traceback.format_exc()
         try:
-            from app import config
+            from app.core import crashlog
 
-            config.ensure_dirs()
-            (config.LOGS_DIR / "crash.log").write_text(details, encoding="utf-8")
+            crashlog.record(details)  # added to the log: it used to wipe the earlier errors
         except Exception:
             pass
         report(f"GeoHarvest could not start.\n\n{type(error).__name__}: {error}")

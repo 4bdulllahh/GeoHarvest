@@ -963,6 +963,84 @@ def test_websites_still_get_checked_after_google_limits_the_search(fresh_db, fak
     assert searches.leads(search_id) and all(l["emails"] for l in searches.leads(search_id))
 
 
+def test_websites_not_reached_while_offline_are_visited_again(fresh_db, monkeypatch):
+    from app.core import enrich
+    from app.workers import scrape
+
+    online = []
+
+    class Visits:
+        def __init__(self, wayback):
+            pass
+
+        def enrich(self, lead, find_contacts, find_owner=False, site_text=False):
+            if online or lead["place_id"] in dead:
+                return {"enriched": True, **({"unreachable": True} if lead["place_id"] in dead
+                                             else {"emails": "a@b.pk"})}
+            return {"enriched": True, "unreachable": True}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(enrich, "Enricher", Visits)
+    options = searches.options_with_defaults({
+        "niches": ["cafe"], "cities": ["Lahore, Pakistan"], "countries": ["Pakistan"],
+        "find_emails": True, "require_email": True})
+    search_id = searches.create(options)
+    found = [{"place_id": f"p{n}", "status": "Open", "country_code": "PK", "name": f"p{n}",
+              "website": f"https://p{n}.pk"} for n in range(8)]
+    searches.save_candidates(search_id, found, options)
+    dead: set[str] = set()
+    worker = scrape.ScrapeWorker(search_id)
+
+    worker.check_websites(options)  # no internet: every website fails
+    assert len(searches.candidates(search_id)) == 8  # nobody dropped as "no email found"
+    assert not any(lead.get("enriched") for lead in searches.candidates(search_id))
+
+    online.append(True)
+    dead.update({"p0", "p1"})  # two websites really are gone
+    worker.check_websites(options)
+    kept = searches.candidates(search_id)
+    assert {lead["place_id"] for lead in kept} == {f"p{n}" for n in range(2, 8)}
+    assert all(lead["emails"] == "a@b.pk" and "unreachable" not in lead for lead in kept)
+
+
+def test_a_search_never_stays_running_after_an_error(fresh_db, fake_pages, monkeypatch):
+    from app import config
+    from app.core import crashlog
+    from app.workers import base, scrape
+
+    # a page Google sends that can't be read ends that one query, not the search
+    client = fake_google()
+    fetch = client.fetch
+
+    def odd_page(query, *args, **kwargs):
+        if query.startswith("cafe in City0"):
+            raise IndexError("list index out of range")
+        return fetch(query, *args, **kwargs)
+
+    client.fetch = odd_page
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: client)
+    search_id = searches.create(many_places(max_leads=3000))
+    assert scrape.ScrapeWorker(search_id).work()["status"] == "stopped"  # Resume tries it again
+    assert len(searches.leads(search_id)) > 100
+
+    # anything else: the status is set, and the details are in crash.log
+    worker = scrape.ScrapeWorker(search_id)
+    monkeypatch.setattr(worker, "_work", lambda: {}["missing"])
+    searches.set_status(search_id, "running")
+    worker.run()
+    assert searches.get(search_id)["status"] == "stopped"
+    log = (config.LOGS_DIR / "crash.log").read_text(encoding="utf-8")
+    assert "KeyError" in log and "_work" in log
+
+    monkeypatch.setattr(crashlog, "MAX_BYTES", 2000)
+    for _ in range(40):
+        crashlog.record("x" * 100)
+    assert (config.LOGS_DIR / "crash.log").stat().st_size < 2500
+    assert base.shutdown(100)
+
+
 def test_pause_stop_and_closing_leave_the_right_status(fresh_db, fake_pages, monkeypatch):
     from app.workers import scrape
 

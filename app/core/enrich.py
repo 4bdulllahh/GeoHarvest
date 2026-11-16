@@ -276,13 +276,16 @@ class Enricher:
         socials: dict[str, str] = {}
         profiles: list[str] = []
         owner, text = None, ""
+        unreachable = False  # the home page never answered: a dead site, or no internet
         queue, seen = [url], set()
         while queue and len(seen) < MAX_PAGES:
             page_url = queue.pop(0)
             seen.add(page_url)
             try:
                 page = self._get(page_url)
-            except (httpx.HTTPError, ValueError):
+            except (httpx.HTTPError, ValueError) as error:
+                unreachable = unreachable or (page_url == url
+                                              and isinstance(error, httpx.TransportError))
                 continue
             emails += [e for e in find_emails(page) if e not in emails]
             for network, link in find_socials(page).items():
@@ -294,7 +297,7 @@ class Enricher:
             if page_url == url and keep_text:
                 text = " ".join(html.unescape(TAGS.sub(" ", page)).split())[:SITE_TEXT]
         return {"emails": emails, "socials": socials, "profiles": profiles, "owner": owner,
-                "text": text}
+                "text": text, "unreachable": unreachable}
 
     def domain_created(self, domain: str) -> tuple[date | None, str]:
         """When the domain was registered, else first archived; and which of the two."""
@@ -354,6 +357,8 @@ class Enricher:
         found = {"owner": None, "profiles": [], "text": ""}
         if find_contacts or site_text:
             found = self.crawl(website, keep_text=site_text)
+        if found.get("unreachable"):
+            fields["unreachable"] = True  # for the caller to weigh, not a detail to store
         if site_text and found["text"]:
             fields["site_text"] = found["text"]
         if find_contacts:

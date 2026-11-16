@@ -22,6 +22,21 @@ What went into each version and how it was tested, newest first. Add to it with 
   `ScrapeWorker.stop` keeps the first ending, so Stop or Pause then closing the app does not
   restart the search. A7 `_on_failed` shows the stopped screen, emits `search_finished` and
   refreshes the status bar. No new on-screen text.
+- **M15 audit group B, the search job never gets stuck** (B1 to B5):
+  B1 `ScrapeWorker.work` wraps `_work` and sets "stopped" on any error, so a search is never
+  left "running" to restart into the same error; a Google page `scraper.decode` can't read
+  (`LookupError`, `TypeError`) is retried once then skipped like a network error. B2 errors
+  in the website-check futures are logged and shown. B3 `workers.shutdown` returns whether
+  the jobs finished (logged if not) and closing the app cancels an update download; the
+  3 second sleep was already `_stop.wait`. B4 `app/core/crashlog.py`: every worker and task
+  error goes to crash.log in full (so does a failed weekly backup). B5 crash.log is capped
+  at 1 MB (the older half goes) and a start-up failure adds to it, not replaces it.
+  **Websites while offline** (left over from M10): `Enricher.crawl` reports `unreachable`
+  when the home page never answered; `check_websites` holds those back, saves them as dead
+  sites once another site answers, and if `OFFLINE_SITES` (5) or more are still held at the
+  end it takes that for a lost connection and visits them once more later, instead of
+  dropping the leads as "no email found". `tests/conftest.py` sends test errors to a
+  throwaway crash.log.
 
 ## v0.3.4 beta (2026-11-16)
 

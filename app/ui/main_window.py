@@ -694,6 +694,8 @@ class MainWindow(QMainWindow):
                     stop()
 
         self._save_geometry()
+        if self._update_download is not None:
+            self._update_download.cancel()  # or closing waits on a 33 MB download
         from app.workers import base as workers
 
         workers.shutdown(2000)
