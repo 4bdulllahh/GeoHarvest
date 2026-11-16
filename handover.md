@@ -31,7 +31,7 @@ model (model-router skill).
 | M11 | Opening hours warning on the form when more than one "Open" choice is on (`search.hours_chosen`) | S | done |
 | M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | done |
 | R1 | **Release v0.3.3 beta** (M1 to M12) | M | done, published by the user |
-| R1b | **Patch v0.3.4 beta**: the 'step' error after opening the app | S | done, pushed; the user publishes it |
+| R1b | **Patch v0.3.4 beta**: the 'step' error after opening the app | S | done, published by the user |
 | M13 | Tidy up storage: "Free up space" in Settings (`app/core/tidy.py`); no automatic clean-up (user's choice) | M | done |
 | M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | done |
 | M15 | Audit group B: the search job never gets stuck, errors reach the log | M | done |
@@ -173,7 +173,9 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   session: 9% after M11 (handover read included), 15% after M12 (an S with translations
   and a UI test: 6%), 24% after R1 (the release: 9%), 42% after the 'step' fix, the v0.3.4
   patch release and M13 together (18%). A release costs about 9%, more than an M. 52% after M14 (10%): the audit milestones are
-  several fixes each and cost about 10%, not 4 to 8. 64% after M15 (12%).
+  several fixes each and cost about 10%, not 4 to 8. 64% after M15 (12%), 83% after M16
+  (19%, with the crash hunt). The session stopped there: plan on 10 to 19% for each of M17,
+  M18, M19 and about 9% for R2, so about two milestones a session.
 - **Not checked in the running app** (M3 to M11; M11's line was only seen in a headless
   screenshot with no fonts): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
@@ -185,9 +187,14 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
 - **Open questions:** does the backup installer come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** M13, M14, M15, M16 and the local tag `v0.3.4` (the user chose "commits only" and makes
-  the tag when publishing). Everything up to the v0.3.4 release commit was pushed on
-  2026-11-16; the user published v0.3.3 themselves and still has to publish v0.3.4. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
-  user's OK (a backup only: no release, no tag, testers get nothing yet). Ask again before
-  the next push.
-- **Waiting on the user:** publishing v0.3.4 on GitHub, their usage % and the go-ahead for M17.
+- **Not pushed:** nothing. Everything up to M16 and this handover was pushed to `origin/main`
+  on 2026-11-16 with the user's OK (a backup: no release, testers get nothing from it). The
+  user published v0.3.3 and v0.3.4 themselves on GitHub, and creates the tags there.
+  **Ask again before the next push.**
+- **The user's plan (2026-11-16):** finish M17, M18 and M19, then publish one more update as
+  **v0.4** (R2). No release in between.
+- **Before R2,** ask the user to click through the app once (Stop, Resume, delete a search,
+  Free up space, a backup and restore): M13 to M16 were only tested, and the 'step' error
+  in v0.3.3 came from exactly that gap.
+- **Waiting on the user:** nothing. They come back with "continue read the handover" when
+  their usage resets; M17 is next.

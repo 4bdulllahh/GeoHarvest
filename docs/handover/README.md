@@ -23,9 +23,10 @@ Version numbers follow the user's GitHub tags: keep `APP_VERSION` (app/config.py
 tag's numbers. Don't start new features unless the user asks.
 
 v0.3.3 (leads while the search runs, adaptive digging, Google's limits and lost connections
-waited out inside the run, form warnings, an update notice that asks) is committed with
-`docs/releases/v0.3.3-beta.md` and the README; whether it is pushed and published is in
-[../../handover.md](../../handover.md). **Next: v0.4**, the audit fixes (M13 to M19 there);
+waited out inside the run, form warnings, an update notice that asks) and v0.3.4 (Resume
+showing again after opening the app) are published on GitHub by the user. **In progress:
+v0.4**, the audit fixes: M13 to M16 are done and pushed, M17 to M19 and the release are left
+(see [../../handover.md](../../handover.md) and the v0.4 lines of [changelog.md](changelog.md));
 the backup installer for Smart App Control PCs has no version number yet (see [roadmap.md](roadmap.md)).
 
 ## The product
