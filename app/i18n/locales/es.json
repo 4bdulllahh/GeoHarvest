@@ -286,6 +286,7 @@
  "Google asked GeoHarvest to slow down. Carrying on by itself in {clock}. The {found:,} leads so far are in Leads.": "Google ha pedido a GeoHarvest que vaya más despacio. La búsqueda continuará sola en {clock}. Los {found:,} leads de hasta ahora están en Leads.",
  "Stop": "Detener",
  "Google asked GeoHarvest to slow down. Going slower for a moment: it carries on by itself in about {minutes} minutes. Nothing is lost.": "Google pidió a GeoHarvest que vaya más despacio. Irá más lento un momento: continúa solo en unos {minutes} minutos. No se pierde nada.",
+ "No internet connection. GeoHarvest keeps trying and carries on by itself when it is back. Nothing is lost.": "Sin conexión a internet. GeoHarvest sigue intentándolo y continúa solo cuando vuelva. No se pierde nada.",
  "{count:,} of {limit:,}": "{count:,} de {limit:,}",
  "{found:,} of {wanted:,}": "{found:,} de {wanted:,}",
  "Search finished with {found:,} of {wanted:,} leads. See why below.": "Búsqueda terminada con {found:,} de {wanted:,} leads. Mira el motivo abajo.",

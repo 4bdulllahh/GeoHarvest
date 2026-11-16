@@ -841,6 +841,7 @@ def no_short_waits(monkeypatch):
     from app.workers import scrape
 
     monkeypatch.setattr(scrape, "SHORT_WAITS", ())
+    monkeypatch.setattr(scrape, "OFFLINE_WAIT", 0)
 
 
 def fake_google(block_after: int = 10 ** 9):
@@ -1224,3 +1225,37 @@ def test_a_google_limit_is_waited_out_inside_the_run_and_no_page_is_asked_twice(
     again = scrape.ScrapeWorker(searches.create(many_places(max_leads=3000)))
     result = again.work()
     assert result["status"] == "waiting" and result["blocked"] and again.short_waits == 2
+
+
+def test_a_dropped_connection_is_waited_out_and_no_page_is_asked_twice(fresh_db, fake_pages,
+                                                                        monkeypatch):
+    import httpx
+
+    from app.workers import scrape
+
+    client = fake_google()
+    real_fetch, calls = client.fetch, []
+
+    def flaky(query, offset=0, view=None):
+        calls.append(query)
+        if 20 <= len(calls) < 40:  # the connection is gone for a while
+            raise httpx.ConnectError("no route to host")
+        return real_fetch(query, offset, view)
+
+    monkeypatch.setattr(client, "fetch", flaky)
+    monkeypatch.setattr(scrape.scraper, "MapsClient", lambda: client)
+    monkeypatch.setattr(scrape, "OFFLINE_WAIT", 0.02)
+    worker = scrape.ScrapeWorker(searches.create(many_places(max_leads=3000)))
+    result = worker.work()
+    assert result["status"] == "done" and result["found"] == 1800
+    assert len(client.asked) == len(set(client.asked)) == 105
+    assert len(calls) == 125 and worker.offline_waits == 0  # 20 lost requests, then back
+
+    # A connection that never comes back: the search stops, to be resumed by hand
+    monkeypatch.setattr(client, "fetch", lambda *a, **k: (_ for _ in ()).throw(
+        httpx.ConnectError("no route to host")))
+    monkeypatch.setattr(scrape, "OFFLINE_WAIT", 0)
+    monkeypatch.setattr(scrape.time, "sleep", lambda _s: None)
+    gone = scrape.ScrapeWorker(searches.create(many_places(max_leads=3000)))
+    gone._stop.wait = lambda _s=None: False  # the 3 second retry pause, skipped
+    assert gone.work()["status"] == "stopped" and gone.offline_waits == scrape.OFFLINE_TRIES

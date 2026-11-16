@@ -48,6 +48,10 @@ STALE_PAGES = 2
 # pace. Only a limit straight after the last of these ends Google for the run, and the
 # search then waits the long way (search.GOOGLE_WAITS). Judgements, not measured
 SHORT_WAITS = (120, 300)
+# No connection: try again every OFFLINE_WAIT seconds, OFFLINE_TRIES times in a row (10
+# minutes), before the queries are given up as failing and the search stops
+OFFLINE_WAIT = 30
+OFFLINE_TRIES = 20
 SAVE_EVERY = 10  # pages between saves of how far each query has got (and at every batch's end)
 # Website visits at once, by the Speed setting (parallel Google searches). Visits are slow
 # to answer, but reading the pages takes the PC's time, so Gentle suits older PCs
@@ -61,6 +65,7 @@ class ScrapeSignals(Signals):
     scored = pyqtSignal(int, int)        # leads the AI has checked, leads to check
     leads = pyqtSignal(int)              # leads that meet every requirement so far
     limited = pyqtSignal(int)            # Google's limit: carrying on in this many seconds
+    offline = pyqtSignal()               # no connection: trying again until it is back
 
 
 class ScrapeWorker(Worker):
@@ -75,6 +80,7 @@ class ScrapeWorker(Worker):
         self.short_waits = 0          # short waits used up since the last good stretch
         self.wait_until = 0.0         # a short wait is on until then
         self.limit_at_page = 0        # self.fetched when Google last limited us
+        self.offline_waits = 0        # waits for the connection since the last good page
         self._limit_lock = threading.Lock()
         self.fetched = 0              # Google pages in this run
         self.tried: set[str] = set()  # websites visited in this run, whatever happened
@@ -120,6 +126,22 @@ class ScrapeWorker(Worker):
         if first and not self._stop.is_set():
             self.signals.step.emit(1)  # the status line says "Searching Google" again
         return not self._stop.is_set()
+
+    def wait_for_internet(self) -> bool:
+        """A request didn't get through. Wait a little with every search thread and say so;
+        False once that has gone on too long, and the query is given up as before."""
+        with self._limit_lock:
+            now = time.time()
+            if now >= self.wait_until:
+                if self.offline_waits >= OFFLINE_TRIES:
+                    return False
+                self.offline_waits += 1
+                self.wait_until = now + OFFLINE_WAIT
+                if self.offline_waits == 1:
+                    self.log("No connection: trying again until it is back", "warn")
+                    self.signals.offline.emit()
+        self._stop.wait(max(0.0, self.wait_until - time.time()))
+        return True
 
     def work(self) -> dict:
         record = searches.get(self.search_id)
@@ -245,6 +267,10 @@ class ScrapeWorker(Worker):
                 return self.back_off()
             except (httpx.HTTPError, ValueError) as error:
                 self.pages.pop(query, None)
+                if isinstance(error, httpx.TransportError) and self.wait_for_internet():
+                    with lock:
+                        waiting.appendleft(query)  # again, from the page it had reached
+                    return not self._stop.is_set()
                 # One retry for a dropped connection; after that the query stays
                 # un-done, so resuming the search tries it again
                 if query in self.failed:
@@ -260,6 +286,9 @@ class ScrapeWorker(Worker):
                     return False  # not finished: resuming carries on with it
                 if page is not None:
                     self.fetched += 1
+                    if self.offline_waits:  # the connection is back
+                        self.offline_waits = 0
+                        self.signals.step.emit(1)
                     new, fresh = searches.add_candidates(self.search_id, page, options)
                     self.stale[query] = 0 if fresh else self.stale.get(query, 0) + 1
                     # A resumed query starts from the page it had reached

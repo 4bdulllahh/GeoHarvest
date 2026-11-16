@@ -286,6 +286,7 @@
  "Google asked GeoHarvest to slow down. Carrying on by itself in {clock}. The {found:,} leads so far are in Leads.": "طلبت Google من GeoHarvest التمهل. سيتابع البحث تلقائيًا بعد {clock}. العملاء المحتملون الذين عُثر عليهم حتى الآن ({found:,}) موجودون في صفحة العملاء المحتملين.",
  "Stop": "إيقاف",
  "Google asked GeoHarvest to slow down. Going slower for a moment: it carries on by itself in about {minutes} minutes. Nothing is lost.": "طلب Google من GeoHarvest أن يبطئ. سيعمل بسرعة أقل للحظات: يتابع تلقائيًا بعد نحو {minutes} دقائق. لن يضيع شيء.",
+ "No internet connection. GeoHarvest keeps trying and carries on by itself when it is back. Nothing is lost.": "لا يوجد اتصال بالإنترنت. يواصل GeoHarvest المحاولة ويتابع تلقائيًا عند عودته. لن يضيع شيء.",
  "{count:,} of {limit:,}": "{count:,} من {limit:,}",
  "{found:,} of {wanted:,}": "{found:,} من {wanted:,}",
  "Search finished with {found:,} of {wanted:,} leads. See why below.": "انتهى البحث بـ {found:,} من {wanted:,} من العملاء المحتملين. انظر السبب أدناه.",

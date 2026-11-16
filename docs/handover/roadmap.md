@@ -34,8 +34,6 @@ unsigned PyInstaller `GeoHarvest.exe`, which SAC blocks too. What it needs:
   `%APPDATA%\GeoHarvest\logs\crash.log` if it still closes.
 - Leads saved before 0.3.1 keep a local number in Phone (international).
 - The status line says "Step 2 of 3" but not which batch: add a batch number if testers ask.
-- A search with no internet ends as "stopped" (Resume by hand); only Google's limits and closing
-  the app carry on by themselves. Add a retry if testers lose connection on long runs.
 - The estimate's "up to N businesses" ignores Maximum leads (it said 15,840 with a maximum of 600).
 - The translations were written by Claude and not yet checked by native speakers.
 
