@@ -162,8 +162,8 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   out:** reading "All searches" off the UI thread. A `Task(searches.all_leads)` started from
   `LeadsPage._load` crashed pytest natively in `test_every_page_opens_in_every_language`
   (exit 0xC0000409, nothing printed even with `-s` and faulthandler; a script doing the same
-  outside pytest ran fine). About 2 hours of usage went on it; a `shortcut:` comment in
-  `_load` marks the spot. **Not measured** with a real 30,000 lead list: the gains are by
+  outside pytest ran fine). A good part of M16's usage went on it; a `shortcut:` comment
+  in `_load` marks the spot. **Not measured** with a real 30,000 lead list: the gains are by
   reasoning (30,000 signals became 1, 30,000 joined strings became none until a search).
 - **Next: M17,** audit group D (D1 to D4 in `docs/handover/audit-2026-11.md`): backups, in
   `app/core/backup.py` and `SettingsPage._backup` / `_restore`. D2 wants restore in a `Task`:
