@@ -419,6 +419,8 @@ class SearchPage(Page):
         self._update_plan()
 
     def _update_plan(self) -> None:
+        if getattr(self, "_filling", False):
+            return  # load_options calls this once when it is done
         niches = split_list(self.niches.text())
         if self.where.get() == "area":
             count = len(searches.build_queries({
@@ -610,6 +612,14 @@ class SearchPage(Page):
 
     def load_options(self, options: dict) -> None:
         """Fill the form from a saved search (Past searches: resume or run again)."""
+        self._filling = True  # every box set below would work the plan line out again
+        try:
+            self._fill(options)
+        finally:
+            self._filling = False
+        self._update_plan()
+
+    def _fill(self, options: dict) -> None:
         options = searches.options_with_defaults(options)
         self.niches.setText(", ".join(options["niches"]))
         self.where.set(options["where"])

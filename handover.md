@@ -35,8 +35,8 @@ model (model-router skill).
 | M13 | Tidy up storage: "Free up space" in Settings (`app/core/tidy.py`); no automatic clean-up (user's choice) | M | done |
 | M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | done |
 | M15 | Audit group B: the search job never gets stuck, errors reach the log | M | done |
-| M16 | Audit group C: Leads page speed with 30,000 rows | M | next |
-| M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | |
+| M16 | Audit group C: Leads page speed with 30,000 rows | M | done, one part left out (see Current state) |
+| M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | next |
 | M18 | Audit groups E and F: exports, saved keys | M | |
 | M19 | Audit groups G, H and I: Smart mode, website checks, Setup | M | |
 | R2 | **Release v0.4** (M13 to M19) | M | |
@@ -158,16 +158,22 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   `OFFLINE_SITES` (5) is **a judgement, not measured**: a batch that ends on 5 or more dead
   websites in a row is visited a second time, which only costs time. The worker's `self.log`
   messages are plain English f-strings shown as toasts (an older pattern, not translated).
-- **Next: M16,** audit group C (C1 to C4 in `docs/handover/audit-2026-11.md`): Leads page
-  speed with 30,000 rows. C3 is already done (M3, `search.tally`). Start from
-  `app/ui/pages/leads.py` (`_mark_exported`, `_load`, `select_search`) and
-  `SearchPage.load_options`.
+- **Then M16:** audit group C, in the v0.4 lines of `docs/handover/changelog.md`. **Left
+  out:** reading "All searches" off the UI thread. A `Task(searches.all_leads)` started from
+  `LeadsPage._load` crashed pytest natively in `test_every_page_opens_in_every_language`
+  (exit 0xC0000409, nothing printed even with `-s` and faulthandler; a script doing the same
+  outside pytest ran fine). About 2 hours of usage went on it; a `shortcut:` comment in
+  `_load` marks the spot. **Not measured** with a real 30,000 lead list: the gains are by
+  reasoning (30,000 signals became 1, 30,000 joined strings became none until a search).
+- **Next: M17,** audit group D (D1 to D4 in `docs/handover/audit-2026-11.md`): backups, in
+  `app/core/backup.py` and `SettingsPage._backup` / `_restore`. D2 wants restore in a `Task`:
+  the page is not being built then, but remember the M16 crash if a test dies without a message.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
   81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
   session: 9% after M11 (handover read included), 15% after M12 (an S with translations
   and a UI test: 6%), 24% after R1 (the release: 9%), 42% after the 'step' fix, the v0.3.4
   patch release and M13 together (18%). A release costs about 9%, more than an M. 52% after M14 (10%): the audit milestones are
-  several fixes each and cost about 10%, not 4 to 8.
+  several fixes each and cost about 10%, not 4 to 8. 64% after M15 (12%).
 - **Not checked in the running app** (M3 to M11; M11's line was only seen in a headless
   screenshot with no fonts): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
@@ -179,9 +185,9 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
 - **Open questions:** does the backup installer come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** M13, M14, M15 and the local tag `v0.3.4` (the user chose "commits only" and makes
+- **Not pushed:** M13, M14, M15, M16 and the local tag `v0.3.4` (the user chose "commits only" and makes
   the tag when publishing). Everything up to the v0.3.4 release commit was pushed on
   2026-11-16; the user published v0.3.3 themselves and still has to publish v0.3.4. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
   user's OK (a backup only: no release, no tag, testers get nothing yet). Ask again before
   the next push.
-- **Waiting on the user:** publishing v0.3.4 on GitHub, their usage % and the go-ahead for M16.
+- **Waiting on the user:** publishing v0.3.4 on GitHub, their usage % and the go-ahead for M17.

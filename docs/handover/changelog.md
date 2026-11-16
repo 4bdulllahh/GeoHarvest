@@ -37,6 +37,16 @@ What went into each version and how it was tested, newest first. Add to it with 
   end it takes that for a lost connection and visits them once more later, instead of
   dropping the leads as "no email found". `tests/conftest.py` sends test errors to a
   throwaway crash.log.
+- **M16 audit group C, Leads page speed** (C1, C2 in part, C4; C3 was M3):
+  C1 `LeadsModel.update_many` marks an export with one `dataChanged`, not one per lead;
+  `mark_exported` and `to_tsv` run in a `Task`. C2 the filter text of a row
+  (`LeadsModel.haystack`) is made the first time it is searched, not for every row on every
+  load; `select_search` reads the list once (the picker's signal is blocked). C4
+  `load_options` works the plan line out once (`_filling`), not after every box it sets.
+  **Not done from C2:** `all_leads()` and `empty_columns()` still run on the UI thread.
+  Reading "All searches" in a `Task` started while the page is built crashed the test run
+  natively (exit 0xC0000409 in `test_every_page_opens_in_every_language`, no Python error,
+  not reproduced outside pytest); the cause was not found.
 
 ## v0.3.4 beta (2026-11-16)
 

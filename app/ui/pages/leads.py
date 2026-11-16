@@ -293,17 +293,23 @@ class LeadsPage(Page):
     def select_search(self, search_id: int) -> None:
         self._refresh_picker()
         label = next((lab for lab, sid in self.search_ids.items() if sid == search_id), ALL)
+        blocked = self.picker.blockSignals(True)  # or the list is read twice
         self.picker.setCurrentText(label)
+        self.picker.blockSignals(blocked)
         self._load()
 
     def _load(self) -> None:
         self.current_id = self.search_ids.get(self.picker.currentText(), 0)
+        # shortcut: "All searches" is still read on the UI thread (30,000 leads: under a
+        # second). Reading it in a Task started while the page is built crashed the test run
+        # natively (0xC0000409, no Python error); find out why before trying that again
         leads = searches.leads(self.current_id) if self.current_id else searches.all_leads()
         record = searches.get(self.current_id) if self.current_id else None
         self.fields = set(record["options"]["fields"] if record else
                           db.get_setting("all_searches_fields", [k for k, _ in FIELDS]))
         self.model.set_leads(leads)
         self._hide_empty_columns()
+        self.delete_button.setEnabled(bool(self.current_id))
         self.delete_button.setEnabled(bool(self.current_id))
         self.score_button.setEnabled(bool(self.current_id) and self.score_worker is None)
         self.score_button.setToolTip("" if self.current_id else
@@ -466,23 +472,33 @@ class LeadsPage(Page):
                     "success")
 
     def _mark_exported(self, leads: list[dict]) -> None:
+        """On screen at once, with one signal; saved by a worker (30,000 rows take a while)."""
         today = date.today().isoformat()
         place_ids = [lead["place_id"] for lead in leads]
-        searches.mark_exported(place_ids, today)
-        for place_id in place_ids:
-            self.model.update(place_id, {"exported": today})
+        self.model.update_many(place_ids, {"exported": today})
+        Task(searches.mark_exported, place_ids, today).start(
+            on_error=self.guard(lambda message: self.notify(
+                t("The leads couldn't be marked as exported: {message}", message=message),
+                "error", 8000)))
 
     # --- actions ------------------------------------------------------------
     def copy_for_sheets(self) -> None:
         leads = self.proxy.visible_leads()
         if not leads:
             return
-        copy_to_clipboard(exporter.to_tsv(leads, self._shown_keys()))
-        self._mark_exported(leads)
-        open_url("https://sheets.new")
-        self.notify(t("Copied {count:,} leads. A new Google Sheet is opening in your "
-                      "browser: click cell A1 and press Ctrl+V.",
-                      count=len(leads)), "success", 10000)
+
+        def copied(text: str) -> None:
+            copy_to_clipboard(text)
+            self._mark_exported(leads)
+            open_url("https://sheets.new")
+            self.notify(t("Copied {count:,} leads. A new Google Sheet is opening in your "
+                          "browser: click cell A1 and press Ctrl+V.",
+                          count=len(leads)), "success", 10000)
+
+        Task(exporter.to_tsv, leads, self._shown_keys()).start(
+            on_result=self.guard(copied),
+            on_error=self.guard(lambda message: self.notify(
+                t("Could not copy the leads: {message}", message=message), "error", 8000)))
 
     def export(self, kind: str) -> None:
         """kind: xlsx, csv, or a CRM from exporter.CRMS (a CSV in that CRM's columns)."""

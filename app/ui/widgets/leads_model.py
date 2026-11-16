@@ -84,7 +84,9 @@ class LeadsModel(QAbstractTableModel):
         self.keys = [key for key, _ in FIELDS]
         self.headers = [header for _, header in FIELDS]
         self.leads: list[dict] = []
-        self.haystacks: list[str] = []
+        # Each row's text for the filter box, made the first time it is searched: making
+        # 30,000 of them on every load held the window up
+        self.haystacks: list[str | None] = []
         self._row_of: dict[str, int] = {}
 
     def rowCount(self, parent=QModelIndex()) -> int:  # noqa: N802, B008
@@ -127,14 +129,17 @@ class LeadsModel(QAbstractTableModel):
         return None
 
     # --- loading ------------------------------------------------------------
-    @staticmethod
-    def _haystack(lead: dict) -> str:
-        return " ".join(str(v) for v in lead.values() if v not in (None, "")).lower()
+    def haystack(self, row: int) -> str:
+        text = self.haystacks[row]
+        if text is None:
+            text = self.haystacks[row] = " ".join(
+                str(v) for v in self.leads[row].values() if v not in (None, "")).lower()
+        return text
 
     def set_leads(self, leads: list[dict]) -> None:
         self.beginResetModel()
         self.leads = list(leads)
-        self.haystacks = [self._haystack(lead) for lead in self.leads]
+        self.haystacks = [None] * len(self.leads)
         self._row_of = {lead.get("place_id"): row for row, lead in enumerate(self.leads)}
         self.endResetModel()
 
@@ -145,18 +150,25 @@ class LeadsModel(QAbstractTableModel):
         self.beginInsertRows(QModelIndex(), start, start + len(leads) - 1)
         for offset, lead in enumerate(leads):
             self.leads.append(lead)
-            self.haystacks.append(self._haystack(lead))
+            self.haystacks.append(None)
             self._row_of[lead.get("place_id")] = start + offset
         self.endInsertRows()
 
     def update(self, place_id: str, fields: dict) -> None:
         """Merge new fields (emails, AI score) into a row already on screen."""
-        row = self._row_of.get(place_id)
-        if row is None:
+        self.update_many([place_id], fields)
+
+    def update_many(self, place_ids: list[str], fields: dict) -> None:
+        """The same new fields for many rows, told to the table once: a signal per row
+        froze the window for a 30,000 lead export."""
+        rows = [row for row in map(self._row_of.get, place_ids) if row is not None]
+        if not rows:
             return
-        self.leads[row].update(fields)
-        self.haystacks[row] = self._haystack(self.leads[row])
-        self.dataChanged.emit(self.index(row, 0), self.index(row, len(self.keys) - 1))
+        for row in rows:
+            self.leads[row].update(fields)
+            self.haystacks[row] = None
+        self.dataChanged.emit(self.index(min(rows), 0),
+                              self.index(max(rows), len(self.keys) - 1))
 
     def remove(self, place_id: str) -> None:
         row = self._row_of.pop(place_id, None)
@@ -221,7 +233,8 @@ class LeadsProxy(QSortFilterProxyModel):
             return False
         if not self._needle:
             return True
-        return all(word in source.haystacks[row] for word in self._needle.split())
+        text = source.haystack(row)
+        return all(word in text for word in self._needle.split())
 
     def visible_leads(self) -> list[dict]:
         """The leads in the order and filter shown on screen, for export."""

@@ -374,6 +374,37 @@ def test_a_search_ended_by_an_error_tells_the_other_pages(window):
     assert "error" in page.status.text()
 
 
+def test_a_big_leads_list_is_not_reworked_row_by_row(window, monkeypatch):
+    from app.ui.widgets.leads_model import LeadsModel, LeadsProxy
+
+    model = LeadsModel()
+    proxy = LeadsProxy(model)
+    model.set_leads([{"place_id": f"p{n}", "name": f"Cafe {n}"} for n in range(500)])
+    assert model.haystacks == [None] * 500  # the filter text is only made when searched
+    signals = []
+    model.dataChanged.connect(lambda *_args: signals.append(1))
+    model.update_many([f"p{n}" for n in range(500)], {"exported": "2026-11-16"})
+    assert len(signals) == 1 and model.leads[499]["exported"] == "2026-11-16"
+    proxy.set_filter("cafe p499")
+    assert [lead["place_id"] for lead in proxy.visible_leads()] == ["p499"]
+    model.update("p499", {"name": "Gym"})  # a changed row is searched by its new text
+    assert proxy.visible_leads() == []
+
+    # picking a search reads its leads once, and filling the form works the plan out once
+    search_id = saved_search("stopped")
+    win = window()
+    leads, page = win.ensure_page("leads"), win.ensure_page("search")
+    reads, plans = [], []
+    real_leads, real_queries = searches.leads, searches.build_queries
+    monkeypatch.setattr(searches, "leads", lambda sid: reads.append(sid) or real_leads(sid))
+    monkeypatch.setattr(searches, "build_queries",
+                        lambda options: plans.append(1) or real_queries(options))
+    leads.select_search(search_id)
+    assert reads == [search_id]
+    page.load_options(searches.get(search_id)["options"])
+    assert len(plans) == 1 and "1 searches" in page.plan.text()
+
+
 def test_free_up_space_in_settings_asks_first_then_trims(window, monkeypatch):
     import json
 
