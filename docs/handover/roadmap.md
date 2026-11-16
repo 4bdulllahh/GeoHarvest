@@ -3,12 +3,12 @@
 Before starting a new batch or a release, read this and ask the user whether to include any
 open item. Move items to [changelog.md](changelog.md) when they ship.
 
-## Next: v0.4, the audit fixes
+## Done: v0.4.0, the audit fixes (2026-11-17)
 
-M13 to M19 in [../../handover.md](../../handover.md): freeing up space, the audit's groups A
-to I ([audit-2026-11.md](audit-2026-11.md)).
+Freeing up space and the audit's groups A to I ([audit-2026-11.md](audit-2026-11.md)) shipped
+in v0.4.0: see [changelog.md](changelog.md).
 
-## Then (no version number yet): a backup installer for Smart App Control PCs
+## Next (no version number yet): a backup installer for Smart App Control PCs
 
 v0.3.4 became the fix for 0.3.3's 'step' error (2026-11-16), so the README and READ ME FIRST
 now say "a later version".

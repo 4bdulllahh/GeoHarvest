@@ -2,7 +2,11 @@
 
 What went into each version and how it was tested, newest first. Add to it with every change. The user-facing release notes are in `docs/releases/`.
 
-## v0.4 (in progress, not released)
+## v0.4.0 beta (2026-11-17)
+
+The audit release: M13 to M19, every group of `audit-2026-11.md`. Notes for users in
+`docs/releases/v0.4.0-beta.md`. Tested with pytest only (105 tests) and the build's
+self-test; the user was asked to click through the app before publishing.
 
 - **M13 Free up space** (Settings > Your data): `app/core/tidy.py` cuts the stored details of
   left-out businesses in **finished** searches down to place, query and map position, then

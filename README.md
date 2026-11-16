@@ -13,7 +13,7 @@ customer. Export to Excel, to your CRM, or straight into Google Sheets. No accou
 subscription, nothing to pay: everything runs on your own computer.
 
 **Download:** [latest release](https://github.com/4bdulllahh/GeoHarvest/releases/latest) ·
-**Version:** 0.3.4 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
+**Version:** 0.4.0 (free beta) · **Works on:** Windows 10 and 11 · **Countries:** all of them
 
 [![Build](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml/badge.svg)](https://github.com/4bdulllahh/GeoHarvest/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/4bdulllahh/GeoHarvest?label=download&color=3b86dd)](https://github.com/4bdulllahh/GeoHarvest/releases/latest)
@@ -126,6 +126,8 @@ subscription, nothing to pay: everything runs on your own computer.
   Delete single leads you don't want.
 - **Backups.** Back up your searches, leads, presets and settings to a file, and restore them
   on this PC or a new one. GeoHarvest also backs up by itself once a week.
+- **Free up space.** After many big searches, one button in Settings shows how much disk space
+  can be freed and asks first. Your leads and searches are kept.
 - **Proxies (optional).** For people who search a lot: paste HTTP or SOCKS5 proxies in Settings
   and test them. GeoHarvest takes turns between them and skips any that stop working.
 - **Updates itself.** Every time it opens, GeoHarvest downloads the newest version, checks it is
@@ -300,10 +302,9 @@ places).
 ## Testing the beta
 
 The most useful feedback: what you searched for and what went wrong or looked odd, anything
-confusing, and what you wish it did. New in 0.3.3 and worth trying: a **long search** (do leads
-appear as it runs, how often does Google still ask it to slow down, and does it carry on by
-itself?), switching the internet off and on mid-search, and the **Update now** or **Later**
-question. Post it as a
+confusing, and what you wish it did. New in 0.4.0 and worth trying: **Free up space** in
+Settings, saving a **backup and restoring it**, an **export** to Excel or a CRM, and a **long
+search** (does it carry on by itself after Google asks it to slow down?). Post it as a
 [GitHub issue](https://github.com/4bdulllahh/GeoHarvest/issues/new). If the app crashed,
 attach `%APPDATA%\GeoHarvest\logs\crash.log`; if Setup failed, attach
 `%TEMP%\GeoHarvest-setup-log.txt` (Setup's **Open log file** button shows it).
@@ -350,7 +351,8 @@ decisions behind it, and where each feature lives.
 - [x] **v0.3.3**: leads while the search runs, deeper digging in busy cities, Google's limits
   and lost connections waited out inside the search, warnings on the form, updates that ask first
 - [x] **v0.3.4**: Resume shows again after opening the app (a fix for 0.3.3)
-- [ ] **v0.4**: freeing up space, a faster Leads page, safer backups and many small fixes
+- [x] **v0.4.0**: freeing up space, a faster Leads page, safer backups and exports, Smart mode
+  that stops when the AI keeps refusing, and many small fixes
 - [ ] **Later**: a backup installer for PCs with Smart App Control
 - [ ] **Ideas for later**: emails from Facebook pages, a map view of results, and a Mac version
 

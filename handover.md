@@ -8,7 +8,7 @@ This file only says where we are. What the app is, how the code is organised and
 decision are in [docs/handover/README.md](docs/handover/README.md): read that index, then
 only the file for the part you are changing.
 
-## Current plan: v0.3.3 beta after M12 (built), then v0.4 after M19 (approved 2026-11-16)
+## Current plan: finished. v0.4.0 beta is built (2026-11-17), waiting for the user to publish
 
 The user's answers: a search **keeps going to the maximum** (no early stop at the minimum);
 Google's limit is avoided and recovered from inside the same run; updates download quietly,
@@ -39,7 +39,7 @@ model (model-router skill).
 | M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | done |
 | M18 | Audit groups E and F: exports, saved keys | M | done |
 | M19 | Audit groups G, H and I: Smart mode, website checks, Setup | M | done |
-| R2 | **Release v0.4** (M13 to M19) | M | next, after the user's click-through |
+| R2 | **Release v0.4.0 beta** (M13 to M19) | M | built and committed; the user pushes and publishes |
 
 **The user's decisions on 2026-11-16:** go slowly, one milestone at a time; release v0.3.3
 after M12, then v0.4 once M13 to M19 are done. The audit findings each milestone fixes are
@@ -184,10 +184,17 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   `installer/setup_app.py`, so it only reaches users in a newly built Setup (R2 builds one).
   The audit is now fully worked through (M13 to M19), apart from what each milestone's
   line here says was left out.
-- **Next: R2, release v0.4.** First ask the user for the click-through (below). The steps are
-  in "Working with the user" in `docs/handover/README.md` and `docs/handover/releasing.md`.
+- **Then R2, release v0.4.0 beta (2026-11-17):** `APP_VERSION` is "v0.4.0 beta", notes in
+  `docs/releases/v0.4.0-beta.md` (with the paste-ready paragraph), README, changelog, roadmap
+  and the 11 screenshots updated, the zip built with its self-test, local tag `v0.4.0`.
+  The user said "lets finish this" **without saying whether they clicked through the app**:
+  the release was built anyway (it is local), and they were asked again before pushing.
+  **Still to do, by the user:** the click-through, OK the push, then publish on GitHub with
+  tag `v0.4.0` (steps in `docs/handover/releasing.md`; CI attaches the zip).
+- **The plan is finished.** After v0.4.0 is published, ask the user what is next. Open: the
+  backup installer for Smart App Control PCs (`docs/handover/roadmap.md`).
 - **Usage, third session:** 5% after M17 (handover read included), 15% after M18 (10%),
-  M19 not reported yet.
+  28% after M19 (13%), R2 not reported yet.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
   81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
   session: 9% after M11 (handover read included), 15% after M12 (an S with translations
@@ -207,7 +214,7 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
 - **Open questions:** does the backup installer come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** M17, M18 and M19 (three commits). Everything up to M16 and its handover was pushed to `origin/main`
+- **Not pushed:** M17, M18, M19 and the v0.4.0 release (four commits, and the local tag `v0.4.0`). Everything up to M16 and its handover was pushed to `origin/main`
   on 2026-11-16 with the user's OK (a backup: no release, testers get nothing from it). The
   user published v0.3.3 and v0.3.4 themselves on GitHub, and creates the tags there.
   **Ask again before the next push.**
@@ -216,5 +223,5 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Before R2,** ask the user to click through the app once (Stop, Resume, delete a search,
   Free up space, a backup and restore): M13 to M16 were only tested, and the 'step' error
   in v0.3.3 came from exactly that gap.
-- **Waiting on the user:** their usage % after M19, the click-through of the app, then the
-  go-ahead for R2 (and whether to push the three commits first).
+- **Waiting on the user:** the click-through of the app, the OK to push the four commits,
+  then they publish v0.4.0 on GitHub.

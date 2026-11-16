@@ -18,15 +18,15 @@ re-asks.
 
 ## Where things stand
 
-**Phase: beta testing (since 2026-10-16). Current version: v0.3.4 beta (2026-11-16, a one-fix patch of v0.3.3).**
+**Phase: beta testing (since 2026-10-16). Current version: v0.4.0 beta (2026-11-17, the audit fixes).**
 Version numbers follow the user's GitHub tags: keep `APP_VERSION` (app/config.py) equal to the
 tag's numbers. Don't start new features unless the user asks.
 
 v0.3.3 (leads while the search runs, adaptive digging, Google's limits and lost connections
 waited out inside the run, form warnings, an update notice that asks) and v0.3.4 (Resume
-showing again after opening the app) are published on GitHub by the user. **In progress:
-v0.4**, the audit fixes: M13 to M16 are done and pushed, M17 to M19 and the release are left
-(see [../../handover.md](../../handover.md) and the v0.4 lines of [changelog.md](changelog.md));
+showing again after opening the app) are published on GitHub by the user. **v0.4.0**, the
+audit fixes (M13 to M19), is built and committed; whether it is pushed and published is in
+[../../handover.md](../../handover.md), and what it holds is in [changelog.md](changelog.md);
 the backup installer for Smart App Control PCs has no version number yet (see [roadmap.md](roadmap.md)).
 
 ## The product
