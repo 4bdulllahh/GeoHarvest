@@ -639,14 +639,16 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _install_update(self, release, setup) -> None:
-        """Install now, unless a search is running or a question is open: then wait."""
+        """Ask "Update now" or "Later", unless a search is running or a question is open:
+        then wait. Later does nothing more: the next start downloads and asks again."""
         if self.busy_page_reason() or QApplication.activeModalWidget() is not None:
-            self.set_status(middle=t("GeoHarvest {tag} is ready: it installs when the search "
-                                     "ends.", tag=release.tag))
+            self.set_status(middle=t("GeoHarvest {tag} is ready: it asks to install when the "
+                                     "search ends.", tag=release.tag))
             QTimer.singleShot(15000, lambda: self._install_update(release, setup))
             return
         from app.ui.widgets.update_dialog import UpdatingNotice
 
+        self.set_status(middle="")
         UpdatingNotice(self, release, setup).exec()
 
     def quit_app(self) -> None:

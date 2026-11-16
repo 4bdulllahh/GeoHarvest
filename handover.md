@@ -29,8 +29,8 @@ model (model-router skill).
 | M9 | Google's limit 2: a limit is waited out inside the run (2, then 5 minutes, `scrape.SHORT_WAITS`, `ScrapeWorker.back_off`) before the long wait | M | done |
 | M10 | Internet drops: Google requests that don't get through are tried again every 30 s for 10 minutes (`ScrapeWorker.wait_for_internet`) | S | done |
 | M11 | Opening hours warning on the form when more than one "Open" choice is on (`search.hours_chosen`) | S | done |
-| M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | next |
-| R1 | **Release v0.3.3 beta** (M1 to M12) | M | |
+| M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | done |
+| R1 | **Release v0.3.3 beta** (M1 to M12) | M | next |
 | M13 | Tidy up storage: "Free up space" in Settings, automatic clean-up of finished searches | M | |
 | M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | |
 | M15 | Audit group B: the search job never gets stuck, errors reach the log | M | |
@@ -115,19 +115,21 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   The line is by the places, not next to the "Open" buttons: move it if the user misses it.
   New text is added to ar, de, es, fr with `tools/i18n.py`'s `load` and `save`, then
   `python tools/i18n.py check`.
-- **Next: M12.** `UpdatingNotice` in `app/ui/widgets/update_dialog.py` and `_install_update`
-  in `app/ui/main_window.py`. The user chose: download quietly, then "Update now" and
-  "Later", no countdown, Escape and X mean Later, Later asks again the next time the app
-  opens. Also from the audit: a "waiting" search's countdown can start a search while the
-  notice is open.
-- **Then R1, release v0.3.3 beta:** steps in "Working with the user" in
+- **Then M12:** `UpdatingNotice` (`app/ui/widgets/update_dialog.py`) has "Later" and "Update
+  now", no countdown; Escape and X mean Later. Later saves nothing: every start downloads
+  the newest release and asks again (so the zip is downloaded again each start until the
+  user updates). A "waiting" search's countdown (`SearchPage._tick`) does not start the
+  search while any question window is open; it starts once that closes. Tested in
+  `test_ui.py` with a pretend Setup; **the real download and install were not run** (they
+  need a published release newer than the build).
+- **Next: R1, release v0.3.3 beta:** steps in "Working with the user" in
   `docs/handover/README.md` and `docs/handover/releasing.md`. Write the v0.3.3 changelog lines
   from the milestone table above. The roadmap's old "v0.3.3 backup installer" item moves to
   a later version (told to the user 2026-11-16; they did not object). **Before the release,
   ask the user to run one real search**: M5 to M10 were only tested against a pretend Google.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
-  81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10; M11
-  was done in a new session.
+  81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
+  session: 9% after M11 (handover read included).
 - **Not checked in the running app** (M3 to M11; M11's line was only seen in a headless
   screenshot with no fonts): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
@@ -141,7 +143,8 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** M11. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
+- **Not pushed:** M11 and M12. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
   user's OK (a backup only: no release, no tag, testers get nothing yet). Ask again before
   the next push.
-- **Waiting on the user:** their usage % and the go-ahead for M12.
+- **Waiting on the user:** one real search to try M5 to M10 before the release, their usage %
+  and the go-ahead for R1.

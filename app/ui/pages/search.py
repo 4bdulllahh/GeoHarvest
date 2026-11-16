@@ -4,7 +4,8 @@ from __future__ import annotations
 import time
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QHBoxLayout, QInputDialog, QMenu, QSpinBox, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QInputDialog, QMenu, QSpinBox,
+                             QVBoxLayout, QWidget)
 
 from app.core import db, geo, hours, scraper
 from app.core import search as searches
@@ -837,6 +838,8 @@ class SearchPage(Page):
     def _tick(self) -> None:
         left = round(self.resume_at - time.time())
         if left <= 0:
+            if QApplication.activeModalWidget() is not None:
+                return  # a question is open (the update notice): start once it is answered
             self.countdown.stop()
             self.resume()
             return

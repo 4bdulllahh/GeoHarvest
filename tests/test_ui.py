@@ -214,6 +214,39 @@ def test_a_search_waiting_for_google_counts_down_then_starts_by_itself(window, m
     assert started == [search_id] and not page.countdown.isActive()
 
 
+def test_the_update_notice_installs_only_on_update_now_and_holds_a_waiting_search(
+        window, monkeypatch):
+    from pathlib import Path
+
+    from app.services import updater
+    from app.ui.widgets.update_dialog import UpdatingNotice
+
+    search_id = saved_search("waiting", resume_at=time.time() + 90)
+    win = window()
+    page = win.ensure_page("search")
+    started, installed, quits = [], [], []
+    monkeypatch.setattr(page, "run", started.append)
+    monkeypatch.setattr(updater, "start_install", installed.append)
+    monkeypatch.setattr(win, "quit_app", lambda: quits.append(True))
+    page.pick_up()
+
+    notice = UpdatingNotice(win, updater.Release("v9.9.9", "https://example.com"), Path("Setup"))
+    notice.show()
+    assert notice.now_button.text() == "Update now" and notice.later_button.text() == "Later"
+    page.resume_at = time.time() - 1
+    page._tick()  # the wait is over, but the question is still open
+    assert not started and page.countdown.isActive()
+    notice.reject()  # Later, Escape or the X
+    assert not installed and not quits and not notice.isVisible()
+    page._tick()
+    assert started == [search_id]
+
+    notice = UpdatingNotice(win, updater.Release("v9.9.9", "https://example.com"), Path("Setup"))
+    notice.show()
+    notice.now_button.click()
+    assert installed == [Path("Setup")] and quits == [True]
+
+
 def test_a_search_cut_off_by_closing_the_app_carries_on_when_it_opens(window, monkeypatch):
     older, newest = saved_search("running"), saved_search("running")
     searches.recover_interrupted()

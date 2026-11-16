@@ -10,7 +10,7 @@ from app import config
 from app.i18n import t
 from app.services import updater
 from app.ui import theme
-from app.ui.widgets.common import confirm_button, set_tone
+from app.ui.widgets.common import confirm_button, secondary_button, set_tone
 from app.workers.base import Worker
 
 
@@ -30,18 +30,16 @@ class UpdateDownloadWorker(Worker):
 
 
 class UpdatingNotice(QDialog):
-    """The newest release is downloaded: say so, count down, then hand over to Setup, which
-    closes the app, installs and opens it again."""
-
-    SECONDS = 5
+    """The newest release is downloaded: ask "Update now" or "Later". Update now hands over
+    to Setup, which closes the app, installs and opens it again. Later (also Escape and the
+    window's X) only closes this: the next start downloads and asks again."""
 
     def __init__(self, window: QWidget, release: updater.Release, setup: Path):
         super().__init__(window)
         self.window_ = window
         self.setup = setup
-        self.left = self.SECONDS
         scale = theme.text_scale()
-        self.setWindowTitle(t("Updating GeoHarvest"))
+        self.setWindowTitle(t("Update GeoHarvest"))
         self.setModal(True)
         self.setMinimumWidth(round(520 * scale))
         pad = round(22 * scale)
@@ -49,13 +47,15 @@ class UpdatingNotice(QDialog):
         layout.setContentsMargins(pad, pad, pad, pad)
         layout.setSpacing(round(12 * scale))
 
-        heading = QLabel(t("Updating to GeoHarvest {tag}", tag=release.tag))
+        heading = QLabel(t("GeoHarvest {tag} is ready to install", tag=release.tag))
         heading.setProperty("role", "subheading")
         heading.setWordWrap(True)
         layout.addWidget(heading)
-        message = QLabel(t("You have {app_version}. GeoHarvest closes, installs the new version "
-                           "and opens again by itself in about 10 seconds. Your searches, leads "
-                           "and settings are kept.", app_version=config.APP_VERSION))
+        message = QLabel(t("You have {app_version}. With \"Update now\", GeoHarvest closes, "
+                           "installs the new version and opens again by itself in about 10 "
+                           "seconds. With \"Later\", it asks again the next time it opens. Your "
+                           "searches, leads and settings are kept.",
+                           app_version=config.APP_VERSION))
         message.setWordWrap(True)
         layout.addWidget(message)
         if release.notes.strip():
@@ -75,23 +75,12 @@ class UpdatingNotice(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        self.now_button = confirm_button("", self._install, width=200)
+        self.later_button = secondary_button("Later", self.reject)
+        buttons.addWidget(self.later_button)
+        self.now_button = confirm_button("Update now", self._install, width=200)
+        self.now_button.setDefault(True)
         buttons.addWidget(self.now_button)
         layout.addLayout(buttons)
-        self._tick()
-
-    def _tick(self) -> None:
-        if not self.isVisible() and self.left < self.SECONDS:
-            return  # closed: _install already ran
-        if self.left <= 0:
-            self._install()
-            return
-        self.now_button.setText(t("Update now ({seconds})", seconds=self.left))
-        self.left -= 1
-        QTimer.singleShot(1000, self._tick)
-
-    def reject(self) -> None:  # Escape and the window's X update straight away too
-        self._install()
 
     def _install(self) -> None:
         if not self.now_button.isEnabled():
