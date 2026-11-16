@@ -11,6 +11,17 @@ What went into each version and how it was tested, newest first. Add to it with 
   finished. The user's choices: asks first with the size, **no automatic clean-up**. On a copy
   of the user's real database: 151 MB to 95 MB in 9 s, left-out counts and tiles unchanged,
   integrity ok. Not clicked through in the running app.
+- **M14 audit group A, the search screens** (all seven, A1 to A7):
+  A1 `search_finished` goes to bound methods in History and Leads, not lambdas (F5 no longer
+  leaves one firing into a deleted page). A2 `SearchPage.start` refuses while a search runs;
+  History's Resume and Run again check too, and its buttons follow the new
+  `MainWindow.search_started` signal. A3 `pick_up` with nothing to show hides the summary and
+  the widen buttons. A4 deleting a search (or all of them) calls `LeadsPage.reload`.
+  A5 the form is filled from a held search only when the app opens or Resume is pressed
+  (`pick_up(fill_form=True)`, `_resume`), not when a search carries on by itself. A6
+  `ScrapeWorker.stop` keeps the first ending, so Stop or Pause then closing the app does not
+  restart the search. A7 `_on_failed` shows the stopped screen, emits `search_finished` and
+  refreshes the status bar. No new on-screen text.
 
 ## v0.3.4 beta (2026-11-16)
 

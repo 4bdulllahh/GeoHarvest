@@ -369,7 +369,7 @@ class SearchPage(Page):
         self.countdown.timeout.connect(self._tick)
         # After the window is up: the state is in the database, so this also covers reopening
         # the app and rebuilding the page (a new language, text size, F5)
-        QTimer.singleShot(800, self.guard(self.pick_up))
+        QTimer.singleShot(800, self.guard(lambda: self.pick_up(fill_form=True)))
 
     # --- form ---------------------------------------------------------------
     def _country_toggled(self, key: str, on: bool) -> None:
@@ -660,6 +660,9 @@ class SearchPage(Page):
 
     # --- running ------------------------------------------------------------
     def start(self) -> None:
+        if self.worker is not None:  # Run again in Past searches, or a place just located
+            self.notify("Wait until the search has finished, or stop it first.", "warn")
+            return
         options = self.options()
         problem = self._validate(options)
         if problem:
@@ -739,6 +742,7 @@ class SearchPage(Page):
         self._set_running(True)
         self.status.setText(t("Starting: {title}", title=self.title))
         self.worker.start()
+        self.window_.search_started.emit(search_id)
 
     def stop(self) -> None:
         """The app is closing: the search is left marked as running, so it carries on by
@@ -765,17 +769,22 @@ class SearchPage(Page):
             self.pause_button.setText(t("Pausing..."))
 
     def resume(self) -> None:
-        """Carry on with the search on show."""
+        """The Resume button: carry on with the search on show."""
+        self._resume(fill_form=True)
+
+    def _resume(self, fill_form: bool) -> None:
         record = searches.get(self.search_id) if self.search_id is not None else None
         if record is None:  # deleted in the meantime
             self.pick_up()
             return
-        self.load_options(record["options"])
+        if fill_form:
+            self.load_options(record["options"])
         self.run(record["id"])
 
-    def pick_up(self) -> None:
+    def pick_up(self, fill_form: bool = False) -> None:
         """Show the unfinished search, if there is one; one cut off by closing the app
-        carries on by itself."""
+        carries on by itself. ``fill_form`` puts its choices on the form: only when the app
+        opens, because later the user may be filling in a new search."""
         if self.worker is not None:
             return
         self.countdown.stop()
@@ -783,24 +792,25 @@ class SearchPage(Page):
         record = searches.unfinished()
         if record is None:
             self.search_id = None
+            # summary and widen too: their buttons act on a search that is no longer there
             for widget in (self.stats, self.progress, self.open_button, self.resume_button,
-                           self.stop_button, self.pause_button):
+                           self.stop_button, self.pause_button, self.summary, self.widen):
                 widget.hide()
             self.start_button.show()
             self.status.setText(t("Ready when you are."))
         elif record["status"] == "interrupted":
             self.search_id = record["id"]
             self.notify("Carrying on with your last search.", "info")
-            self.resume()
+            self._resume(fill_form)
         else:
-            self._show_unfinished(record)
+            self._show_unfinished(record, fill_form)
 
-    def _show_unfinished(self, record: dict) -> None:
+    def _show_unfinished(self, record: dict, fill_form: bool = False) -> None:
         """A search not running: how far it got, and the buttons to carry on or end it."""
         self.search_id = record["id"]
         self.title = record["title"]
         status, options = record["status"], record["options"]
-        if status in searches.HELD:
+        if fill_form and status in searches.HELD:
             self.load_options(options)  # the form shows the search that is carrying on
         self._set_running(False)
         done = len(record["progress"].get("done", []))
@@ -842,7 +852,7 @@ class SearchPage(Page):
             if QApplication.activeModalWidget() is not None:
                 return  # a question is open (the update notice): start once it is answered
             self.countdown.stop()
-            self.resume()
+            self._resume(fill_form=False)  # the user may be filling in a new search
             return
         clock = f"{left // 60}:{left % 60:02d}"
         self.status.setText(t("Google asked GeoHarvest to slow down. Carrying on by itself in "
@@ -1002,11 +1012,15 @@ class SearchPage(Page):
 
     def _on_failed(self, message: str) -> None:
         self.worker = None
-        self._set_running(False)
-        if self.search_id is not None:
+        record = searches.get(self.search_id) if self.search_id is not None else None
+        if record is None:
+            self._set_running(False)
+        else:  # the same screen as after Stop, and the other pages hear about it
             searches.set_status(self.search_id, "stopped")
+            self._show_unfinished(searches.get(self.search_id))
+            self.window_.search_finished.emit(self.search_id)
         self.status.setText(t("The search stopped because of an error."))
-        self.resume_button.setVisible(self.search_id is not None)
+        self.window_.refresh_status()
         self.notify(t("The search stopped: {message}", message=message), "error", 8000)
 
     def open_leads(self) -> None:

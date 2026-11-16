@@ -33,8 +33,8 @@ model (model-router skill).
 | R1 | **Release v0.3.3 beta** (M1 to M12) | M | done, published by the user |
 | R1b | **Patch v0.3.4 beta**: the 'step' error after opening the app | S | done, pushed; the user publishes it |
 | M13 | Tidy up storage: "Free up space" in Settings (`app/core/tidy.py`); no automatic clean-up (user's choice) | M | done |
-| M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | next |
-| M15 | Audit group B: the search job never gets stuck, errors reach the log | M | |
+| M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | done |
+| M15 | Audit group B: the search job never gets stuck, errors reach the log | M | next |
 | M16 | Audit group C: Leads page speed with 30,000 rows | M | |
 | M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | |
 | M18 | Audit groups E and F: exports, saved keys | M | |
@@ -147,12 +147,20 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   changelog. On a copy of the user's real database: 151 MB to 95 MB in 9 s. Most of what is
   left belongs to the user's paused search (about 40 MB), which is kept on purpose. A search
   started while it runs could hit the locked database (a `shortcut:` comment marks it).
-- **Next: M14,** audit group A (A1 to A7 in `docs/handover/audit-2026-11.md`): the search
-  screens, all in `app/ui/pages/search.py`, `history.py` and `leads.py`.
+- **Then M14:** audit group A, all seven (A1 to A7), listed one by one in the v0.4 lines of
+  `docs/handover/changelog.md`. Tests in `test_ui.py`. A1 (F5 with a lambda still connected)
+  has no test: it relies on PyQt dropping bound methods, as `Page.guard`'s docstring says.
+  The Resume **button** must stay `resume()` with no arguments: Qt passes the click's
+  `checked` flag to a slot that takes one, which is why `_resume(fill_form)` is separate.
+- **Next: M15,** audit group B in `docs/handover/audit-2026-11.md` (the search job never gets
+  stuck, errors reach the log), plus from M10: what `Enricher.enrich` and `check_websites`
+  do with no connection (a failure is marked `enriched`, dropping the lead as "no email
+  found" for good).
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
   81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
   session: 9% after M11 (handover read included), 15% after M12 (an S with translations
-  and a UI test: 6%), 24% after R1 (the release: 9%).
+  and a UI test: 6%), 24% after R1 (the release: 9%), 42% after the 'step' fix, the v0.3.4
+  patch release and M13 together (18%). A release costs about 9%, more than an M.
 - **Not checked in the running app** (M3 to M11; M11's line was only seen in a headless
   screenshot with no fonts): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
@@ -164,9 +172,9 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
 - **Open questions:** does the backup installer come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** M13 and the local tag `v0.3.4` (the user chose "commits only" and makes
+- **Not pushed:** M13, M14 and the local tag `v0.3.4` (the user chose "commits only" and makes
   the tag when publishing). Everything up to the v0.3.4 release commit was pushed on
   2026-11-16; the user published v0.3.3 themselves and still has to publish v0.3.4. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
   user's OK (a backup only: no release, no tag, testers get nothing yet). Ask again before
   the next push.
-- **Waiting on the user:** publishing v0.3.4 on GitHub, their usage % and the go-ahead for M14.
+- **Waiting on the user:** publishing v0.3.4 on GitHub, their usage % and the go-ahead for M15.

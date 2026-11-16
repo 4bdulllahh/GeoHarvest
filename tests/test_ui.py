@@ -299,6 +299,81 @@ def test_the_google_client_spaces_out_its_requests(monkeypatch):
     assert time.monotonic() - began >= 3 * 0.1 * 0.7
 
 
+def test_a_second_search_cannot_start_while_one_runs(window):
+    win = window()
+    page, history = win.ensure_page("search"), win.ensure_page("history")
+    saved_search("stopped")
+    history.on_show()
+    history._selected = lambda: history.model.rows[0]
+    before = len(searches.all_searches())
+    page.worker = object()  # a search is running
+    page.niches.setText("gym")
+    page.start()
+    history.run_again()
+    history.resume()
+    page.worker = None
+    # the box adds ", " after a type by itself
+    assert len(searches.all_searches()) == before and page.niches.text().startswith("gym")
+
+
+def test_stop_then_closing_the_app_keeps_the_search_stopped():
+    from app.workers.scrape import ScrapeWorker
+
+    worker = ScrapeWorker(1)
+    worker.stop("paused")
+    worker.stop("running")  # the app closes before the pages in flight are done
+    assert worker.ending == "paused"
+
+
+def test_a_search_carrying_on_by_itself_leaves_the_form_alone(window, monkeypatch):
+    search_id = saved_search("waiting", resume_at=time.time() + 90)
+    page = window().ensure_page("search")
+    started = []
+    monkeypatch.setattr(page, "run", started.append)
+    page.pick_up()
+    page.niches.setText("my new search")
+    page.resume_at = time.time() - 1
+    page._tick()
+    assert started == [search_id] and page.niches.text().startswith("my new search")
+    page.resume()  # the Resume button does show the search it carries on with
+    assert page.niches.text().startswith("cafe")
+
+
+def test_deleting_a_search_clears_it_from_the_other_pages(window, monkeypatch):
+    from app.ui.pages import history as history_module
+
+    search_id = saved_search("stopped")
+    searches.set_picked(search_id, [{"place_id": "a", "name": "a"}])
+    win = window()
+    page, leads, history = (win.ensure_page(name) for name in ("search", "leads", "history"))
+    page.pick_up()
+    page.summary.show()
+    leads.select_search(search_id)
+    assert leads.current_id == search_id and leads.model.rowCount() == 1
+    history.on_show()
+    monkeypatch.setattr(history, "_selected",
+                        lambda: history.model.rows[0] if history.model.rows else None)
+    monkeypatch.setattr(history_module.ConfirmDialog, "ask", lambda *_args, **_more: True)
+    history.delete()
+    assert leads.current_id == 0 and leads.model.rowCount() == 0
+    assert page.search_id is None and not page.summary.isVisibleTo(page)
+    assert not page.widen.isVisibleTo(page)
+
+
+def test_a_search_ended_by_an_error_tells_the_other_pages(window):
+    search_id = saved_search("running")
+    win = window()
+    page = win.ensure_page("search")
+    heard = []
+    win.search_finished.connect(heard.append)
+    page.search_id, page.worker = search_id, object()
+    page._on_failed("boom")
+    assert heard == [search_id] and page.worker is None
+    assert searches.get(search_id)["status"] == "stopped"
+    assert page.resume_button.isVisibleTo(page)
+    assert "error" in page.status.text()
+
+
 def test_free_up_space_in_settings_asks_first_then_trims(window, monkeypatch):
     import json
 

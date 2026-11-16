@@ -96,7 +96,8 @@ class ScrapeWorker(Worker):
         """Finish the pages in flight, keep what is ready, then end normally (unlike
         cancel(), which goes silent). ``ending``: stopped, paused, or running when the app
         is closing, so it carries on by itself next time."""
-        self.ending = ending
+        if not self._stop.is_set():  # Stop or Pause, then closing the app: the first one counts
+            self.ending = ending
         self._stop.set()
 
     def back_off(self) -> bool:

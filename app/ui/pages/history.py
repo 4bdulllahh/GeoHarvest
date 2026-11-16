@@ -72,8 +72,21 @@ class HistoryPage(Page):
                       "and nothing found so far is lost. Run again starts the same search fresh "
                       "with your current Smart mode setup."))
         self.root.addWidget(card, 1)
-        window.search_finished.connect(lambda _id: self.on_show())
+        # Bound methods: PyQt drops them when F5 rebuilds this page, a lambda would still fire
+        window.search_finished.connect(self._search_changed)
+        window.search_started.connect(self._search_changed)
         self.on_show()
+
+    def _search_changed(self, _search_id: int) -> None:
+        self.on_show()
+
+    def _busy(self) -> bool:
+        """A search is running: say so. The buttons may be a moment behind it."""
+        if self._search_page().worker is None:
+            return False
+        self.notify("Wait until the search has finished, or stop it first.", "warn")
+        self._update_buttons()
+        return True
 
     def on_show(self) -> None:
         self.model.load(searches.all_searches())
@@ -113,7 +126,7 @@ class HistoryPage(Page):
 
     def resume(self) -> None:
         item = self._selected()
-        if item is None:
+        if item is None or self._busy():
             return
         page = self._search_page()
         self.window_.show_page("search")
@@ -122,7 +135,7 @@ class HistoryPage(Page):
 
     def run_again(self) -> None:
         item = self._selected()
-        if item is None:
+        if item is None or self._busy():
             return
         page = self._search_page()
         self.window_.show_page("search")
@@ -145,5 +158,8 @@ class HistoryPage(Page):
             return
         searches.delete(item["id"])
         page.pick_up()  # it may have been the one waiting to carry on
+        leads_page = self.window_.page("leads")
+        if leads_page is not None:  # its rows and its place in the list are gone
+            leads_page.reload()
         self.on_show()
         self.window_.refresh_status()

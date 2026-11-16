@@ -547,6 +547,10 @@ class SettingsPage(Page):
             return
         db.execute("DELETE FROM leads")
         db.execute("DELETE FROM searches")
+        for name, refresh in (("leads", "reload"), ("search", "pick_up")):
+            page = self.window_.page(name)  # they still showed the deleted searches
+            if page is not None:
+                getattr(page, refresh)()
         self.window_.refresh_status()
         self.notify("All searches and leads deleted.", "success")
 

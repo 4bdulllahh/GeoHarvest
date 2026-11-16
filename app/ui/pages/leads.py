@@ -258,11 +258,21 @@ class LeadsPage(Page):
         self.column_timer.timeout.connect(self._hide_empty_columns)
 
         window.lead_updated.connect(self._on_lead_updated)
-        window.search_finished.connect(lambda _id: self._refresh_picker())
+        # A bound method: PyQt drops it when F5 rebuilds this page, a lambda would still fire
+        window.search_finished.connect(self._search_changed)
         self._refresh_picker()
         self._load()
 
     # --- data ---------------------------------------------------------------
+    def _search_changed(self, _search_id: int) -> None:
+        self._refresh_picker()
+
+    def reload(self) -> None:
+        """Searches were deleted: read the list again, so no row, export or delete is left
+        pointing at one that is gone."""
+        self._refresh_picker()
+        self._load()
+
     def on_show(self) -> None:
         self._refresh_picker()
 
