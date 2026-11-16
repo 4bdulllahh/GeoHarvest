@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QAbstractItemView, QFileDialog, QListWidget, QListWidgetItem,
                              QVBoxLayout, QWidget)
 
-from app.core import backup, credentials, db, prefs, scraper, themes
+from app.core import backup, credentials, db, prefs, scraper, themes, tidy
 from app.i18n import t
 from app.services import updater
 from app.ui import scrolling, theme
@@ -165,8 +165,50 @@ class SettingsPage(Page):
             secondary_button("Open the data folder",
                              lambda: os.startfile(config.DATA_DIR)),  # noqa: S606
             secondary_button("Forget saved keys...", self._forget_keys),
+            secondary_button("Free up space...", self.free_space),
             danger_button("Delete all searches and leads...", self.delete_all)))
         return data
+
+    def free_space(self) -> None:
+        """Say how much the left-out details of finished searches take, ask, then remove
+        them. Counting and removing read the whole database, so both run in a worker."""
+        if self.window_.busy_page_reason():
+            self.notify("Wait until the search has finished, or stop it first.", "warn")
+            return
+        megabyte = 1024 * 1024
+
+        def failed(message: str) -> None:
+            self.notify(t("The space couldn't be freed: {message}", message=message),
+                        "error", 8000)
+
+        def freed(size: int) -> None:
+            self.window_.refresh_status()
+            self.notify(t("Done: {size:,} MB freed.", size=round(size / megabyte)),
+                        "success", 6000)
+
+        def counted(size: int) -> None:
+            if size < megabyte:
+                self.notify("There is nothing to free up. GeoHarvest only removes the stored "
+                            "details of businesses that your finished searches left out.",
+                            "info", 8000)
+                return
+            if not ConfirmDialog.ask(
+                    self, t("Free up about {size:,} MB?", size=round(size / megabyte)),
+                    "GeoHarvest removes the stored details of businesses that your finished "
+                    "searches left out, for example those with no website. Your leads, your "
+                    "searches and everything an unfinished search needs are kept. This can't "
+                    "be undone, and it can take a minute.", confirm_text="Free up space"):
+                return
+            # shortcut: a search started while this runs can fail on the locked database,
+            # block starting one here if testers hit it
+            if self.window_.busy_page_reason():
+                self.notify("Wait until the search has finished, or stop it first.", "warn")
+                return
+            self.notify("Freeing up space. This can take a minute...", "info", 6000)
+            Task(tidy.free_space).start(on_result=self.guard(freed), on_error=self.guard(failed))
+
+        self.notify("Checking how much space can be freed...", "info", 3000)
+        Task(tidy.spare_bytes).start(on_result=self.guard(counted), on_error=self.guard(failed))
 
     def _backup(self) -> None:
         target, _filter = QFileDialog.getSaveFileName(

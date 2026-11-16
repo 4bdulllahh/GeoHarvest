@@ -1074,6 +1074,48 @@ def test_progress_is_saved_in_groups_of_pages(fresh_db):
     assert progress["done"] == ["a", "c"] and progress["at"] == {"b": [60, [1, 2, 3]]}
 
 
+def test_free_up_space_trims_only_what_a_finished_search_never_reads_again(fresh_db):
+    import json
+
+    from app.core import tidy
+
+    options = searches.options_with_defaults({"niches": ["cafe"], "cities": ["Lahore, Pakistan"]})
+    done, stopped = searches.create(options), searches.create(options)
+    searches.set_status(done, "done")
+    searches.set_status(stopped, "stopped")
+    reasons = {"fits": None, "left": "no website", "age": "younger than 3 years",
+               "known": searches.KNOWN, "removed": searches.REMOVED}
+
+    def data(place: str) -> str:
+        return json.dumps({"place_id": place, "name": place, "query": "cafe in Lahore, Pakistan",
+                           "latitude": 31.5, "longitude": 74.3, "description": "x" * 5000})
+
+    for search_id in (done, stopped):
+        db.execute_many("INSERT INTO candidates(search_id, place_id, data, dropped) "
+                        "VALUES(?, ?, ?, ?)",
+                        [(search_id, place, data(place), reason)
+                         for place, reason in reasons.items()])
+
+    def stored(search_id: int) -> dict[str, dict]:
+        return {r["place_id"]: json.loads(r["data"]) for r in db.query(
+            "SELECT place_id, data FROM candidates WHERE search_id = ?", (search_id,))}
+
+    counts = searches.dropped_counts(done)
+    assert 5000 < tidy.spare_bytes() < 6000  # one row: "left" of the finished search
+    tidy.free_space()
+    assert tidy.spare_bytes() == 0
+    # the row stays, with what digging deeper reads; its reason and the counts too
+    assert stored(done)["left"] == {"place_id": "left", "query": "cafe in Lahore, Pakistan",
+                                    "latitude": 31.5, "longitude": 74.3, "trimmed": 1}
+    assert searches.dropped_counts(done) == counts
+    for place in ("fits", "age", "known", "removed"):
+        assert stored(done)[place]["name"] == place
+    assert all(row["name"] == place for place, row in stored(stopped).items())
+    assert [lead["place_id"] for lead in searches.candidates(done)] == ["fits"]
+    tidy.free_space()  # a second time changes nothing
+    assert stored(done)["left"]["trimmed"] == 1 and db.file_size() > 0
+
+
 def test_the_opening_hours_choices_that_are_on_are_counted():
     options = searches.options_with_defaults({})
     assert searches.hours_chosen(options) == 0

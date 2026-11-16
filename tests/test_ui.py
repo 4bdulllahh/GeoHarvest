@@ -299,6 +299,39 @@ def test_the_google_client_spaces_out_its_requests(monkeypatch):
     assert time.monotonic() - began >= 3 * 0.1 * 0.7
 
 
+def test_free_up_space_in_settings_asks_first_then_trims(window, monkeypatch):
+    import json
+
+    from app.core import tidy
+    from app.ui.pages import settings
+
+    class NowTask:  # the real one runs on another thread
+        def __init__(self, work, *args):
+            self.work, self.args = work, args
+
+        def start(self, on_result=None, on_error=None):
+            on_result(self.work(*self.args))
+
+    search_id = saved_search("done")
+    db.execute("INSERT INTO candidates(search_id, place_id, data, dropped) VALUES(?, ?, ?, ?)",
+               (search_id, "a", json.dumps({"place_id": "a", "about": "x" * 2_000_000}),
+                "no website"))
+    page = window().ensure_page("settings")
+    asked = []
+    monkeypatch.setattr(settings, "Task", NowTask)
+    monkeypatch.setattr(settings.ConfirmDialog, "ask",
+                        lambda _parent, title, *_rest, **_more: asked.append(title))  # Cancel
+    page.free_space()
+    assert asked == ["Free up about 2 MB?"] and tidy.spare_bytes() > 2_000_000
+    monkeypatch.setattr(settings.ConfirmDialog, "ask", lambda *_args, **_more: True)
+    page.free_space()
+    assert tidy.spare_bytes() == 0
+    monkeypatch.setattr(settings.ConfirmDialog, "ask",
+                        lambda *_args, **_more: asked.append("again"))
+    page.free_space()  # nothing left: a message, no question
+    assert asked == ["Free up about 2 MB?"]
+
+
 def test_a_held_search_that_visits_websites_shows_resume_when_the_app_opens(window):
     # 0.3.3 raised "no attribute 'step'" here: the tiles were filled before any search ran
     search_id = searches.create({"niches": ["cafe"], "countries": ["Pakistan"],

@@ -113,6 +113,14 @@ def execute_many(sql: str, rows: Iterable[Sequence[Any]]) -> None:
     conn.commit()
 
 
+def file_size() -> int:
+    """Bytes the database takes on disk, with the write-ahead file beside it."""
+    if _db_path is None:
+        raise RuntimeError("db.init() must be called before db.file_size()")
+    files = (_db_path, _db_path.with_name(_db_path.name + "-wal"))
+    return sum(path.stat().st_size for path in files if path.exists())
+
+
 def now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 

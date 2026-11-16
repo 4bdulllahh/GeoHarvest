@@ -2,6 +2,16 @@
 
 What went into each version and how it was tested, newest first. Add to it with every change. The user-facing release notes are in `docs/releases/`.
 
+## v0.4 (in progress, not released)
+
+- **M13 Free up space** (Settings > Your data): `app/core/tidy.py` cuts the stored details of
+  left-out businesses in **finished** searches down to place, query and map position, then
+  `VACUUM`. Kept whole: fits, leads, rows deleted by the user or found by an earlier search,
+  rows left out for company age ("Any age" can bring them back), and every search that is not
+  finished. The user's choices: asks first with the size, **no automatic clean-up**. On a copy
+  of the user's real database: 151 MB to 95 MB in 9 s, left-out counts and tiles unchanged,
+  integrity ok. Not clicked through in the running app.
+
 ## v0.3.4 beta (2026-11-16)
 
 A patch the same day as 0.3.3, from the user's screenshot after updating.

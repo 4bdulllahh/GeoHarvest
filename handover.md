@@ -31,9 +31,9 @@ model (model-router skill).
 | M11 | Opening hours warning on the form when more than one "Open" choice is on (`search.hours_chosen`) | S | done |
 | M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | done |
 | R1 | **Release v0.3.3 beta** (M1 to M12) | M | done, published by the user |
-| R1b | **Patch v0.3.4 beta**: the 'step' error after opening the app | S | built, see Current state |
-| M13 | Tidy up storage: "Free up space" in Settings, automatic clean-up of finished searches | M | next |
-| M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | |
+| R1b | **Patch v0.3.4 beta**: the 'step' error after opening the app | S | done, pushed; the user publishes it |
+| M13 | Tidy up storage: "Free up space" in Settings (`app/core/tidy.py`); no automatic clean-up (user's choice) | M | done |
+| M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | next |
 | M15 | Audit group B: the search job never gets stuck, errors reach the log | M | |
 | M16 | Audit group C: Leads page speed with 30,000 rows | M | |
 | M17 | Audit group D: backups (restore, temp file then rename, off the UI thread) | M | |
@@ -140,11 +140,15 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   `docs/releases/v0.3.4-beta.md`, zip built, local tag `v0.3.4`. The backup installer now has
   no version number ("a later version"). **Lesson:** M3 to M12 were never clicked through in
   the real app, and this slipped past the tests. The user's real search is the real test.
-- **Next: M13,** "Free up space" in Settings. **The user's choices (2026-11-16):** the button
-  removes only the stored details of left-out businesses in **finished** searches, shows how
-  much it will free and asks first; **no automatic clean-up** (button only). What must be
-  kept is under M13 in `docs/handover/audit-2026-11.md`; the database is 142 MB (66,568
-  candidates), see "What the user's real search showed" above.
+- **Then M13:** Settings > Your data > "Free up space..." (`SettingsPage.free_space`,
+  `app/core/tidy.py`). **The user's choices (2026-11-16):** only the stored details of
+  left-out businesses in **finished** searches, it shows the size and asks first, **no
+  automatic clean-up**. What is kept is in `tidy.py`'s docstring and the v0.4 lines of the
+  changelog. On a copy of the user's real database: 151 MB to 95 MB in 9 s. Most of what is
+  left belongs to the user's paused search (about 40 MB), which is kept on purpose. A search
+  started while it runs could hit the locked database (a `shortcut:` comment marks it).
+- **Next: M14,** audit group A (A1 to A7 in `docs/handover/audit-2026-11.md`): the search
+  screens, all in `app/ui/pages/search.py`, `history.py` and `leads.py`.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
   81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
   session: 9% after M11 (handover read included), 15% after M12 (an S with translations
@@ -160,9 +164,9 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Changelog:** `docs/handover/changelog.md` has its v0.3.3 lines; add v0.4's as M13 to M19 land.
 - **Open questions:** does the backup installer come before or after v0.4? Not asked yet.
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** the handover commit after R1, the 'step' fix, the v0.3.4 release commit and
-  the tag `v0.3.4`: ask. M11, M12 and the v0.3.3 release commit were pushed on 2026-11-16
-  and the user published v0.3.3 on GitHub themselves. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
+- **Not pushed:** M13 and the local tag `v0.3.4` (the user chose "commits only" and makes
+  the tag when publishing). Everything up to the v0.3.4 release commit was pushed on
+  2026-11-16; the user published v0.3.3 themselves and still has to publish v0.3.4. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
   user's OK (a backup only: no release, no tag, testers get nothing yet). Ask again before
   the next push.
-- **Waiting on the user:** the OK to push v0.3.4, then publishing it on GitHub.
+- **Waiting on the user:** publishing v0.3.4 on GitHub, their usage % and the go-ahead for M14.
