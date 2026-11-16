@@ -706,6 +706,7 @@ class SearchPage(Page):
         self.limit = limit
         self.tile_best.update_value(t("- of {limit:,}", limit=limit))
         self.tile_ai.setVisible(bool(record["options"]["smart"]))
+        self._show_tally(record["options"])  # a resumed search shows what it already has
 
         self.worker = ScrapeWorker(search_id)
         self.worker.signals.step.connect(self._on_step)
@@ -784,13 +785,11 @@ class SearchPage(Page):
         if status in searches.HELD:
             self.load_options(options)  # the form shows the search that is carrying on
         self._set_running(False)
-        fits = searches.candidates(record["id"])
-        found = searches.count(record["id"])
         done = len(record["progress"].get("done", []))
         total = len(searches.all_queries(record["id"], options))
         self.limit = searches.leads_wanted(options)[1]
-        self._on_found(len(fits), sum(bool(lead.get("phone")) for lead in fits))
         self.tile_places.update_value(t("{done:,} of {total:,}", done=done, total=total))
+        found = self._show_tally(options)
         self._on_leads(found)
         self.tile_ai.setVisible(bool(options["smart"]))
         self.resume_button.show()
@@ -808,6 +807,16 @@ class SearchPage(Page):
         else:
             self.status.setText(t("Stopped. The {found:,} leads so far are in Leads; press "
                                   "Resume to carry on.", found=found))
+
+    def _show_tally(self, options: dict) -> int:
+        """Fill the tiles from what the search on show has saved; returns its leads."""
+        tally = searches.tally(self.search_id)
+        self._on_found(tally["fits"], tally["phones"])
+        if tally["fits"] and searches.visits_websites(options):
+            self._on_checked(tally["checked"], tally["fits"], tally["emails"])
+        if tally["leads"]:
+            self._on_leads(tally["leads"])
+        return tally["leads"]
 
     def _tick(self) -> None:
         left = round(self.resume_at - time.time())

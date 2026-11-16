@@ -995,3 +995,21 @@ def test_smart_mode_limits_and_profiles(fresh_db, monkeypatch):
         pace.wait()
     assert 0.15 < time.monotonic() - began < 1
     assert all(text.strip() for _name, text in ai.EXAMPLES)
+
+
+def test_tally_counts_what_a_resumed_search_already_has(fresh_db):
+    search_id = searches.create({"niches": ["cafe"]})
+    conn = db.connect()
+    rows = [("a", {"phone": "+1 555", "enriched": True, "emails": "a@a.example"}, None),
+            ("b", {"phone": "", "enriched": True, "emails": ""}, None),
+            ("c", {"phone": "+1 556"}, None),
+            ("d", {"phone": "+1 557", "enriched": True, "emails": "d@d.example"}, "no website")]
+    for place_id, data, dropped in rows:
+        conn.execute("INSERT INTO candidates(search_id, place_id, data, dropped) VALUES(?, ?, ?, ?)",
+                     (search_id, place_id, json.dumps({"place_id": place_id, **data}), dropped))
+    conn.commit()
+    searches.save_leads(search_id, [{"place_id": "a"}])
+    assert searches.tally(search_id) == {"fits": 3, "phones": 2, "checked": 2, "emails": 1,
+                                         "leads": 1}
+    assert searches.tally(searches.create({"niches": ["bar"]})) == {
+        "fits": 0, "phones": 0, "checked": 0, "emails": 0, "leads": 0}

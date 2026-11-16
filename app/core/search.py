@@ -602,6 +602,19 @@ def candidates(search_id: int) -> list[dict]:
         (search_id,))]
 
 
+def tally(search_id: int) -> dict[str, int]:
+    """What a search has so far, for the tiles of one not running or just resumed: the
+    candidates that fit, how many have a phone, a checked website and an email, and the
+    leads. Counted by SQLite, so a big search doesn't hold the screen up."""
+    row = db.query_one(
+        "SELECT COUNT(*) AS fits, "
+        "COALESCE(SUM(COALESCE(json_extract(data, '$.phone'), '') != ''), 0) AS phones, "
+        "COALESCE(SUM(COALESCE(json_extract(data, '$.enriched'), 0) != 0), 0) AS checked, "
+        "COALESCE(SUM(COALESCE(json_extract(data, '$.emails'), '') != ''), 0) AS emails "
+        "FROM candidates WHERE search_id = ? AND dropped IS NULL", (search_id,))
+    return {**dict(row), "leads": count(search_id)}
+
+
 def check_candidate(search_id: int, place_id: str, fields: dict, dropped: str | None) -> None:
     """Website or AI check results for a candidate, with the quality score brought up to date,
     and why it is now left out (or None)."""
