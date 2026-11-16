@@ -308,6 +308,8 @@ class SearchPage(Page):
         layout.addWidget(details)
         self.find_emails.toggled.connect(self._website_details)
         self.find_emails.toggled.connect(lambda _on: self._update_plan())
+        for name in searches.HOURS_OPTIONS:
+            getattr(self, name).toggled.connect(lambda _on: self._update_plan())
         self.min_leads.valueChanged.connect(lambda _value: self._leads_changed(self.min_leads))
         self.max_leads.valueChanged.connect(lambda _value: self._leads_changed(self.max_leads))
         self._leads_changed(None)
@@ -434,6 +436,13 @@ class SearchPage(Page):
             text += " " + t("{types} find many of the same businesses. GeoHarvest skips the "
                             "repeats, but fewer types make the search faster.",
                             types=", ".join(alike[0]))
+        hours_on = searches.hours_chosen(
+            {name: getattr(self, name).isChecked() for name in searches.HOURS_OPTIONS}
+        ) if hasattr(self, "open_at") else 0  # no buttons yet while the form is built
+        if count and hours_on > 1:
+            text += " " + t("{count} opening hours choices are on. A business must fit all of "
+                            "them, so most are left out. Keep one to find more leads.",
+                            count=hours_on)
         self.plan.setText(f"{text} {self._estimate(count)}" if count else "")
 
     def _estimate(self, count: int) -> str:

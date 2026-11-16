@@ -28,8 +28,8 @@ model (model-router skill).
 | M8 | Google's limit 1: the gap between requests widens by itself when Google answers slowly (`MapsClient._answered`); a limited proxy rests 15 minutes | M | done |
 | M9 | Google's limit 2: a limit is waited out inside the run (2, then 5 minutes, `scrape.SHORT_WAITS`, `ScrapeWorker.back_off`) before the long wait | M | done |
 | M10 | Internet drops: Google requests that don't get through are tried again every 30 s for 10 minutes (`ScrapeWorker.wait_for_internet`) | S | done |
-| M11 | Opening hours warning before starting, when the choices leave out most businesses | S | next |
-| M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | |
+| M11 | Opening hours warning on the form when more than one "Open" choice is on (`search.hours_chosen`) | S | done |
+| M12 | Update later: "Update now" or "Later", no countdown; Later asks again next start | S | next |
 | R1 | **Release v0.3.3 beta** (M1 to M12) | M | |
 | M13 | Tidy up storage: "Free up space" in Settings, automatic clean-up of finished searches | M | |
 | M14 | Audit group A: search screens (Run again while running, stale buttons, deleted search still shown) | M | |
@@ -109,13 +109,13 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   **Not covered, do it in M15:** website visits while offline. Check what
   `Enricher.enrich` does when a site can't be reached with no connection: `check_websites`
   marks any failure `enriched`, which would drop the lead as "no email found" for good.
-- **Next:** M11, the opening hours warning. `search.passes_hours` ANDs `open_now`,
-  `open_24h`, `open_weekends` and `open_at`; the user's search had the first three on and
-  lost 16,140 businesses. Add a plain warning in `SearchPage._validate` or the plan line in
-  `app/ui/pages/search.py` when more than one hours option is on (the user chose "warn before
-  starting", the search is still allowed). New text needs ar, de, es, fr: add it with
-  `tools/i18n.py`'s `load` and `save`, then `python tools/i18n.py check`.
-- **Then M12:** `UpdatingNotice` in `app/ui/widgets/update_dialog.py` and `_install_update`
+- **Then M11:** the plan line under the places (`SearchPage._update_plan`) adds a warning
+  when `search.hours_chosen` is more than 1: a business must fit every "Open" choice
+  (`passes_hours`), so most are left out. The search is still allowed, nothing is blocked.
+  The line is by the places, not next to the "Open" buttons: move it if the user misses it.
+  New text is added to ar, de, es, fr with `tools/i18n.py`'s `load` and `save`, then
+  `python tools/i18n.py check`.
+- **Next: M12.** `UpdatingNotice` in `app/ui/widgets/update_dialog.py` and `_install_update`
   in `app/ui/main_window.py`. The user chose: download quietly, then "Update now" and
   "Later", no countdown, Escape and X mean Later, Later asks again the next time the app
   opens. Also from the audit: a "waiting" search's countdown can start a search while the
@@ -126,8 +126,10 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
   a later version (told to the user 2026-11-16; they did not object). **Before the release,
   ask the user to run one real search**: M5 to M10 were only tested against a pretend Google.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
-  81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10.
-- **Not checked in the running app** (M3 to M10): opening it uses the user's real data and
+  81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10; M11
+  was done in a new session.
+- **Not checked in the running app** (M3 to M11; M11's line was only seen in a headless
+  screenshot with no fonts): opening it uses the user's real data and
   carries on their real search. `APPDATA` picks the data folder (`app/config.py`), so a run
   with `$env:APPDATA` set to a temp folder is safe, but a real search there still asks Google.
 - **Commit messages with double quotes** break PowerShell here-strings passed to `git commit -m`:
@@ -139,8 +141,7 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **Open questions:** the backup installer for Smart App Control PCs was planned as v0.3.3.
   It moves to v0.3.4 unless the user says otherwise (told on 2026-11-16, no answer yet).
 - **Known issues:** see [docs/handover/roadmap.md](docs/handover/roadmap.md).
-- **Not pushed:** nothing. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
+- **Not pushed:** M11. M1 to M10 were pushed to `origin/main` on 2026-11-16 with the
   user's OK (a backup only: no release, no tag, testers get nothing yet). Ask again before
   the next push.
-- **Waiting on the user:** nothing. They said they will carry on with M11 and M12 when their
-  usage resets.
+- **Waiting on the user:** their usage % and the go-ahead for M12.

@@ -1074,6 +1074,13 @@ def test_progress_is_saved_in_groups_of_pages(fresh_db):
     assert progress["done"] == ["a", "c"] and progress["at"] == {"b": [60, [1, 2, 3]]}
 
 
+def test_the_opening_hours_choices_that_are_on_are_counted():
+    options = searches.options_with_defaults({})
+    assert searches.hours_chosen(options) == 0
+    assert searches.hours_chosen({**options, "open_now": True, "open_24h": True,
+                                  "open_weekends": True}) == 3
+
+
 def test_types_that_overlap_are_named_and_a_type_typed_twice_is_searched_once():
     types = ["construction company", "builder", "home builder", "contractor", "HVAC contractor",
              "warehouse", "Builder", "dentist", "gym"]

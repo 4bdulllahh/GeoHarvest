@@ -375,6 +375,15 @@ def passes_hours(text: str, timezone: str | None, options: dict) -> bool:
     return True
 
 
+HOURS_OPTIONS = ("open_now", "open_24h", "open_weekends", "open_at")
+
+
+def hours_chosen(options: dict) -> int:
+    """How many "Open" choices are on. A business has to pass every one of them
+    (``passes_hours``), so more than one leaves most businesses out: the form warns."""
+    return sum(bool(options[key]) for key in HOURS_OPTIONS)
+
+
 # --- finding more: deeper in each city, related business types ----------------
 DEEP_AT = 100      # a search Google gave this many for was probably cut short
 DEEP_KM = (2, 15)  # the area a deeper search covers, from the businesses already found

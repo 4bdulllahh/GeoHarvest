@@ -293,6 +293,7 @@
  "The search stopped because of an error.": "Die Suche wurde wegen eines Fehlers angehalten.",
  "The search stopped: {message}": "Die Suche wurde angehalten: {message}",
  "{types} find many of the same businesses. GeoHarvest skips the repeats, but fewer types make the search faster.": "{types} finden viele derselben Unternehmen. GeoHarvest überspringt die Wiederholungen, aber weniger Arten machen die Suche schneller.",
+ "{count} opening hours choices are on. A business must fit all of them, so most are left out. Keep one to find more leads.": "{count} Optionen für Öffnungszeiten sind aktiv. Ein Unternehmen muss alle erfüllen, daher fallen die meisten weg. Lassen Sie nur eine aktiv, um mehr Leads zu finden.",
  "Asking for a minimum can make it search deeper and take longer.": "Eine Mindestanzahl kann die Suche tiefer gehen lassen und länger dauern.",
  "Your preset. Right-click to delete it.": "Ihre Vorlage. Rechtsklick zum Löschen.",
  "Set up Smart mode first: open Smart mode in the menu and add a free AI key or a local model.": "Richten Sie zuerst den Smart-Modus ein: Öffnen Sie „Smart-Modus“ im Menü und fügen Sie einen kostenlosen KI-Schlüssel oder ein lokales Modell hinzu.",

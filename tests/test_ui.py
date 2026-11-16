@@ -240,6 +240,21 @@ def test_an_old_finished_or_stopped_search_never_starts_by_itself(window, monkey
     assert not page.resume_button.isVisibleTo(page)
 
 
+def test_more_than_one_opening_hours_choice_shows_a_warning_on_the_form(window):
+    page = window().ensure_page("search")
+    page.niches.setText("gym")
+    page.where.set("area")
+    page.area_place.setText("Dubai")
+    page._where_changed()
+    for button in (page.open_now, page.open_24h, page.open_weekends, page.open_at):
+        button.setChecked(False)
+    assert page.plan.text() and "opening hours" not in page.plan.text()
+    page.open_now.setChecked(True)
+    assert "opening hours" not in page.plan.text()
+    page.open_weekends.setChecked(True)
+    assert "2 opening hours choices are on" in page.plan.text()
+
+
 def test_the_google_client_spaces_out_its_requests(monkeypatch):
     client = scraper.MapsClient(proxies=[])
     client.gap = 0.1
