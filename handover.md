@@ -194,7 +194,8 @@ Search 12: 12 business types x 11 UAE cities, minimum 200, no maximum (so 600).
 - **The plan is finished.** After v0.4.0 is published, ask the user what is next. Open: the
   backup installer for Smart App Control PCs (`docs/handover/roadmap.md`).
 - **Usage, third session:** 5% after M17 (handover read included), 15% after M18 (10%),
-  28% after M19 (13%), R2 not reported yet.
+  28% after M19 (13%), 36% after R2 (the release: 8%). So an audit milestone costs 5 to 13%
+  and a release 8 to 9%.
 - **Usage:** 49% after M1 to M5, 57% after M6, 65% after M7a, 71% after M7b, 75% after M8,
   81% after M9: an M costs 4 to 8%, an S about 3 to 4%. The session ended after M10. New
   session: 9% after M11 (handover read included), 15% after M12 (an S with translations
